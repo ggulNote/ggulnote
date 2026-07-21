@@ -1,5 +1,6 @@
-﻿import type { PageId } from "@ggulnote/shared-types";
+import type { PageId } from "@ggulnote/shared-types";
 import { PageScene } from "./page-scene";
+import type { Annotation } from "../annotations/annotation";
 
 export class SceneStore {
   private readonly scenes = new Map<PageId, PageScene>();
@@ -16,6 +17,11 @@ export class SceneStore {
 
   public getPage(pageId: PageId): PageScene | null {
     return this.scenes.get(pageId) ?? null;
+  }
+
+  public replacePage(pageId: PageId, annotations: Iterable<Annotation>): void {
+    const scene = this.getOrCreatePage(pageId);
+    scene.replace(annotations);
   }
 
   public removePage(pageId: PageId): void {

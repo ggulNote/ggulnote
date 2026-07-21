@@ -1,7 +1,7 @@
-export type { EditorSnapshot } from "./engine/editor-snapshot";
+export type { EditorSnapshot, PageSceneSnapshot } from "./engine/editor-snapshot";
 export { EditorEngine, DEFAULT_HISTORY_LIMIT } from "./engine/editor-engine";
 export type { EditorOperation } from "./operations/editor-operation";
-export type { EditorEvents } from "./engine/editor-events";
+export type { EditorEvents, EditorPersistenceEvent, EditorHistoryAction } from "./engine/editor-events";
 export type { EditorOptions } from "./engine/editor-options";
 
 export type { AnnotationId, DocumentId, PageId } from "@ggulnote/shared-types";

@@ -17,9 +17,11 @@ import {
   normalizedPointToCss,
   normalizedRectToCss,
 } from "../coordinates/coordinate-transformer";
+import type { PdfDocumentDescriptor } from "../model/document-types";
 import { useDocumentSession } from "../hooks/use-document-session";
 import { useFitWidth } from "../hooks/use-fit-width";
 import { usePageRender } from "../hooks/use-page-render";
+import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState } from "../local-persistence";
 import { DocumentDebugPanel } from "./document-debug-panel";
 import { DocumentSidebar } from "./document-sidebar";
 import { DocumentStage } from "./document-stage";
@@ -37,23 +39,23 @@ const DEFAULT_TEXT_FONT_WEIGHT = "normal";
 const DEFAULT_HIGHLIGHT_OPACITY = 0.35;
 
 const DEFAULT_TEXT_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
-  width: 0.2,
-  height: 0.08,
+  width: 0.04,
+  height: 0.03,
 };
 
 const DEFAULT_UNDERLINE_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
-  width: 0.2,
-  height: 0.015,
+  width: 0.08,
+  height: 0.004,
 };
 
 const DEFAULT_HIGHLIGHT_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
-  width: 0.3,
-  height: 0.05,
+  width: 0.06,
+  height: 0.02,
 };
 
 const DEFAULT_SHAPE_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
-  width: 0.22,
-  height: 0.14,
+  width: 0.05,
+  height: 0.05,
 };
 
 type FitDimensions = {
@@ -190,7 +192,9 @@ export function DocumentWorkspace(): React.ReactElement {
   const {
     state,
     openPdfFile,
+    openPersistedPdfDocument,
     openBlankDocument,
+    openBlankFromDescriptor,
     closeDocument,
     goToPage,
     setZoom,
@@ -234,6 +238,29 @@ export function DocumentWorkspace(): React.ReactElement {
   const stageElementRef = useRef<HTMLDivElement | null>(null);
 
   const [dpr, setDpr] = useState(1);
+  const persistenceViewStateRef = useRef<DocumentRecordViewState>({
+    currentPage: 1,
+    zoom: 100,
+    zoomMode: "custom",
+  });
+  const [localPersistence] = useState(() => new LocalEditorPersistence());
+  const [persistenceCoordinator] = useState(() =>
+    new PersistenceCoordinator(editorEngine, localPersistence, {
+      onSaveStateChange: (saveState) => {
+        dispatch({
+          type: "PERSISTENCE_STATUS_CHANGED",
+          status: saveState.status,
+          errorMessage: saveState.errorMessage,
+        });
+      },
+      getDocumentViewState: () => ({
+        currentPage: persistenceViewStateRef.current.currentPage,
+        zoom: persistenceViewStateRef.current.zoom,
+        zoomMode: persistenceViewStateRef.current.zoomMode,
+      }),
+    }),
+  );
+
 
   useEffect(() => {
     if (typeof window !== "object") {
@@ -243,6 +270,144 @@ export function DocumentWorkspace(): React.ReactElement {
     const next = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
     setDpr(next);
   }, [setDpr]);
+
+  const renderSchedule = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (renderFrameRef.current !== null) {
+      return;
+    }
+
+    const width = state.renderedWidth > 0 ? state.renderedWidth : state.page?.width ?? 0;
+    const height = state.renderedHeight > 0 ? state.renderedHeight : state.page?.height ?? 0;
+
+    renderFrameRef.current = window.requestAnimationFrame(() => {
+      renderFrameRef.current = null;
+
+      const canvasRef = annotationCanvasRef.current?.getCanvas();
+      if (!canvasRef || !width || !height) {
+        return;
+      }
+
+      const renderer = rendererRef.current;
+      renderer.setCanvas(canvasRef);
+      renderer.setSize(width, height, dpr);
+      try {
+        editorEngine.render(renderer, dpr);
+      } catch {
+        return;
+      }
+    });
+  }, [
+    dpr,
+    editorEngine,
+    state.page?.height,
+    state.page?.width,
+    state.renderedHeight,
+    state.renderedWidth,
+  ]);
+
+  useEffect(() => {
+    persistenceViewStateRef.current = {
+      currentPage: state.currentPage,
+      zoom: state.zoom,
+      zoomMode: state.zoomMode,
+    };
+  }, [state.currentPage, state.zoom, state.zoomMode]);
+
+  const hasRestoredDocumentRef = useRef(false);
+  const activePageId = state.document ? `${state.document.id}-page-${state.currentPage}` : null;
+
+
+  useEffect(() => {
+    if (hasRestoredDocumentRef.current || state.status !== "empty") {
+      return;
+    }
+
+    hasRestoredDocumentRef.current = true;
+    const restore = async () => {
+      const saved = await localPersistence.getLastOpenedDocument();
+      if (!saved) {
+        return;
+      }
+
+      if (saved.document.kind === "pdf") {
+        if (!saved.file) {
+          return;
+        }
+
+        const restoredPdfDocument: PdfDocumentDescriptor = {
+          id: saved.document.id,
+          kind: "pdf",
+          name: saved.document.name,
+          pageCount: saved.document.pageCount,
+          fileSize: saved.file.size,
+        };
+
+        const opened = await openPersistedPdfDocument(restoredPdfDocument, saved.file.blob);
+        if (!opened) {
+          return;
+        }
+      } else {
+        openBlankFromDescriptor({
+          id: saved.document.id,
+          kind: "blank",
+          name: saved.document.name,
+          pageCount: saved.document.pageCount,
+        });
+      }
+
+      goToPage(saved.document.currentPage);
+      setZoom(saved.document.zoom);
+      setZoomMode(saved.document.zoomMode);
+    };
+
+    void restore();
+  }, [
+    goToPage,
+    localPersistence,
+    openBlankFromDescriptor,
+    openPersistedPdfDocument,
+    setZoom,
+    setZoomMode,
+    state.status,
+  ]);
+
+  useEffect(() => {
+    const coordinator = persistenceCoordinator;
+    if (state.document && state.status === "ready") {
+      coordinator.start(state.document.id);
+      return;
+    }
+
+    coordinator.stop();
+  }, [persistenceCoordinator, state.document?.id, state.status]);
+
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        void persistenceCoordinator.flush();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [persistenceCoordinator]);
+
+  useEffect(() => {
+    return () => {
+      void persistenceCoordinator.stopAndFlush();
+    };
+  }, [persistenceCoordinator]);
 
   const editorSnapshot = useSyncExternalStore(
     useCallback((listener) => editorEngine.subscribe(listener), [editorEngine]),
@@ -265,7 +430,6 @@ export function DocumentWorkspace(): React.ReactElement {
   const isPdfReady = state.document?.kind === "pdf" && state.status === "ready";
   const hasDocument = Boolean(state.document);
 
-  const activePageId = state.document ? `${state.document.id}-page-${state.currentPage}` : null;
 
   const fitWidthTargetPageWidth = useMemo(() => {
     if (state.document?.kind === "blank") {
@@ -319,6 +483,30 @@ export function DocumentWorkspace(): React.ReactElement {
       editorEngine.setActivePage(activePageId);
     }
   }, [activePageId, editorEngine, stageSize, state.renderedHeight, state.renderedWidth, state.status]);
+  useEffect(() => {
+    if (state.status !== "ready" || !activePageId || !state.document) {
+      return;
+    }
+
+    if (persistenceCoordinator.documentId !== state.document.id) {
+      return;
+    }
+
+    void persistenceCoordinator.hydratePage(state.document.id, activePageId, (snapshot) => {
+      if (editorEngine.getDocumentId() !== state.document?.id || editorEngine.getActivePageId() !== activePageId) {
+        return;
+      }
+      editorEngine.hydratePage(snapshot);
+      renderSchedule();
+    });
+  }, [
+    activePageId,
+    editorEngine,
+    persistenceCoordinator,
+    renderSchedule,
+    state.document?.id,
+    state.status,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -326,33 +514,6 @@ export function DocumentWorkspace(): React.ReactElement {
     };
   }, [editorEngine]);
 
-  const renderSchedule = useCallback(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    if (renderFrameRef.current !== null) {
-      return;
-    }
-
-    renderFrameRef.current = window.requestAnimationFrame(() => {
-      renderFrameRef.current = null;
-
-      const canvasRef = annotationCanvasRef.current?.getCanvas();
-      if (!canvasRef || !stageSize.width || !stageSize.height) {
-        return;
-      }
-
-      const renderer = rendererRef.current;
-      renderer.setCanvas(canvasRef);
-      renderer.setSize(stageSize.width, stageSize.height, dpr);
-      try {
-        editorEngine.render(renderer, dpr);
-      } catch {
-        return;
-      }
-    });
-  }, [dpr, editorEngine, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     renderSchedule();
@@ -836,9 +997,6 @@ export function DocumentWorkspace(): React.ReactElement {
       return null;
     }
 
-    if (draft.type === "move") {
-      return null;
-    }
 
     if (draft.type === "line") {
       const start = normalizedPointToCss(draft.start, stageSize);
@@ -1061,22 +1219,66 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const handleOpenPdf = useCallback(
     async (file: File | null) => {
-      await openPdfFile(file);
+      const opened = await openPdfFile(file);
+      if (!opened || !file) {
+        return;
+      }
+
+      try {
+        await localPersistence.createPdfDocument({
+          document: {
+            id: opened.id,
+            name: opened.name,
+            pageCount: opened.pageCount,
+            currentPage: 1,
+            zoom: state.zoom,
+            zoomMode: state.zoomMode,
+          },
+          file: {
+            blob: file,
+            mimeType: "application/pdf",
+            size: opened.fileSize,
+            originalName: file.name,
+            lastModified: file.lastModified,
+          },
+        });
+      } catch (error) {
+        console.error("PDF 문서 저장 실패", error);
+      }
     },
-    [openPdfFile],
+    [localPersistence, openPdfFile, state.zoom, state.zoomMode],
   );
 
   const handleCreateBlank = useCallback(() => {
-    openBlankDocument();
-  }, [openBlankDocument]);
+    const next = openBlankDocument();
+    void localPersistence.createBlankDocument({
+      document: {
+        id: next.id,
+        name: next.name,
+        pageCount: next.pageCount,
+        currentPage: 1,
+        zoom: state.zoom,
+        zoomMode: state.zoomMode,
+      },
+    });
+  }, [localPersistence, openBlankDocument, state.zoom, state.zoomMode]);
 
+  const handleCloseDocument = useCallback(() => {
+    const closeCurrentDocument = async () => {
+      await persistenceCoordinator.stopAndFlush();
+      await closeDocument();
+    };
+
+    void closeCurrentDocument();
+  }, [closeDocument, persistenceCoordinator]);
   const handlePageSubmit = useCallback(
     (nextPage: number) => {
-      goToPage(nextPage);
+      void persistenceCoordinator.flush().finally(() => {
+        goToPage(nextPage);
+      });
     },
-    [goToPage],
+    [goToPage, persistenceCoordinator],
   );
-
   const fitWidth = useCallback(() => {
     setZoomMode("fit-width");
     if (fitWidthTargetPageWidth > 0 && containerWidth > 0) {
@@ -1116,7 +1318,7 @@ export function DocumentWorkspace(): React.ReactElement {
       <DocumentToolbar
         onOpenPdf={handleOpenPdf}
         onCreateBlank={handleCreateBlank}
-        onClose={closeDocument}
+        onClose={handleCloseDocument}
         onPreviousPage={() => handlePageSubmit(state.currentPage - 1)}
         onNextPage={() => handlePageSubmit(state.currentPage + 1)}
         onSetPage={handlePageSubmit}

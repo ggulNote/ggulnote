@@ -1,23 +1,7 @@
-﻿import type { NormalizedPoint, PageDescriptor, DocumentDescriptor } from "./document-types";
+import type { NormalizedPoint, PageDescriptor, DocumentDescriptor } from "./document-types";
 import { A4_PORTRAIT_POINTS } from "./document-types";
 
-export interface DocumentSessionState {
-  status: "empty" | "loading" | "ready" | "error";
-  document: DocumentDescriptor | null;
-  currentPage: number;
-  zoom: number;
-  zoomMode: "custom" | "fit-width";
-  page: PageDescriptor | null;
-  textItemCount: number;
-  pointer: NormalizedPoint | null;
-  errorMessage: string | null;
-  totalPages: number;
-  isPdfJsReady: boolean;
-  isPdfWorkerReady: boolean;
-  renderedWidth: number;
-  renderedHeight: number;
-  isTextLoading: boolean;
-}
+type PersistenceSaveStatus = "idle" | "saving" | "saved" | "error";
 
 export type DocumentSessionAction =
   | { type: "LOAD_STARTED" }
@@ -38,7 +22,32 @@ export type DocumentSessionAction =
   | { type: "POINTER_CHANGED"; point: NormalizedPoint | null }
   | { type: "DOCUMENT_CLOSED" }
   | { type: "PDFJS_READY"; loaded: boolean; workerReady: boolean }
-  | { type: "TEXT_LOADING"; loading: boolean };
+  | { type: "TEXT_LOADING"; loading: boolean }
+  | {
+      type: "PERSISTENCE_STATUS_CHANGED";
+      status: PersistenceSaveStatus;
+      errorMessage: string | null;
+    };
+
+export interface DocumentSessionState {
+  status: "empty" | "loading" | "ready" | "error";
+  document: DocumentDescriptor | null;
+  currentPage: number;
+  zoom: number;
+  zoomMode: "custom" | "fit-width";
+  page: PageDescriptor | null;
+  textItemCount: number;
+  pointer: NormalizedPoint | null;
+  errorMessage: string | null;
+  totalPages: number;
+  isPdfJsReady: boolean;
+  isPdfWorkerReady: boolean;
+  renderedWidth: number;
+  renderedHeight: number;
+  isTextLoading: boolean;
+  persistenceSaveStatus: PersistenceSaveStatus;
+  persistenceSaveErrorMessage: string | null;
+}
 
 export const MIN_ZOOM = 50;
 export const MAX_ZOOM = 200;
@@ -85,6 +94,8 @@ export const getInitialDocumentSessionState = (): DocumentSessionState => ({
   renderedWidth: 0,
   renderedHeight: 0,
   isTextLoading: false,
+  persistenceSaveStatus: "idle",
+  persistenceSaveErrorMessage: null,
 });
 
 export function documentSessionReducer(
@@ -207,6 +218,13 @@ export function documentSessionReducer(
       return {
         ...state,
         isTextLoading: action.loading,
+      };
+
+    case "PERSISTENCE_STATUS_CHANGED":
+      return {
+        ...state,
+        persistenceSaveStatus: action.status,
+        persistenceSaveErrorMessage: action.errorMessage,
       };
 
     case "POINTER_CHANGED":

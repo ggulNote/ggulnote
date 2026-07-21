@@ -18,6 +18,17 @@ export class PageScene {
     this.annotations.set(annotation.id, annotation);
   }
 
+  public clear(): void {
+    this.annotations.clear();
+  }
+
+  public replace(annotations: Iterable<Annotation>): void {
+    this.clear();
+    for (const annotation of annotations) {
+      this.annotations.set(annotation.id, annotation);
+    }
+  }
+
   public remove(annotationId: AnnotationId): Annotation | null {
     const annotation = this.annotations.get(annotationId);
     if (!annotation) {
