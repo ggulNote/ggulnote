@@ -12,7 +12,11 @@ import {
   type SerializedAnnotation,
 } from "@ggulnote/editor-core";
 import type { NormalizedPoint, NormalizedRect } from "@ggulnote/shared-types";
-import { clientPointToNormalized } from "../coordinates/coordinate-transformer";
+import {
+  clientPointToNormalized,
+  normalizedPointToCss,
+  normalizedRectToCss,
+} from "../coordinates/coordinate-transformer";
 import { useDocumentSession } from "../hooks/use-document-session";
 import { useFitWidth } from "../hooks/use-fit-width";
 import { usePageRender } from "../hooks/use-page-render";
@@ -22,6 +26,7 @@ import { DocumentStage } from "./document-stage";
 import { DocumentToolbar } from "./document-toolbar";
 
 const ZOOM_STEP = 25;
+const DRAG_CREATE_THRESHOLD_PX = 4;
 
 const DEFAULT_TEXT_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
   width: 0.2,
@@ -31,6 +36,11 @@ const DEFAULT_TEXT_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
 const DEFAULT_UNDERLINE_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
   width: 0.2,
   height: 0.015,
+};
+
+const DEFAULT_HIGHLIGHT_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
+  width: 0.3,
+  height: 0.05,
 };
 
 const DEFAULT_SHAPE_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
@@ -60,9 +70,27 @@ type DragDraft =
       end: NormalizedPoint;
     }
   | {
+      type: "text";
+      start: NormalizedPoint;
+      end: NormalizedPoint;
+      text: string;
+    }
+  | {
+      type: "underline";
+      start: NormalizedPoint;
+      end: NormalizedPoint;
+    }
+  | {
+      type: "highlight";
+      start: NormalizedPoint;
+      end: NormalizedPoint;
+    }
+  | {
       type: "table";
       start: NormalizedPoint;
       end: NormalizedPoint;
+      rows: number;
+      columns: number;
     };
 
 const clampTextInput = (value: number): number => {
@@ -126,6 +154,28 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
   const tagName = target.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || (target as HTMLElement).isContentEditable;
+}
+
+function isDragDistanceEnough(
+  start: NormalizedPoint,
+  end: NormalizedPoint,
+  pageSize: {
+    width: number;
+    height: number;
+  },
+): boolean {
+  if (!Number.isFinite(pageSize.width) || !Number.isFinite(pageSize.height)) {
+    return false;
+  }
+
+  if (pageSize.width <= 0 || pageSize.height <= 0) {
+    return false;
+  }
+
+  const dx = (end.x - start.x) * pageSize.width;
+  const dy = (end.y - start.y) * pageSize.height;
+
+  return Math.hypot(dx, dy) >= DRAG_CREATE_THRESHOLD_PX;
 }
 
 export function DocumentWorkspace(): React.ReactElement {
@@ -221,15 +271,15 @@ export function DocumentWorkspace(): React.ReactElement {
   });
 
   useEffect(() => {
-    if (state.document?.id) {
+    if (state.status === "ready" && state.document?.id) {
       editorEngine.setDocument(state.document.id);
     } else {
       editorEngine.setDocument(null);
     }
-  }, [editorEngine, state.document?.id]);
+  }, [editorEngine, state.document?.id, state.status]);
 
   useEffect(() => {
-    if (!activePageId) {
+    if (state.status !== "ready" || !activePageId) {
       editorEngine.setActivePage(null);
       return;
     }
@@ -244,7 +294,7 @@ export function DocumentWorkspace(): React.ReactElement {
     } else {
       editorEngine.setActivePage(activePageId);
     }
-  }, [activePageId, editorEngine, stageSize, state.renderedHeight, state.renderedWidth]);
+  }, [activePageId, editorEngine, stageSize, state.renderedHeight, state.renderedWidth, state.status]);
 
   useEffect(() => {
     return () => {
@@ -408,6 +458,10 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
+      if (state.status !== "ready" || !state.document) {
+        return;
+      }
+
       const point = getSnapshotPoint(event, stageElementRef);
       if (!point || !activePageId) {
         return;
@@ -457,43 +511,28 @@ export function DocumentWorkspace(): React.ReactElement {
           break;
         }
         case "text": {
-          const bounds: NormalizedRect = {
-            x: normalized.x,
-            y: normalized.y,
-            ...DEFAULT_TEXT_BOUNDS,
-          };
-          createAnnotation({
-            type: "TEXT",
-            pageId: activePageId,
-            bounds,
+          activeDragRef.current = {
+            type: "text",
+            start: normalized,
+            end: normalized,
             text: textMemo,
-          });
+          };
           break;
         }
         case "underline": {
-          const bounds: NormalizedRect = {
-            x: normalized.x,
-            y: normalized.y,
-            ...DEFAULT_UNDERLINE_BOUNDS,
+          activeDragRef.current = {
+            type: "underline",
+            start: normalized,
+            end: normalized,
           };
-          createAnnotation({
-            type: "UNDERLINE",
-            pageId: activePageId,
-            bounds,
-          });
           break;
         }
         case "highlight": {
-          const bounds: NormalizedRect = {
-            x: normalized.x,
-            y: normalized.y,
-            ...DEFAULT_TEXT_BOUNDS,
+          activeDragRef.current = {
+            type: "highlight",
+            start: normalized,
+            end: normalized,
           };
-          createAnnotation({
-            type: "HIGHLIGHT",
-            pageId: activePageId,
-            bounds,
-          });
           break;
         }
         case "rectangle":
@@ -519,6 +558,8 @@ export function DocumentWorkspace(): React.ReactElement {
             type: "table",
             start: normalized,
             end: normalized,
+            rows: clampTextInput(tableRows),
+            columns: clampTextInput(tableColumns),
           };
           break;
         default:
@@ -550,6 +591,10 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
+      if (state.status !== "ready") {
+        return;
+      }
+
       const point = getSnapshotPoint(event, stageElementRef);
       if (!point) {
         return;
@@ -580,6 +625,11 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const handlePointerUp = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
+      if (state.status !== "ready") {
+        activeDragRef.current = null;
+        return;
+      }
+
       const point = getSnapshotPoint(event, stageElementRef);
       if (!activePageId) {
         activeDragRef.current = null;
@@ -615,13 +665,65 @@ export function DocumentWorkspace(): React.ReactElement {
       }
 
       if (draft?.type === "table") {
+        if (!isDragDistanceEnough(draft.start, end, stageSize)) {
+          activeDragRef.current = null;
+          renderSchedule();
+          return;
+        }
+
         const bounds = toRect(draft.start, end, DEFAULT_SHAPE_BOUNDS);
         createAnnotation({
           type: "TABLE",
           pageId: activePageId,
           bounds,
-          rows: clampTextInput(tableRows),
-          columns: clampTextInput(tableColumns),
+          rows: draft.rows,
+          columns: draft.columns,
+        });
+      }
+
+      if (draft?.type === "text") {
+        if (!isDragDistanceEnough(draft.start, end, stageSize)) {
+          activeDragRef.current = null;
+          renderSchedule();
+          return;
+        }
+
+        const bounds = toRect(draft.start, end, DEFAULT_TEXT_BOUNDS);
+        createAnnotation({
+          type: "TEXT",
+          pageId: activePageId,
+          bounds,
+          text: draft.text,
+        });
+      }
+
+      if (draft?.type === "underline") {
+        if (!isDragDistanceEnough(draft.start, end, stageSize)) {
+          activeDragRef.current = null;
+          renderSchedule();
+          return;
+        }
+
+        const bounds = toRect(draft.start, end, DEFAULT_UNDERLINE_BOUNDS);
+        createAnnotation({
+          type: "UNDERLINE",
+          pageId: activePageId,
+          bounds,
+        });
+      }
+
+      if (draft?.type === "highlight") {
+        if (!isDragDistanceEnough(draft.start, end, stageSize)) {
+          activeDragRef.current = null;
+          renderSchedule();
+          return;
+        }
+
+        const bounds = toRect(draft.start, end, DEFAULT_HIGHLIGHT_BOUNDS);
+        createAnnotation({
+          type: "HIGHLIGHT",
+          pageId: activePageId,
+          bounds,
         });
       }
 
@@ -630,8 +732,74 @@ export function DocumentWorkspace(): React.ReactElement {
         renderSchedule();
       }
     },
-    [activePageId, clampSize, createAnnotation, editorEngine, renderSchedule, tableColumns, tableRows],
+    [activePageId, clampSize, createAnnotation, editorEngine, renderSchedule],
   );
+
+  const dragPreview = (() => {
+    const draft = activeDragRef.current;
+    if (!draft || !("start" in draft) || !("end" in draft)) {
+      return null;
+    }
+
+    if (!isDragDistanceEnough(draft.start, draft.end, stageSize)) {
+      return null;
+    }
+
+    if (draft.type === "move") {
+      return null;
+    }
+
+    if (draft.type === "line") {
+      const start = normalizedPointToCss(draft.start, stageSize);
+      const end = normalizedPointToCss(draft.end, stageSize);
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+
+      if (!Number.isFinite(length) || length <= 0) {
+        return null;
+      }
+
+      return (
+        <div
+          className="pointer-events-none absolute border-b-2 border-slate-900/80"
+          style={{
+            left: `${start.x}px`,
+            top: `${start.y}px`,
+            width: `${length}px`,
+            transformOrigin: "0 50%",
+            transform: `rotate(${Math.atan2(dy, dx)}rad)`,
+          }}
+        />
+      );
+    }
+
+    const fallback: Omit<NormalizedRect, "x" | "y"> =
+      draft.type === "shape"
+        ? DEFAULT_SHAPE_BOUNDS
+        : draft.type === "text"
+          ? DEFAULT_TEXT_BOUNDS
+          : draft.type === "underline"
+            ? DEFAULT_UNDERLINE_BOUNDS
+            : draft.type === "highlight"
+              ? DEFAULT_HIGHLIGHT_BOUNDS
+              : DEFAULT_SHAPE_BOUNDS;
+
+    const rect = toRect(draft.start, draft.end, fallback);
+    const cssRect = normalizedRectToCss(rect, stageSize);
+
+    return (
+      <div
+        className="pointer-events-none absolute border border-slate-900 bg-slate-200/25"
+        style={{
+          left: `${cssRect.left}px`,
+          top: `${cssRect.top}px`,
+          width: `${cssRect.width}px`,
+          height: `${cssRect.height}px`,
+        }}
+      />
+    );
+  })();
 
   const handlePointerCancel = useCallback(() => {
     const draft = activeDragRef.current;
@@ -863,9 +1031,9 @@ export function DocumentWorkspace(): React.ReactElement {
         />
 
         <DocumentStage
-        state={state}
-        mode={state.status}
-        statusMessage={state.status === "error" ? state.errorMessage : loadingMessage}
+          state={state}
+          mode={state.status}
+          statusMessage={state.status === "error" ? state.errorMessage : loadingMessage}
           canvasRef={setCanvas}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMoveLegacy}
@@ -886,6 +1054,7 @@ export function DocumentWorkspace(): React.ReactElement {
             onPointerCancel={handlePointerCancel}
             onPointerLeave={handlePointerLeave}
           />
+          {dragPreview}
         </DocumentStage>
 
         <div className="space-y-4">
@@ -932,6 +1101,10 @@ export function DocumentWorkspace(): React.ReactElement {
     </main>
   );
 }
+
+
+
+
 
 
 
