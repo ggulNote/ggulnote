@@ -1,0 +1,22 @@
+{
+  "name": "ggulnote",
+  "private": true,
+  "packageManager": "pnpm@10.9.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "pnpm --filter @ggulnote/web dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "2.10.5"
+  }
+}
+
