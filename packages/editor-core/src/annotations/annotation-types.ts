@@ -1,4 +1,4 @@
-﻿import type { PageId } from "@ggulnote/shared-types";
+import type { PageId } from "@ggulnote/shared-types";
 
 export const DEFAULT_ANNOTATION_STYLE = {
   stroke: "#1f2937",
@@ -10,6 +10,35 @@ export const DEFAULT_ANNOTATION_STYLE = {
 export type AnnotationType = "TEXT" | "UNDERLINE" | "HIGHLIGHT" | "SHAPE" | "LINE" | "TABLE";
 export type LineKind = "line" | "arrow";
 export type ShapeKind = "rectangle" | "ellipse";
+export type TextFontWeight = "normal" | "bold";
+
+export interface AnnotationStyleDefaults {
+  strokeColor: string;
+  fillColor: string;
+  textColor: string;
+  textFontFamily: string;
+  textFontSize: number;
+  textFontWeight: TextFontWeight;
+  shapeStrokeWidth: number;
+  lineStrokeWidth: number;
+  tableStrokeWidth: number;
+  underlineThickness: number;
+  highlightOpacity: number;
+}
+
+export const DEFAULT_ANNOTATION_STYLE_PROPS: AnnotationStyleDefaults = {
+  strokeColor: "#1f2937",
+  fillColor: "rgba(250, 204, 21, 0.25)",
+  textColor: "#111827",
+  textFontFamily: "Arial",
+  textFontSize: 14,
+  textFontWeight: "normal",
+  shapeStrokeWidth: 2,
+  lineStrokeWidth: 2,
+  tableStrokeWidth: 1,
+  underlineThickness: 2,
+  highlightOpacity: 0.35,
+};
 
 export type CreateAnnotationInput =
   | {
@@ -22,6 +51,10 @@ export type CreateAnnotationInput =
         height: number;
       };
       text: string;
+      textColor?: string;
+      textFontFamily?: string;
+      textFontSize?: number;
+      textFontWeight?: TextFontWeight;
     }
   | {
       type: "UNDERLINE";
@@ -32,6 +65,9 @@ export type CreateAnnotationInput =
         width: number;
         height: number;
       };
+      color?: string;
+      thickness?: number;
+      lineStyle?: "solid" | "double" | "wavy";
     }
   | {
       type: "HIGHLIGHT";
@@ -42,6 +78,8 @@ export type CreateAnnotationInput =
         width: number;
         height: number;
       };
+      color?: string;
+      opacity?: number;
     }
   | {
       type: "SHAPE";
@@ -53,6 +91,10 @@ export type CreateAnnotationInput =
         height: number;
       };
       shape: ShapeKind;
+      strokeColor?: string;
+      fillColor?: string;
+      strokeWidth?: number;
+      filled?: boolean;
     }
   | {
       type: "LINE";
@@ -66,6 +108,8 @@ export type CreateAnnotationInput =
         y: number;
       };
       lineKind: LineKind;
+      color?: string;
+      strokeWidth?: number;
     }
   | {
       type: "TABLE";
@@ -78,4 +122,6 @@ export type CreateAnnotationInput =
       };
       rows: number;
       columns: number;
+      strokeColor?: string;
+      strokeWidth?: number;
     };

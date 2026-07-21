@@ -1,4 +1,4 @@
-import { LineKind, ShapeKind, type CreateAnnotationInput } from "./annotation-types";
+import { LineKind, ShapeKind, type CreateAnnotationInput, DEFAULT_ANNOTATION_STYLE_PROPS, TextFontWeight } from "./annotation-types";
 import { LineAnnotation } from "./line-annotation";
 import { HighlightAnnotation } from "./highlight-annotation";
 import { ShapeAnnotation } from "./shape-annotation";
@@ -44,12 +44,32 @@ const ensureRowsColumns = (value: number, label: string): number => {
   return value;
 };
 
-const makeId = (): AnnotationId => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
+const ensureTextColor = (value: unknown, fallback: string): string => {
+  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
+};
+
+const ensureFontFamily = (value: unknown, fallback: string): string => {
+  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
+};
+
+const ensureFontWeight = (value: unknown, fallback: TextFontWeight): TextFontWeight => {
+  return value === "bold" || value === "normal" ? value : fallback;
+};
+
+const ensureOpacity = (value: unknown, fallback: number): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
   }
 
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return Math.min(1, Math.max(0, value));
+};
+
+const ensureLineStyle = (value: unknown): "solid" | "double" | "wavy" => {
+  return value === "double" || value === "wavy" ? value : "solid";
+};
+
+const normalizeColorWithAlpha = (value: unknown, fallback: string): string => {
+  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
 };
 
 export interface AnnotationFactoryOptions {
@@ -93,8 +113,11 @@ export class AnnotationFactory {
           base.createdAt,
           base.updatedAt,
           input.text?.trim() === "" ? "memo" : input.text,
-          14,
+          ensureNumber(input.textFontSize ?? DEFAULT_ANNOTATION_STYLE_PROPS.textFontSize, "textFontSize"),
           "left",
+          ensureTextColor(input.textColor, DEFAULT_ANNOTATION_STYLE_PROPS.textColor),
+          ensureFontFamily(input.textFontFamily, DEFAULT_ANNOTATION_STYLE_PROPS.textFontFamily),
+          ensureFontWeight(input.textFontWeight, DEFAULT_ANNOTATION_STYLE_PROPS.textFontWeight),
         );
       }
 
@@ -108,8 +131,9 @@ export class AnnotationFactory {
           base.zIndex,
           base.createdAt,
           base.updatedAt,
-          2,
-          "solid",
+          Math.round(ensureNumber(input.thickness ?? DEFAULT_ANNOTATION_STYLE_PROPS.underlineThickness, "underline.thickness")),
+          ensureLineStyle(input.lineStyle),
+          normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
         );
       }
 
@@ -123,7 +147,8 @@ export class AnnotationFactory {
           base.zIndex,
           base.createdAt,
           base.updatedAt,
-          0.35,
+          ensureOpacity(input.opacity, DEFAULT_ANNOTATION_STYLE_PROPS.highlightOpacity),
+          normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
         );
       }
 
@@ -142,8 +167,10 @@ export class AnnotationFactory {
           base.createdAt,
           base.updatedAt,
           input.shape,
-          2,
-          false,
+          Math.max(1, Math.round(ensureNumber(input.strokeWidth ?? DEFAULT_ANNOTATION_STYLE_PROPS.shapeStrokeWidth, "shape.strokeWidth"))),
+          input.filled ?? false,
+          normalizeColorWithAlpha(input.strokeColor, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
+          normalizeColorWithAlpha(input.fillColor, DEFAULT_ANNOTATION_STYLE_PROPS.fillColor),
         );
       }
 
@@ -160,7 +187,8 @@ export class AnnotationFactory {
           base.createdAt,
           base.updatedAt,
           input.lineKind === "arrow" ? "arrow" : "line",
-          2,
+          Math.max(1, Math.round(ensureNumber(input.strokeWidth ?? DEFAULT_ANNOTATION_STYLE_PROPS.lineStrokeWidth, "line.strokeWidth"))),
+          normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
         );
       }
 
@@ -176,6 +204,8 @@ export class AnnotationFactory {
           base.updatedAt,
           ensureRowsColumns(input.rows, "rows"),
           ensureRowsColumns(input.columns, "columns"),
+          normalizeColorWithAlpha(input.strokeColor, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
+          Math.max(1, Math.round(ensureNumber(input.strokeWidth ?? DEFAULT_ANNOTATION_STYLE_PROPS.tableStrokeWidth, "table.strokeWidth"))),
         );
       }
 
@@ -191,3 +221,11 @@ export const createAnnotationDefaultStyle = {
   text: "#111827",
   stroke: "#1f2937",
 };
+
+function makeId(): AnnotationId {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}

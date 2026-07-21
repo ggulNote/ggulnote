@@ -1,4 +1,4 @@
-﻿import type { NormalizedPoint, Size } from "@ggulnote/shared-types";
+import type { NormalizedPoint, Size } from "@ggulnote/shared-types";
 import { translateRect } from "../geometry/geometry-utils";
 import { isPointInRect, isPointNearRect } from "../geometry/bounds-utils";
 import { Annotation } from "./annotation";
@@ -18,6 +18,8 @@ export class ShapeAnnotation extends Annotation {
     public shape: ShapeKind,
     public strokeWidth: number,
     public filled: boolean,
+    public strokeColor: string,
+    public fillColor: string,
   ) {
     super(id, pageId, bounds, zIndex, createdAt, updatedAt);
   }
@@ -47,6 +49,8 @@ export class ShapeAnnotation extends Annotation {
       this.shape,
       this.strokeWidth,
       this.filled,
+      this.strokeColor,
+      this.fillColor,
     );
   }
 
@@ -62,6 +66,8 @@ export class ShapeAnnotation extends Annotation {
         shape: this.shape,
         strokeWidth: this.strokeWidth,
         filled: this.filled,
+        strokeColor: this.strokeColor,
+        fillColor: this.fillColor,
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

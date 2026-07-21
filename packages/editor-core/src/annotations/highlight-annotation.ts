@@ -15,6 +15,7 @@ export class HighlightAnnotation extends Annotation {
     createdAt: number,
     updatedAt: number,
     public opacity: number,
+    public color: string,
   ) {
     super(id, pageId, bounds, zIndex, createdAt, updatedAt);
   }
@@ -38,6 +39,7 @@ export class HighlightAnnotation extends Annotation {
       this.createdAt,
       this.updatedAt,
       this.opacity,
+      this.color,
     );
   }
 
@@ -51,6 +53,7 @@ export class HighlightAnnotation extends Annotation {
       zIndex: this.zIndex,
       properties: {
         opacity: this.opacity,
+        color: this.color,
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

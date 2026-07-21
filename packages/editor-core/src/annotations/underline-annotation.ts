@@ -16,6 +16,7 @@ export class UnderlineAnnotation extends Annotation {
     updatedAt: number,
     public thickness: number,
     public lineStyle: "solid" | "double" | "wavy",
+    public color: string,
   ) {
     super(id, pageId, bounds, zIndex, createdAt, updatedAt);
   }
@@ -42,6 +43,7 @@ export class UnderlineAnnotation extends Annotation {
       this.updatedAt,
       this.thickness,
       this.lineStyle,
+      this.color,
     );
   }
 
@@ -56,6 +58,7 @@ export class UnderlineAnnotation extends Annotation {
       properties: {
         thickness: this.thickness,
         lineStyle: this.lineStyle,
+        color: this.color,
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { NativeCanvasRenderer } from "../../editor/adapters/canvas/canvas-2d-renderer";
@@ -27,6 +27,14 @@ import { DocumentToolbar } from "./document-toolbar";
 
 const ZOOM_STEP = 25;
 const DRAG_CREATE_THRESHOLD_PX = 4;
+
+const DEFAULT_STROKE_COLOR = "#1f2937";
+const DEFAULT_FILL_COLOR = "rgba(250, 204, 21, 0.25)";
+const DEFAULT_TEXT_COLOR = "#111827";
+const DEFAULT_TEXT_FONT_FAMILY = "Arial";
+const DEFAULT_TEXT_FONT_SIZE = 14;
+const DEFAULT_TEXT_FONT_WEIGHT = "normal";
+const DEFAULT_HIGHLIGHT_OPACITY = 0.35;
 
 const DEFAULT_TEXT_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
   width: 0.2,
@@ -201,6 +209,20 @@ export function DocumentWorkspace(): React.ReactElement {
   const [tableRows, setTableRows] = useState(3);
   const [tableColumns, setTableColumns] = useState(3);
 
+  const [strokeColor, setStrokeColor] = useState(DEFAULT_STROKE_COLOR);
+  const [shapeFillColor, setShapeFillColor] = useState(DEFAULT_FILL_COLOR);
+  const [shapeStrokeWidth, setShapeStrokeWidth] = useState(2);
+  const [shapeFilled, setShapeFilled] = useState(false);
+  const [lineStrokeWidth, setLineStrokeWidth] = useState(2);
+  const [underlineThickness, setUnderlineThickness] = useState(2);
+  const [tableStrokeWidth, setTableStrokeWidth] = useState(1);
+  const [textColor, setTextColor] = useState(DEFAULT_TEXT_COLOR);
+  const [textFontSize, setTextFontSize] = useState(DEFAULT_TEXT_FONT_SIZE);
+  const [textFontFamily, setTextFontFamily] = useState(DEFAULT_TEXT_FONT_FAMILY);
+  const [textFontWeight, setTextFontWeight] = useState<"normal" | "bold">(DEFAULT_TEXT_FONT_WEIGHT);
+  const [highlightColor, setHighlightColor] = useState("#facc15");
+  const [highlightOpacity, setHighlightOpacity] = useState(DEFAULT_HIGHLIGHT_OPACITY);
+
   const [editorEngine] = useState(() => new EditorEngine());
   const annotationCanvasRef = useRef<AnnotationCanvasHandle | null>(null);
   const rendererRef = useRef(new NativeCanvasRenderer());
@@ -234,6 +256,8 @@ export function DocumentWorkspace(): React.ReactElement {
   const selectedSerializedAnnotation: SerializedAnnotation | null = editorSnapshot.selectedAnnotationId
     ? editorEngine.getSelectedAnnotationSnapshot()
     : null;
+
+  const canApplyToSelected = Boolean(editorSnapshot.selectedAnnotationId);
 
   const canGoPrevious = state.currentPage > 1 && state.totalPages > 1;
   const canGoNext = state.currentPage < state.totalPages;
@@ -392,7 +416,7 @@ export function DocumentWorkspace(): React.ReactElement {
         }
       } catch {
         if (pageRequestTokenRef.current === token) {
-          dispatch({ type: "LOAD_FAILED", message: "?섏씠吏瑜?媛?몄삤吏 紐삵뻽?듬땲??" });
+          dispatch({ type: "LOAD_FAILED", message: "Failed to load the page." });
         }
       }
     };
@@ -456,6 +480,23 @@ export function DocumentWorkspace(): React.ReactElement {
     [activePageId, editorEngine, renderSchedule],
   );
 
+  const patchSelectedAnnotation = useCallback(
+    (type: SerializedAnnotation["type"], properties: Record<string, unknown>) => {
+      if (!selectedSerializedAnnotation || selectedSerializedAnnotation.type !== type) {
+        return;
+      }
+
+      editorEngine.updateSelected({
+        ...selectedSerializedAnnotation,
+        properties: {
+          ...(selectedSerializedAnnotation.properties ?? {}),
+          ...properties,
+        },
+      });
+      renderSchedule();
+    },
+    [editorEngine, renderSchedule, selectedSerializedAnnotation],
+  );
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
       if (state.status !== "ready" || !state.document) {
@@ -585,6 +626,8 @@ export function DocumentWorkspace(): React.ReactElement {
       state.document?.id,
       state.renderedHeight,
       state.renderedWidth,
+      tableColumns,
+      tableRows,
       textMemo,
     ],
   );
@@ -645,22 +688,40 @@ export function DocumentWorkspace(): React.ReactElement {
       }
 
       if (draft?.type === "shape") {
+        if (!isDragDistanceEnough(draft.start, end, stageSize)) {
+          activeDragRef.current = null;
+          renderSchedule();
+          return;
+        }
+
         const bounds = toRect(draft.start, end, DEFAULT_SHAPE_BOUNDS);
         createAnnotation({
           type: "SHAPE",
           pageId: activePageId,
           bounds,
           shape: draft.mode,
+          strokeColor,
+          fillColor: shapeFilled ? shapeFillColor : undefined,
+          strokeWidth: shapeStrokeWidth,
+          filled: shapeFilled,
         });
       }
 
       if (draft?.type === "line") {
+        if (!isDragDistanceEnough(draft.start, end, stageSize)) {
+          activeDragRef.current = null;
+          renderSchedule();
+          return;
+        }
+
         createAnnotation({
           type: "LINE",
           pageId: activePageId,
           start: draft.start,
           end,
           lineKind: draft.lineKind,
+          color: strokeColor,
+          strokeWidth: lineStrokeWidth,
         });
       }
 
@@ -678,6 +739,8 @@ export function DocumentWorkspace(): React.ReactElement {
           bounds,
           rows: draft.rows,
           columns: draft.columns,
+          strokeColor,
+          strokeWidth: tableStrokeWidth,
         });
       }
 
@@ -694,6 +757,10 @@ export function DocumentWorkspace(): React.ReactElement {
           pageId: activePageId,
           bounds,
           text: draft.text,
+          textColor,
+          textFontFamily,
+          textFontSize,
+          textFontWeight,
         });
       }
 
@@ -709,6 +776,8 @@ export function DocumentWorkspace(): React.ReactElement {
           type: "UNDERLINE",
           pageId: activePageId,
           bounds,
+          color: strokeColor,
+          thickness: underlineThickness,
         });
       }
 
@@ -724,6 +793,8 @@ export function DocumentWorkspace(): React.ReactElement {
           type: "HIGHLIGHT",
           pageId: activePageId,
           bounds,
+          color: highlightColor,
+          opacity: highlightOpacity,
         });
       }
 
@@ -732,9 +803,29 @@ export function DocumentWorkspace(): React.ReactElement {
         renderSchedule();
       }
     },
-    [activePageId, clampSize, createAnnotation, editorEngine, renderSchedule],
+    [
+      activePageId,
+      clampSize,
+      createAnnotation,
+      highlightColor,
+      highlightOpacity,
+      isDragDistanceEnough,
+      lineStrokeWidth,
+      renderSchedule,
+      shapeFillColor,
+      shapeFilled,
+      shapeStrokeWidth,
+      stageSize,
+      state.status,
+      strokeColor,
+      tableStrokeWidth,
+      textColor,
+      textFontFamily,
+      textFontSize,
+      textFontWeight,
+      underlineThickness,
+    ],
   );
-
   const dragPreview = (() => {
     const draft = activeDragRef.current;
     if (!draft || !("start" in draft) || !("end" in draft)) {
@@ -762,11 +853,12 @@ export function DocumentWorkspace(): React.ReactElement {
 
       return (
         <div
-          className="pointer-events-none absolute border-b-2 border-slate-900/80"
+          className="pointer-events-none absolute"
           style={{
             left: `${start.x}px`,
             top: `${start.y}px`,
             width: `${length}px`,
+            borderBottom: `${Math.max(1, lineStrokeWidth)}px solid ${strokeColor}`,
             transformOrigin: "0 50%",
             transform: `rotate(${Math.atan2(dy, dx)}rad)`,
           }}
@@ -788,6 +880,26 @@ export function DocumentWorkspace(): React.ReactElement {
     const rect = toRect(draft.start, draft.end, fallback);
     const cssRect = normalizedRectToCss(rect, stageSize);
 
+    if (draft.type === "shape") {
+      const borderRadius = draft.mode === "ellipse" ? "50%" : "0";
+      const fill = shapeFilled ? shapeFillColor : "transparent";
+
+      return (
+        <div
+          className="pointer-events-none absolute border-2"
+          style={{
+            left: `${cssRect.left}px`,
+            top: `${cssRect.top}px`,
+            width: `${cssRect.width}px`,
+            height: `${cssRect.height}px`,
+            borderRadius,
+            backgroundColor: fill,
+            borderColor: strokeColor,
+          }}
+        />
+      );
+    }
+
     return (
       <div
         className="pointer-events-none absolute border border-slate-900 bg-slate-200/25"
@@ -796,11 +908,11 @@ export function DocumentWorkspace(): React.ReactElement {
           top: `${cssRect.top}px`,
           width: `${cssRect.width}px`,
           height: `${cssRect.height}px`,
+          borderColor: strokeColor,
         }}
       />
     );
   })();
-
   const handlePointerCancel = useCallback(() => {
     const draft = activeDragRef.current;
     if (!draft) {
@@ -979,12 +1091,12 @@ export function DocumentWorkspace(): React.ReactElement {
     }
 
     if (!state.document) {
-      return "臾몄꽌 濡쒕뵫 以묒엯?덈떎.";
+      return "No document is loaded.";
     }
 
     return state.totalPages > 0
-      ? `${state.currentPage} / ${state.totalPages} ?섏씠吏瑜??뚮뜑留?以묒엯?덈떎.`
-      : "臾몄꽌瑜??뚮뜑留?以묒엯?덈떎.";
+      ? `${state.currentPage} / ${state.totalPages} / Loading...`
+      : "Page loading failed.";
   }, [state.document, state.status, state.totalPages, state.currentPage]);
 
   return (
@@ -996,7 +1108,7 @@ export function DocumentWorkspace(): React.ReactElement {
             <p className="text-sm text-slate-600">Open a PDF or a blank document to start annotating.</p>
           </div>
           <span className="rounded-full border border-slate-300 px-3 py-1 text-sm font-medium text-slate-600">
-            ?곹깭: {state.status}
+            Status: {state.status}
           </span>
         </div>
       </header>
@@ -1070,6 +1182,78 @@ export function DocumentWorkspace(): React.ReactElement {
             columns={tableColumns}
             onRowsChange={(next: number) => setTableRows(clampTextInput(next))}
             onColumnsChange={(next: number) => setTableColumns(clampTextInput(next))}
+            onStrokeColorChange={(next: string) => {
+              setStrokeColor(next);
+              patchSelectedAnnotation("LINE", { color: next });
+              patchSelectedAnnotation("SHAPE", { strokeColor: next });
+              patchSelectedAnnotation("UNDERLINE", { color: next });
+              patchSelectedAnnotation("TABLE", { strokeColor: next });
+            }}
+            onFillColorChange={(next: string) => {
+              setShapeFillColor(next);
+              patchSelectedAnnotation("SHAPE", { fillColor: next });
+            }}
+            onFillEnabledChange={(next: boolean) => {
+              setShapeFilled(next);
+              patchSelectedAnnotation("SHAPE", { filled: next });
+            }}
+            onShapeStrokeWidthChange={(next: number) => {
+              const width = Math.max(1, Math.round(next));
+              setShapeStrokeWidth(width);
+              patchSelectedAnnotation("SHAPE", { strokeWidth: width });
+            }}
+            onLineStrokeWidthChange={(next: number) => {
+              const width = Math.max(1, Math.round(next));
+              setLineStrokeWidth(width);
+              patchSelectedAnnotation("LINE", { strokeWidth: width });
+            }}
+            onUnderlineThicknessChange={(next: number) => {
+              const thickness = Math.max(1, Math.round(next));
+              setUnderlineThickness(thickness);
+              patchSelectedAnnotation("UNDERLINE", { thickness });
+            }}
+            onTableStrokeWidthChange={(next: number) => {
+              const width = Math.max(1, Math.round(next));
+              setTableStrokeWidth(width);
+              patchSelectedAnnotation("TABLE", { strokeWidth: width });
+            }}
+            onTextColorChange={(next: string) => {
+              setTextColor(next);
+              patchSelectedAnnotation("TEXT", { textColor: next });
+            }}
+            onTextFontSizeChange={(next: number) => {
+              const size = Math.max(8, Math.min(120, Math.round(next)));
+              setTextFontSize(size);
+              patchSelectedAnnotation("TEXT", { textFontSize: size });
+            }}
+            onTextFontFamilyChange={(next: string) => {
+              setTextFontFamily(next);
+              patchSelectedAnnotation("TEXT", { textFontFamily: next });
+            }}
+            onTextFontWeightChange={setTextFontWeight}
+            onHighlightColorChange={(next: string) => {
+              setHighlightColor(next);
+              patchSelectedAnnotation("HIGHLIGHT", { color: next });
+            }}
+            onHighlightOpacityChange={(next: number) => {
+              const opacity = Math.max(0, Math.min(1, next));
+              setHighlightOpacity(opacity);
+              patchSelectedAnnotation("HIGHLIGHT", { opacity });
+            }}
+            textFontSize={textFontSize}
+            textFontFamily={textFontFamily}
+            textFontWeight={textFontWeight}
+            strokeColor={strokeColor}
+            shapeFillColor={shapeFillColor}
+            shapeStrokeWidth={shapeStrokeWidth}
+            lineStrokeWidth={lineStrokeWidth}
+            underlineThickness={underlineThickness}
+            tableStrokeWidth={tableStrokeWidth}
+            textColor={textColor}
+            shapeFilled={shapeFilled}
+            highlightColor={highlightColor}
+            highlightOpacity={highlightOpacity}
+            canApplyToSelected={canApplyToSelected}
             onUndo={handleUndo}
             onRedo={handleRedo}
             onDelete={handleDelete}
@@ -1078,7 +1262,6 @@ export function DocumentWorkspace(): React.ReactElement {
             canDelete={Boolean(editorSnapshot.selectedAnnotationId)}
             hasDocument={hasDocument}
           />
-
           <EditorDebugPanel
             editorSnapshot={editorSnapshot}
             interactionMode={interactionMode}
@@ -1101,12 +1284,5 @@ export function DocumentWorkspace(): React.ReactElement {
     </main>
   );
 }
-
-
-
-
-
-
-
 
 

@@ -17,6 +17,9 @@ export class TextAnnotation extends Annotation {
     public text: string,
     public fontSize: number,
     public textAlign: "left" | "center" | "right",
+    public textColor: string,
+    public textFontFamily: string,
+    public textFontWeight: "normal" | "bold",
   ) {
     super(id, pageId, bounds, zIndex, createdAt, updatedAt);
   }
@@ -42,6 +45,9 @@ export class TextAnnotation extends Annotation {
       this.text,
       this.fontSize,
       this.textAlign,
+      this.textColor,
+      this.textFontFamily,
+      this.textFontWeight,
     );
   }
 
@@ -57,6 +63,9 @@ export class TextAnnotation extends Annotation {
         text: this.text,
         fontSize: this.fontSize,
         textAlign: this.textAlign,
+        textColor: this.textColor,
+        textFontFamily: this.textFontFamily,
+        textFontWeight: this.textFontWeight,
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

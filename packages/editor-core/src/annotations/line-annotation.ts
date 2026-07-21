@@ -19,6 +19,7 @@ export class LineAnnotation extends Annotation {
     updatedAt: number,
     public lineKind: LineKind,
     public strokeWidth: number,
+    public color: string,
   ) {
     super(id, pageId, rectFromPoints(start, end), zIndex, createdAt, updatedAt);
   }
@@ -77,6 +78,7 @@ export class LineAnnotation extends Annotation {
       this.updatedAt,
       this.lineKind,
       this.strokeWidth,
+      this.color,
     );
   }
 
@@ -113,6 +115,7 @@ export class LineAnnotation extends Annotation {
         end: { ...this.end },
         lineKind: this.lineKind,
         strokeWidth: this.strokeWidth,
+        color: this.color,
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

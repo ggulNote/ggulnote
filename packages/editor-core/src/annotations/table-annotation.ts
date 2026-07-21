@@ -16,6 +16,8 @@ export class TableAnnotation extends Annotation {
     updatedAt: number,
     public rows: number,
     public columns: number,
+    public strokeColor: string,
+    public strokeWidth: number,
   ) {
     super(id, pageId, bounds, zIndex, createdAt, updatedAt);
   }
@@ -39,6 +41,8 @@ export class TableAnnotation extends Annotation {
       this.updatedAt,
       this.rows,
       this.columns,
+      this.strokeColor,
+      this.strokeWidth,
     );
   }
 
@@ -53,6 +57,8 @@ export class TableAnnotation extends Annotation {
       properties: {
         rows: this.rows,
         columns: this.columns,
+        strokeColor: this.strokeColor,
+        strokeWidth: this.strokeWidth,
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

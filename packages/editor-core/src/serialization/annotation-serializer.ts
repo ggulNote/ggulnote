@@ -47,6 +47,14 @@ const ensureNumber = (value: unknown): number => {
   return value;
 };
 
+const ensureOpacity = (value: unknown): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0.35;
+  }
+
+  return Math.min(1, Math.max(0, value));
+};
+
 const ensureString = (value: unknown): string => {
   if (typeof value !== "string") {
     throw new Error("Invalid string");
@@ -61,6 +69,10 @@ const ensureIntRange = (value: unknown, min: number, max: number): number => {
   }
 
   return value as number;
+};
+
+const ensureColor = (value: unknown, fallback: string): string => {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
 };
 
 const ensureObject = (value: unknown): Record<string, unknown> => {
@@ -81,6 +93,14 @@ const ensurePoint = (value: unknown): { x: number; y: number } => {
     x: ensureNumber(point.x),
     y: ensureNumber(point.y),
   };
+};
+
+const ensureFontWeight = (value: unknown): "normal" | "bold" => {
+  return value === "bold" ? "bold" : "normal";
+};
+
+const ensureLineStyle = (value: unknown): "solid" | "double" | "wavy" => {
+  return value === "double" || value === "wavy" ? value : "solid";
 };
 
 export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => {
@@ -107,10 +127,13 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.createdAt,
         base.updatedAt,
         ensureString(base.properties.text ?? ""),
-        ensureNumber(base.properties.fontSize ?? 14),
+        Math.max(8, Math.round(ensureNumber(base.properties.fontSize ?? 14))),
         base.properties.textAlign === "center" || base.properties.textAlign === "right"
           ? (base.properties.textAlign as "center" | "right")
           : "left",
+        ensureColor(base.properties.textColor, "#111827"),
+        ensureString(base.properties.textFontFamily ?? "Arial"),
+        ensureFontWeight(base.properties.textFontWeight),
       );
 
     case "UNDERLINE":
@@ -121,8 +144,9 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.zIndex,
         base.createdAt,
         base.updatedAt,
-        ensureNumber(base.properties.thickness ?? 1),
-        base.properties.lineStyle === "double" || base.properties.lineStyle === "wavy" ? (base.properties.lineStyle as "double" | "wavy") : "solid",
+        Math.max(1, Math.round(ensureNumber(base.properties.thickness ?? 1))),
+        ensureLineStyle(base.properties.lineStyle),
+        ensureColor(base.properties.color, "#1f2937"),
       );
 
     case "HIGHLIGHT":
@@ -133,7 +157,8 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.zIndex,
         base.createdAt,
         base.updatedAt,
-        ensureNumber(base.properties.opacity ?? 0.35),
+        ensureOpacity(base.properties.opacity ?? 0.35),
+        ensureColor(base.properties.color, "#facc15"),
       );
 
     case "SHAPE": {
@@ -150,8 +175,10 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.createdAt,
         base.updatedAt,
         shape,
-        ensureNumber(base.properties.strokeWidth ?? 2),
+        Math.max(1, Math.round(ensureNumber(base.properties.strokeWidth ?? 2))),
         base.properties.filled === true,
+        ensureColor(base.properties.strokeColor, "#1f2937"),
+        ensureColor(base.properties.fillColor, "rgba(250, 204, 21, 0.25)"),
       );
     }
 
@@ -168,7 +195,8 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.createdAt,
         base.updatedAt,
         base.properties.lineKind === "arrow" ? "arrow" : "line",
-        ensureNumber(base.properties.strokeWidth ?? 2),
+        Math.max(1, Math.round(ensureNumber(base.properties.strokeWidth ?? 2))),
+        ensureColor(base.properties.color, "#1f2937"),
       );
     }
 
@@ -182,6 +210,8 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.updatedAt,
         ensureIntRange(base.properties.rows, 1, 20),
         ensureIntRange(base.properties.columns, 1, 20),
+        ensureColor(base.properties.strokeColor, "#1f2937"),
+        Math.max(1, Math.round(ensureNumber(base.properties.strokeWidth ?? 1))),
       );
 
     default:
