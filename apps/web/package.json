@@ -13,6 +13,8 @@
     "clean": "rimraf build coverage"
   },
   "dependencies": {
+    "@ggulnote/editor-core": "workspace:*",
+    "@ggulnote/shared-types": "workspace:*",
     "next": "16.2.10",
     "pdfjs-dist": "^6.1.200",
     "react": "19.2.4",
@@ -28,7 +30,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "jsdom": "26.1.0",
-    "rimraf": "6.0.1",
+    "rimraf": "6.1.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "3.1.4"

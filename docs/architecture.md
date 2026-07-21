@@ -1,32 +1,49 @@
 # Architecture
 
-## ÇöÀç ±¸Á¶
+## í˜„ì¬ êµ¬ì¡°
 
 - React Editor UI
-- Document Viewer
-  - PDF.js Adapter
-  - Document Session
-  - Page Renderer
-  - Text Content Extractor
-  - Coordinate Transformer
-  - Blank Page Renderer
+  - Document Viewer
+    - PDF.js Adapter
+    - Document Session
+    - Page Renderer
+    - Coordinate Transformer
+  - Editor Workspace
+    - Document Stage (PDF/Blank layer + interaction layer)
+  - Debug/toolbar components
+- Editor Core (`packages/editor-core`)
+  - Annotation Model
+  - Page Scene / Scene Store
+  - Command Manager (Undo/Redo)
+  - Renderer ì¸í„°í˜ì´ìŠ¤ (`AnnotationRenderer`)
+  - Operation/Serialization
+- Shared Types (`packages/shared-types`)
+  - ì •ê·œí™” ì¢Œí‘œ íƒ€ì…
 
-## ÇâÈÄ ±¸Á¶
+## í–¥í›„ êµ¬ì¡°(ë‹¤ìŒ ë‹¨ê³„)
 
-- React Editor UI
-  - Document Stage
-    - Base Document Layer
-    - Text/Semantic Layer
-    - Annotation Canvas Layer
-    - Interaction Layer
-- Canvas Editor Core
-- Gaze/Voice/Intent Integration
+- Local persistence
+  - IndexedDB ì €ì¥
+  - Editor Operation ë¡œê·¸ ì €ì¥/ë³µì›
+- Remote sync extension
+- Gaze/Voice/Intent integration layer
+- OCR / semantic pipeline
 
-## ¾ÆÅ°ÅØÃ³ ¿øÄ¢
+## ì—­í•  ë¶„ë¦¬
 
-- React UI¿Í Canvas Editor Core´Â ºĞ¸®ÇÏ¿© »óÅÂ¸¦ ¸íÈ®È÷ ºĞ¸®ÇÑ´Ù.
-- ¹®¼­ ÁÂÇ¥´Â Á¤±ÔÈ­ ÁÂÇ¥(0~1) ±â¹İÀ¸·Î °ü¸®ÇÑ´Ù.
-- ºê¶ó¿ìÀú¿¡¼­ ¿ÜºÎ LLM API¸¦ Á÷Á¢ È£ÃâÇÏÁö ¾Ê´Â´Ù.
-- ÀúÀå¼Ò/AI È£ÃâÀº Adapter ÀÎÅÍÆäÀÌ½º µÚ·Î ºĞ¸®ÇÑ´Ù.
-- Supabase´Â ÇÙ½É UI¡¤·»´õ ÆÄÀÌÇÁ¶óÀÎ ¾ÈÁ¤È­ ÀÌÈÄ ´Ü°èÀûÀ¸·Î ¿¬°áÇÑ´Ù.
-- Cloud RunÀº ÇöÀç ´Ü°è¿¡¼­ »ç¿ëÇÏÁö ¾Ê´Â´Ù.
+- React
+  - Toolbar, ê°œë°œìš© íŒ¨ë„, ìƒíƒœ í‘œì‹œ, ì—”ì§„ ì¸ìŠ¤í„´ìŠ¤ ìƒëª…ì£¼ê¸° ê´€ë¦¬
+  - ë·°ì–´ ë ˆì´ì–´(ê¸°ì¡´ PDF/ë°±ì§€ Canvas)ì™€ Overlay Canvas ë ˆì´ì–´ í†µí•©
+- Editor Core
+  - `Annotation` ìƒíƒœ, í˜ì´ì§€ë³„ Scene, Command ì²˜ë¦¬, Undo/Redo, Selection, íˆíŠ¸í…ŒìŠ¤íŠ¸, ë Œë”ë§ ê³„ì•½
+  - ì§ë ¬í™” ê°€ëŠ¥í•œ Operation ìƒì„±
+- Adapter
+  - Native Canvas 2D ë Œë”ëŸ¬ (`canvas-2d-renderer`)
+  - ì¢Œí‘œ, ë¦¬ì‚¬ì´ì¦ˆ, ë Œë”ë§ ì»¨í…ìŠ¤íŠ¸ ë¸Œë¦¿ì§€
+
+## ì½”ì–´ ì›ì¹™
+
+- React stateì— Annotation ë°°ì—´ì„ ì§ì ‘ ë³´ê´€í•˜ì§€ ì•ŠìŒ
+- Canvas ë Œë”ë§ì€ Editor Coreë¡œë¶€í„° ë°›ì€ `Annotation` ëª¨ë¸ ê¸°ë°˜
+- ì €ì¥ì†Œ/API í˜¸ì¶œì€ ë³„ë„ Adapter/Service ê³„ì¸µì—ì„œ ì²˜ë¦¬ ì˜ˆì •
+- í˜„ì¬ ë‹¨ê³„ì—ì„œ ì €ì¥ì†Œ/ë™ê¸°í™” ê¸°ëŠ¥ì€ ë¯¸êµ¬í˜„

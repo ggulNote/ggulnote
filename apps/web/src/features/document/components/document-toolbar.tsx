@@ -1,4 +1,4 @@
-﻿import { useId } from "react";
+﻿import { useId, useRef } from "react";
 
 type ToolbarProps = {
   onOpenPdf: (file: File | null) => void;
@@ -23,16 +23,20 @@ type ToolbarProps = {
 
 function FileInput({ onOpenPdf }: { onOpenPdf: (file: File | null) => void }): React.ReactElement {
   const id = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   return (
     <>
-      <label
-        htmlFor={id}
+      <button
+        type="button"
+        aria-label="PDF 파일 열기"
         className="inline-flex rounded border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50 cursor-pointer"
+        onClick={() => inputRef.current?.click()}
       >
         PDF 파일 열기
-      </label>
+      </button>
       <input
+        ref={inputRef}
         id={id}
         type="file"
         accept="application/pdf,.pdf"

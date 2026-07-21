@@ -1,4 +1,8 @@
-﻿export const A4_PORTRAIT_POINTS = {
+import type { NormalizedPoint, NormalizedRect } from "@ggulnote/shared-types";
+
+export type { NormalizedPoint, NormalizedRect };
+
+export const A4_PORTRAIT_POINTS = {
   width: 595.28,
   height: 841.89,
 } as const;
@@ -30,18 +34,6 @@ export interface BlankDocumentDescriptor extends DocumentDescriptor {
 }
 
 export type LoadedDocumentDescriptor = PdfDocumentDescriptor | BlankDocumentDescriptor;
-
-export interface NormalizedPoint {
-  x: number;
-  y: number;
-}
-
-export interface NormalizedRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 
 export interface PageTextItem {
   id: string;

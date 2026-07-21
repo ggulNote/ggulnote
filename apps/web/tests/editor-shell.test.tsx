@@ -1,5 +1,5 @@
-ï»¿import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { DocumentWorkspace } from "@/features/document/components/document-workspace";
 import type { DocumentSessionState } from "@/features/document/model/document-state";
@@ -71,22 +71,22 @@ afterEach(() => {
 });
 
 describe("Editor workspace", () => {
-  it("ë¹ˆ ìƒíƒœì—ì„œ PDF íŒŒì¼ ì—´ê¸°ì™€ ìƒˆ ë°±ì§€ ë²„íŠ¼ì´ ë³´ì¸ë‹¤", () => {
+  it("ºó »óÅÂ¿¡¼­ PDF ÆÄÀÏ ¿­±â¿Í »õ ¹éÁö ¹öÆ°ÀÌ º¸ÀÎ´Ù", () => {
     mockState = getInitialState();
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByRole("heading", { name: "ê¿€ë…¸íŠ¸" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "PDF íŒŒì¼ ì—´ê¸°" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ìƒˆ ë°±ì§€ ë§Œë“¤ê¸°" })).toBeInTheDocument();
-    expect(screen.getByText("ë¬¸ì„œë¥¼ ë¶ˆëŸ¬ì™€ ì£¼ì„¸ìš”.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "²Ü³ëÆ®" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "PDF ÆÄÀÏ ¿­±â" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "»õ ¹éÁö ¸¸µé±â" })).toBeInTheDocument();
+    expect(screen.getByText("¹®¼­¸¦ ºÒ·¯¿Í ÁÖ¼¼¿ä.")).toBeInTheDocument();
   });
 
-  it("ë°±ì§€ ìƒì„± í›„ A4 ê¸°ë³¸ í˜ì´ì§€ë¥¼ í‘œì‹œí•œë‹¤", () => {
+  it("¹éÁö »ı¼º ÈÄ A4 ±âº» ÆäÀÌÁö¸¦ Ç¥½ÃÇÑ´Ù", () => {
     const document: DocumentDescriptor = {
       id: "blank-1",
       kind: "blank",
-      name: "ìƒˆ ë°±ì§€",
+      name: "»õ ¹éÁö",
       pageCount: 1,
     };
 
@@ -108,10 +108,10 @@ describe("Editor workspace", () => {
     render(<DocumentWorkspace />);
 
     expect(screen.getByText("Blank Page (A4)")).toBeInTheDocument();
-    expect(screen.getByText("ë¬¸ì„œ ì¢…ë¥˜")).toBeInTheDocument();
+    expect(screen.getByText("¹®¼­ Á¾·ù")).toBeInTheDocument();
   });
 
-  it("í˜„ì¬ í˜ì´ì§€ê°€ ì²« ë²ˆì§¸ë©´ ì´ì „ ë²„íŠ¼ì´ ë¹„í™œì„±", () => {
+  it("ÇöÀç ÆäÀÌÁö°¡ Ã¹ ¹øÂ°¸é ÀÌÀü ¹öÆ°ÀÌ ºñÈ°¼º", () => {
     mockState = getInitialState({
       status: "ready",
       document: {
@@ -125,10 +125,10 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByRole("button", { name: /ì´ì „ í˜ì´ì§€/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /ÀÌÀü ÆäÀÌÁö/i })).toBeDisabled();
   });
 
-  it("í˜„ì¬ í˜ì´ì§€ê°€ ë§ˆì§€ë§‰ì´ë©´ ë‹¤ìŒ ë²„íŠ¼ì´ ë¹„í™œì„±", () => {
+  it("ÇöÀç ÆäÀÌÁö°¡ ¸¶Áö¸·ÀÌ¸é ´ÙÀ½ ¹öÆ°ÀÌ ºñÈ°¼º", () => {
     mockState = getInitialState({
       status: "ready",
       document: {
@@ -152,10 +152,10 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByRole("button", { name: /ë‹¤ìŒ í˜ì´ì§€/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /´ÙÀ½ ÆäÀÌÁö/i })).toBeDisabled();
   });
 
-  it("ë¡œë”© ìƒíƒœ ë¬¸êµ¬ë¥¼ í‘œì‹œí•œë‹¤", () => {
+  it("·Îµù »óÅÂ ¹®±¸¸¦ Ç¥½ÃÇÑ´Ù", () => {
     mockState = getInitialState({
       status: "loading",
       document: {
@@ -168,28 +168,29 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByText("ë¬¸ì„œë¥¼ ì²˜ë¦¬í•˜ê³  ìˆìŠµë‹ˆë‹¤.")).toBeInTheDocument();
+    expect(screen.getByText("¹®¼­ ·Îµù ÁßÀÔ´Ï´Ù.")).toBeInTheDocument();
   });
 
-  it("ì˜¤ë¥˜ ìƒíƒœì—ì„œ ë©”ì‹œì§€ë¥¼ í‘œì‹œí•œë‹¤", () => {
+  it("¿À·ù »óÅÂ¿¡¼­ ¸Ş½ÃÁö¸¦ Ç¥½ÃÇÑ´Ù", () => {
     mockState = getInitialState({
       status: "error",
-      errorMessage: "ì˜ëª»ëœ PDF íŒŒì¼ì…ë‹ˆë‹¤.",
+      errorMessage: "Àß¸øµÈ PDF ÆÄÀÏÀÔ´Ï´Ù.",
     });
 
     render(<DocumentWorkspace />);
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByText("ì˜ëª»ëœ PDF íŒŒì¼ì…ë‹ˆë‹¤.")).toBeInTheDocument();
+    expect(screen.getByText("¹®¼­ ·Îµù Áß ¿À·ù°¡ ¹ß»ıÇß½À´Ï´Ù.")).toBeInTheDocument();
+    expect(screen.getByText("Àß¸øµÈ PDF ÆÄÀÏÀÔ´Ï´Ù.")).toBeInTheDocument();
   });
 
-  it("ë¬¸ì„œ ë‹«ê¸° ë²„íŠ¼ì„ ëˆ„ë¥´ë©´ ë‹«ê¸° í•¸ë“¤ëŸ¬ê°€ í˜¸ì¶œëœë‹¤", () => {
+  it("¹®¼­ ´İ±â ¹öÆ°À» ´©¸£¸é ´İ±â ÇÚµé·¯°¡ È£ÃâµÈ´Ù", () => {
     mockState = getInitialState({
       status: "ready",
       document: {
         id: "blank-1",
         kind: "blank",
-        name: "ìƒˆ ë°±ì§€",
+        name: "»õ ¹éÁö",
         pageCount: 1,
       },
       totalPages: 1,
@@ -204,19 +205,19 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    const closeButton = screen.getByRole("button", { name: "ë¬¸ì„œ ë‹«ê¸°" });
+    const closeButton = screen.getByRole("button", { name: "¹®¼­ ´İ±â" });
     fireEvent.click(closeButton);
 
     expect(mockClose).toHaveBeenCalledTimes(1);
   });
 
-  it("ì¤Œ ê°’ì´ UIì— í‘œì‹œëœë‹¤", () => {
+  it("ÁÜ °ªÀÌ UI¿¡ Ç¥½ÃµÈ´Ù", () => {
     mockState = getInitialState({
       status: "ready",
       document: {
         id: "blank-1",
         kind: "blank",
-        name: "ìƒˆ ë°±ì§€",
+        name: "»õ ¹éÁö",
         pageCount: 1,
       },
       totalPages: 1,
@@ -232,7 +233,16 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByText("125%")).toBeInTheDocument();
+    const toolbar = screen
+      .getByRole("region", { name: "¹®¼­ µµ±¸ ¸ğÀ½" });
+    const debugPanel = screen
+      .getByRole("heading", { name: "¹®¼­ »óÅÂ" })
+      .closest("aside");
+
+    expect(within(toolbar as HTMLElement).getByText("125%"))
+      .toBeInTheDocument();
+    expect(within(debugPanel as HTMLElement).getByText("125%"))
+      .toBeInTheDocument();
   });
 });
 

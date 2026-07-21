@@ -1,5 +1,5 @@
 ﻿import { type ReactNode } from "react";
-import { type DocumentKind, type NormalizedPoint } from "../model/document-types";
+import { type DocumentKind } from "../model/document-types";
 import { type DocumentSessionState } from "../model/document-state";
 import { BlankPage } from "./blank-page";
 import { DocumentEmptyState } from "./document-empty-state";
@@ -11,10 +11,13 @@ type DocumentStageProps = {
   mode: "empty" | "loading" | "ready" | "error";
   statusMessage?: string | null;
   canvasRef: (canvas: HTMLCanvasElement | null) => void;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: () => void;
   onPointerLeave: () => void;
   stageRef: (element: HTMLDivElement | null) => void;
-  pointer: NormalizedPoint | null;
+  pointer: { x: number; y: number } | null;
   children?: ReactNode;
 };
 
@@ -29,7 +32,10 @@ export function DocumentStage({
   mode,
   statusMessage,
   canvasRef,
+  onPointerDown,
   onPointerMove,
+  onPointerUp,
+  onPointerCancel,
   onPointerLeave,
   stageRef,
   pointer,
@@ -71,9 +77,11 @@ export function DocumentStage({
           className="relative mx-auto min-w-[220px] min-h-[220px] bg-white"
           ref={stageRef}
           style={{ width, height }}
+          onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerCancel}
           onPointerLeave={onPointerLeave}
-          onPointerCancel={onPointerLeave}
         >
           <div className="pointer-events-none absolute inset-0">
             <div className="relative h-full w-full">
@@ -83,16 +91,10 @@ export function DocumentStage({
             </div>
           </div>
 
-          {/* Base document layer */}
           <div className="relative h-full w-full">{content}</div>
 
-          {/* Future text debug layer */}
-          <div className="pointer-events-none absolute inset-0">{children}</div>
+          <div className="absolute inset-0">{children}</div>
 
-          {/* Future annotation layer */}
-          <div className="pointer-events-none absolute inset-0" />
-
-          {/* Interaction layer */}
           <div className="pointer-events-none absolute inset-0">
             {pointer ? (
               <div

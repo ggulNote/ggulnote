@@ -25,7 +25,11 @@
     "paths": {
       "@/*": [
         "./src/*"
-      ]
+      ],
+      "@ggulnote/editor-core": ["../../packages/editor-core/src"],
+      "@ggulnote/editor-core/*": ["../../packages/editor-core/src/*"],
+      "@ggulnote/shared-types": ["../../packages/shared-types/src"],
+      "@ggulnote/shared-types/*": ["../../packages/shared-types/src/*"]
     }
   },
   "include": [
