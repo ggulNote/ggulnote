@@ -11,16 +11,29 @@ describe("Debug dashboard", () => {
     render(
       <DebugDashboard
         environment="development"
-        nextStatus="App Router 실행 중"
+        nextStatus="App Router 앱 상태"
         roadmap={[]}
-        moduleStatus={[{ name: "Document Engine", status: "미구현" }, { name: "Gaze Engine", status: "미구현" }]}
+        moduleStatus={[
+          { name: "Document Engine", status: "미구현" },
+          { name: "Gaze Engine", status: "준비 중" },
+        ]}
         payload={{
-          page: "/debug",
-          gazeCoordinate: "-",
-          roi: "-",
-          candidateCount: "0",
-          actionPlan: "-",
-          canvasObjects: "0",
+          documentKind: "none",
+          documentStatus: "empty",
+          documentName: "-",
+          currentPage: "-",
+          pageCount: "-",
+          zoom: "100%",
+          zoomMode: "custom",
+          originalWidth: "-",
+          originalHeight: "-",
+          renderedWidth: "-",
+          renderedHeight: "-",
+          pointerX: "-",
+          pointerY: "-",
+          textItemCount: "0",
+          pdfJsLoaded: "not loaded",
+          pdfWorkerLoaded: "not loaded",
         }}
       />
     );
@@ -34,7 +47,7 @@ describe("Debug dashboard", () => {
     render(
       <DebugDashboard
         environment="development"
-        nextStatus="App Router 실행 중"
+        nextStatus="App Router 앱 상태"
         roadmap={[
           "PDF Document Engine",
           "Canvas Editor Core",
@@ -44,12 +57,22 @@ describe("Debug dashboard", () => {
         ]}
         moduleStatus={[]}
         payload={{
-          page: "/debug",
-          gazeCoordinate: "-",
-          roi: "-",
-          candidateCount: "0",
-          actionPlan: "-",
-          canvasObjects: "0",
+          documentKind: "none",
+          documentStatus: "empty",
+          documentName: "-",
+          currentPage: "-",
+          pageCount: "-",
+          zoom: "100%",
+          zoomMode: "custom",
+          originalWidth: "-",
+          originalHeight: "-",
+          renderedWidth: "-",
+          renderedHeight: "-",
+          pointerX: "-",
+          pointerY: "-",
+          textItemCount: "0",
+          pdfJsLoaded: "not loaded",
+          pdfWorkerLoaded: "not loaded",
         }}
       />
     );
@@ -58,26 +81,39 @@ describe("Debug dashboard", () => {
     expect(screen.getByText("Intent Gateway")).toBeInTheDocument();
   });
 
-  it("디버그 placeholder 데이터를 표시한다", () => {
+  it("문서 디버그 항목을 표시한다", () => {
     render(
       <DebugDashboard
         environment="development"
-        nextStatus="App Router 실행 중"
+        nextStatus="App Router 앱 상태"
         roadmap={[]}
-        moduleStatus={[]}
+        moduleStatus={[
+          { name: "Voice Engine", status: "준비 중" },
+        ]}
         payload={{
-          page: "/debug",
-          gazeCoordinate: "10, 20",
-          roi: "[0, 0, 100, 100]",
-          candidateCount: "1",
-          actionPlan: "detect",
-          canvasObjects: "2",
+          documentKind: "pdf",
+          documentStatus: "ready",
+          documentName: "sample.pdf",
+          currentPage: "2",
+          pageCount: "12",
+          zoom: "125%",
+          zoomMode: "custom",
+          originalWidth: "612",
+          originalHeight: "792",
+          renderedWidth: "765",
+          renderedHeight: "990",
+          pointerX: "0.25",
+          pointerY: "0.5",
+          textItemCount: "42",
+          pdfJsLoaded: "loaded",
+          pdfWorkerLoaded: "loaded",
         }}
       />
     );
 
-    expect(screen.getByText("테스트용 placeholder 데이터")).toBeInTheDocument();
-    expect(screen.getByText("10, 20")).toBeInTheDocument();
-    expect(screen.getByText("Action Plan")).toBeInTheDocument();
+    expect(screen.getByText("sample.pdf")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByText("0.25")).toBeInTheDocument();
+    expect(screen.getByText("pdf")).toBeInTheDocument();
   });
 });

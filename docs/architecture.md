@@ -1,26 +1,32 @@
-ï»¿# Architecture
+# Architecture
 
-## í˜„ì¬ êµ¬ì¡°
+## ÇöÀç ±¸Á¶
 
-- React UI
-- Editor Shell Placeholder
+- React Editor UI
+- Document Viewer
+  - PDF.js Adapter
+  - Document Session
+  - Page Renderer
+  - Text Content Extractor
+  - Coordinate Transformer
+  - Blank Page Renderer
 
-## í–¥í›„ êµ¬ì¡°
+## ÇâÈÄ ±¸Á¶
 
-- React UI
-- PDF Document Engine
+- React Editor UI
+  - Document Stage
+    - Base Document Layer
+    - Text/Semantic Layer
+    - Annotation Canvas Layer
+    - Interaction Layer
 - Canvas Editor Core
-- Semantic Layer
-- Gaze Engine
-- Voice Engine
-- ROI Context Builder
-- Intent Gateway
+- Gaze/Voice/Intent Integration
 
-## ì•„í‚¤í…ì²˜ ì›ì¹™
+## ¾ÆÅ°ÅØÃ³ ¿øÄ¢
 
-- React UIì™€ Canvas Editor Coreë¥¼ ë¶„ë¦¬í•œë‹¤.
-- ë¬¸ì„œ ì¢Œí‘œëŠ” ì •ê·œí™” ì¢Œí‘œ(Normalized Coordinates) ê¸°ë°˜ìœ¼ë¡œ ì „í™˜í•œë‹¤.
-- ë¸Œë¼ìš°ì €ì—ì„œ ì™¸ë¶€ LLM APIë¥¼ ì§ì ‘ í˜¸ì¶œí•˜ì§€ ì•ŠëŠ”ë‹¤.
-- ì €ì¥ì†Œ/AI í˜¸ì¶œì€ Adapter ì¸í„°í˜ì´ìŠ¤ ë’¤ë¡œ ë¶„ë¦¬í•œë‹¤.
-- Supabase ì—°ë™ì€ í•µì‹¬ UI íŒŒì´í”„ë¼ì¸ ì•ˆì •í™” ì´í›„ ë‹¨ê³„ì ìœ¼ë¡œ ì¶”ê°€í•œë‹¤.
-- í˜„ì¬ ë‹¨ê³„ì—ì„œëŠ” Cloud Runì„ ì‚¬ìš©í•˜ì§€ ì•ŠëŠ”ë‹¤.
+- React UI¿Í Canvas Editor Core´Â ºĞ¸®ÇÏ¿© »óÅÂ¸¦ ¸íÈ®È÷ ºĞ¸®ÇÑ´Ù.
+- ¹®¼­ ÁÂÇ¥´Â Á¤±ÔÈ­ ÁÂÇ¥(0~1) ±â¹İÀ¸·Î °ü¸®ÇÑ´Ù.
+- ºê¶ó¿ìÀú¿¡¼­ ¿ÜºÎ LLM API¸¦ Á÷Á¢ È£ÃâÇÏÁö ¾Ê´Â´Ù.
+- ÀúÀå¼Ò/AI È£ÃâÀº Adapter ÀÎÅÍÆäÀÌ½º µÚ·Î ºĞ¸®ÇÑ´Ù.
+- Supabase´Â ÇÙ½É UI¡¤·»´õ ÆÄÀÌÇÁ¶óÀÎ ¾ÈÁ¤È­ ÀÌÈÄ ´Ü°èÀûÀ¸·Î ¿¬°áÇÑ´Ù.
+- Cloud RunÀº ÇöÀç ´Ü°è¿¡¼­ »ç¿ëÇÏÁö ¾Ê´Â´Ù.

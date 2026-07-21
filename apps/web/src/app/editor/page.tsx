@@ -1,5 +1,5 @@
-﻿import { EditorShell } from "@/features/editor/components/editor-shell";
+import { DocumentWorkspace } from "@/features/document/components/document-workspace";
 
 export default function EditorPage() {
-  return <EditorShell />;
+  return <DocumentWorkspace />;
 }

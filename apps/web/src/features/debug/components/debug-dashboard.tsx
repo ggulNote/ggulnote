@@ -1,20 +1,28 @@
-﻿import type { ReactElement } from "react";
+﻿type DebugPayload = {
+  documentKind: string;
+  documentStatus: string;
+  documentName: string;
+  currentPage: string;
+  pageCount: string;
+  zoom: string;
+  zoomMode: string;
+  originalWidth: string;
+  originalHeight: string;
+  renderedWidth: string;
+  renderedHeight: string;
+  pointerX: string;
+  pointerY: string;
+  textItemCount: string;
+  pdfJsLoaded: string;
+  pdfWorkerLoaded: string;
+};
 
 type ModuleState = {
   name: string;
-  status: "미구현" | "준비 중";
+  status: "준비 중" | "미구현";
 };
 
-type DebugPayload = {
-  page: string;
-  gazeCoordinate: string;
-  roi: string;
-  candidateCount: string;
-  actionPlan: string;
-  canvasObjects: string;
-};
-
-type DebugProps = {
+type DebugDashboardProps = {
   environment: string;
   nextStatus: string;
   moduleStatus: ModuleState[];
@@ -28,17 +36,17 @@ export function DebugDashboard({
   moduleStatus,
   roadmap,
   payload,
-}: DebugProps): ReactElement {
+}: DebugDashboardProps): React.ReactElement {
   return (
-    <main className="mx-auto w-full max-w-5xl p-4 md:p-8">
+    <main className="mx-auto w-full max-w-7xl p-4 md:p-8">
       <h1 className="text-3xl font-semibold text-slate-900">디버그 대시보드</h1>
 
       <section className="mt-6 grid gap-4 md:grid-cols-2">
-        <article className="rounded-lg border border-slate-200 bg-white p-4" aria-labelledby="runtime-title">
-          <h2 id="runtime-title" className="text-sm font-semibold uppercase text-slate-500">실행 상태</h2>
+        <article className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="text-sm font-semibold uppercase text-slate-500">실행 상태</h2>
           <dl className="mt-3 space-y-2 text-sm">
             <div>
-              <dt className="font-semibold">실행 환경</dt>
+              <dt className="font-semibold">환경</dt>
               <dd>{environment}</dd>
             </div>
             <div>
@@ -52,8 +60,8 @@ export function DebugDashboard({
           </dl>
         </article>
 
-        <article className="rounded-lg border border-slate-200 bg-white p-4" aria-labelledby="module-title">
-          <h2 id="module-title" className="text-sm font-semibold uppercase text-slate-500">모듈 준비 상태</h2>
+        <article className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="text-sm font-semibold uppercase text-slate-500">모듈 상태</h2>
           <ul className="mt-3 space-y-2 text-sm">
             {moduleStatus.map((module) => (
               <li key={module.name} className="flex items-center justify-between gap-3">
@@ -65,43 +73,83 @@ export function DebugDashboard({
         </article>
       </section>
 
-      <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4" aria-labelledby="roadmap-title">
-        <h2 id="roadmap-title" className="text-sm font-semibold uppercase text-slate-500">향후 모듈 목록</h2>
+      <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold uppercase text-slate-500">문서 상태</h2>
+        <dl className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+          <div>
+            <dt>문서 종류</dt>
+            <dd>{payload.documentKind}</dd>
+          </div>
+          <div>
+            <dt>문서 상태</dt>
+            <dd>{payload.documentStatus}</dd>
+          </div>
+          <div>
+            <dt>문서명</dt>
+            <dd>{payload.documentName}</dd>
+          </div>
+          <div>
+            <dt>현재 페이지</dt>
+            <dd>{payload.currentPage}</dd>
+          </div>
+          <div>
+            <dt>총 페이지</dt>
+            <dd>{payload.pageCount}</dd>
+          </div>
+          <div>
+            <dt>현재 줌</dt>
+            <dd>{payload.zoom}</dd>
+          </div>
+          <div>
+            <dt>Zoom 모드</dt>
+            <dd>{payload.zoomMode}</dd>
+          </div>
+          <div>
+            <dt>원본 페이지 너비</dt>
+            <dd>{payload.originalWidth}</dd>
+          </div>
+          <div>
+            <dt>원본 페이지 높이</dt>
+            <dd>{payload.originalHeight}</dd>
+          </div>
+          <div>
+            <dt>렌더링 너비</dt>
+            <dd>{payload.renderedWidth}</dd>
+          </div>
+          <div>
+            <dt>렌더링 높이</dt>
+            <dd>{payload.renderedHeight}</dd>
+          </div>
+          <div>
+            <dt>현재 포인터 X</dt>
+            <dd>{payload.pointerX}</dd>
+          </div>
+          <div>
+            <dt>현재 포인터 Y</dt>
+            <dd>{payload.pointerY}</dd>
+          </div>
+          <div>
+            <dt>Text Item 개수</dt>
+            <dd>{payload.textItemCount}</dd>
+          </div>
+          <div>
+            <dt>PDF.js 로딩</dt>
+            <dd>{payload.pdfJsLoaded}</dd>
+          </div>
+          <div>
+            <dt>PDF Worker 로딩</dt>
+            <dd>{payload.pdfWorkerLoaded}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold uppercase text-slate-500">향후 모듈 목록</h2>
         <ul className="mt-3 list-disc pl-6 text-sm text-slate-700">
           {roadmap.map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>
-      </section>
-
-      <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4" aria-labelledby="placeholder-title">
-        <h2 id="placeholder-title" className="text-sm font-semibold uppercase text-slate-500">테스트용 placeholder 데이터</h2>
-        <dl className="mt-3 grid gap-2 text-sm md:grid-cols-2">
-          <div>
-            <dt className="font-semibold">현재 페이지</dt>
-            <dd>{payload.page}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">시선 좌표</dt>
-            <dd>{payload.gazeCoordinate}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">ROI</dt>
-            <dd>{payload.roi}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">후보 객체 수</dt>
-            <dd>{payload.candidateCount}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">Action Plan</dt>
-            <dd>{payload.actionPlan}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">Canvas 객체 수</dt>
-            <dd>{payload.canvasObjects}</dd>
-          </div>
-        </dl>
       </section>
     </main>
   );
