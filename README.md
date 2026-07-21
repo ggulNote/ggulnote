@@ -1,50 +1,45 @@
 # ggulnote
 
-## 프로젝트 소개
+## ?�로?�트 ?�개
 
-꿀노트는 사용자의 시선으로 PDF/백지 편집 영역을 지정하고, 음성 명령으로 필기 도구를 제어하는
-핸즈프리 문서 편집 애플리케이션입니다.
+꿀?�트???�용?�의 ?�선?�로 PDF/백�? ?�집 ?�역??지?�하�? ?�성 명령?�로 ?�기 ?�구�??�어?�는
+?�즈?�리 문서 ?�집 ?�플리�??�션?�니??
 
-본 단계는 **Canvas Editor Core** 구현입니다.
+�??�계??**Canvas Editor Core** 구현?�니??
 
-## 현재 단계
+## ?�재 ?�계
 
-- 1단계 기반 구성(Next.js, Turborepo, 테스트/CI) 기반
-- PDF 및 백지 뷰어 정상 동작 유지(로컬 열기, PDF.js 렌더링, 페이지 이동/확대축소)
-- Annotation Overlay 캔버스 추가 및 편집 코어 동작
+- 1?�계 기반 구성(Next.js, Turborepo, ?�스??CI) 기반
+- PDF �?백�? 뷰어 ?�상 ?�작 ?��?(로컬 ?�기, PDF.js ?�더�? ?�이지 ?�동/?��?축소)
+- Annotation Overlay 캔버??추�? �??�집 코어 ?�작
 
 ## 구현 범위
 
-### 구현 완료
+### 구현 ?�료
 
 - Annotation 객체 모델
   - TEXT, UNDERLINE, HIGHLIGHT, SHAPE(rectangle/ellipse), LINE(line/arrow), TABLE
-- 페이지별 Scene 관리
-- Command 패턴 기반 편집 엔진
+- ?�이지�?Scene 관�?- Command ?�턴 기반 ?�집 ?�진
   - CREATE / UPDATE / DELETE / MOVE + Undo/Redo
 - Canvas 2D Editor Renderer Adapter
-- 포인터 인터랙션
-  - 선택(히트 테스트), 이동(드래그 미리보기 + 커밋/취소), 삭제
-- 개발용 툴바 및 디버그 패널 연동
-- 문서/페이지 전환 시 Scene 보존
-- 정규화 좌표 기준 렌더링·히트테스트
-- Annotation 직렬화/역직렬화
+- ?�인???�터?�션
+  - ?�택(?�트 ?�스??, ?�동(?�래�?미리보기 + 커밋/취소), ??��
+- 개발???�바 �??�버�??�널 ?�동
+- 문서/?�이지 ?�환 ??Scene 보존
+- ?�규??좌표 기�? ?�더링·히?�테?�트
+- Annotation 직렬????��?�화
 
-### 제외(미구현)
+### ?�외(미구??
 
-- IndexedDB/영구 저장
-- Supabase 연동
-- 원격 문서 동기화
-- 시선/카메라/음성/LLM 연동
-- PDF에 직접 Annotation 그리기 저장
-- 표 셀 편집, 크기 조정, 회전, 자유형 스케치
+- IndexedDB/?�구 ?�??- Supabase ?�동
+- ?�격 문서 ?�기??- ?�선/카메???�성/LLM ?�동
+- PDF??직접 Annotation 그리�??�??- ???� ?�집, ?�기 조정, ?�전, ?�유???��?�?
+## ?�심 ?�약
 
-## 핵심 제약
+- ?�로고침 ???�성??Annotation?� 메모리에?�만 ?��??�어 ?�라집니??
+- 최종 ?�비?�의 ?�성/?�선 ?�어???�후 ?�계?�서 ?�체됩?�다.
 
-- 새로고침 시 생성된 Annotation은 메모리에서만 유지되어 사라집니다.
-- 최종 서비스의 음성/시선 제어는 향후 단계에서 대체됩니다.
-
-## 기술 스택
+## 기술 ?�택
 
 - Next.js App Router (v16)
 - React 19
@@ -56,29 +51,26 @@
 - Vitest + React Testing Library
 - pdfjs-dist (로컬 worker)
 
-## 프로젝트 구조
+## ?�로?�트 구조
 
-- `apps/web`: Next.js 애플리케이션
-  - `features/document`: PDF/백지 뷰어
-  - `features/editor`: Annotation Canvas Overlay, Interaction, Core Adapter 레이어
-- `packages/editor-core`: Canvas Editor Core
-  - Annotation 모델, Scene/스토어, Command, Engine, Renderer 인터페이스, 직렬화
-- `packages/shared-types`: 정규화 좌표/ID 공용 타입
-
-## 설치
+- `apps/web`: Next.js ?�플리�??�션
+  - `features/document`: PDF/백�? 뷰어
+  - `features/editor`: Annotation Canvas Overlay, Interaction, Core Adapter ?�이??- `packages/editor-core`: Canvas Editor Core
+  - Annotation 모델, Scene/?�토?? Command, Engine, Renderer ?�터?�이?? 직렬??- `packages/shared-types`: ?�규??좌표/ID 공용 ?�??
+## ?�치
 
 ```bash
 corepack enable
 pnpm install
 ```
 
-## 로컬 실행
+## 로컬 ?�행
 
 ```bash
 pnpm dev
 ```
 
-접속 URL:
+?�속 URL:
 
 ```text
 http://localhost:3000
@@ -86,7 +78,7 @@ http://localhost:3000/editor
 http://localhost:3000/debug
 ```
 
-## 실행/검증 명령
+## ?�행/검�?명령
 
 ```bash
 pnpm lint
@@ -97,10 +89,11 @@ pnpm build
 
 ## 문서
 
-- `docs/architecture.md`: 웹/에디터 아키텍처 현재 구조
-- `docs/canvas-editor.md`: Editor Core 구현 상세
+- `docs/architecture.md`: ???�디???�키?�처 ?�재 구조
+- `docs/canvas-editor.md`: Editor Core 구현 ?�세
 
-## 다음 개발 단계
+## ?�음 개발 ?�계
 
-- IndexedDB 로컬 저장(메모리 대체)
-- 운영 모듈 연동(시선/음성/LLM)
+- IndexedDB 로컬 ?�??메모�??��?
+- ?�영 모듈 ?�동(?�선/?�성/LLM)
+

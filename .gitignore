@@ -12,3 +12,6 @@ Thumbs.db
 *.log
 
 build
+
+docs
+AGENTS.md

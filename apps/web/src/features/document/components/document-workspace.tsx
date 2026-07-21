@@ -356,7 +356,7 @@ export function DocumentWorkspace(): React.ReactElement {
 
   useEffect(() => {
     renderSchedule();
-  }, [editorSnapshot.revision, renderSchedule]);
+  }, [editorSnapshot.revision, renderSchedule, activePageId, state.status]);
 
   useEffect(() => {
     return () => {
@@ -1284,5 +1284,4 @@ export function DocumentWorkspace(): React.ReactElement {
     </main>
   );
 }
-
 
