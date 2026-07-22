@@ -72,7 +72,7 @@ export class LocalSaveQueue {
       })
       .finally(() => undefined);
 
-    this.chain = run.catch(() => undefined);
+    this.chain = run.then<void, void>(() => undefined, () => undefined);
     return run;
   }
 

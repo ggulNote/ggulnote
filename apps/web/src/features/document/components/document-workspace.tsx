@@ -244,6 +244,8 @@ export function DocumentWorkspace(): React.ReactElement {
     zoomMode: "custom",
   });
   const [localPersistence] = useState(() => new LocalEditorPersistence());
+  // The callback reads the latest view state only when an operation event runs, never during render.
+  // eslint-disable-next-line react-hooks/refs
   const [persistenceCoordinator] = useState(() =>
     new PersistenceCoordinator(editorEngine, localPersistence, {
       onSaveStateChange: (saveState) => {
@@ -267,9 +269,15 @@ export function DocumentWorkspace(): React.ReactElement {
       return;
     }
 
-    const next = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-    setDpr(next);
-  }, [setDpr]);
+    const frame = window.requestAnimationFrame(() => {
+      const next = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+      setDpr(next);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
 
   const renderSchedule = useCallback(() => {
@@ -394,7 +402,7 @@ export function DocumentWorkspace(): React.ReactElement {
     }
 
     coordinator.stop();
-  }, [persistenceCoordinator, state.document?.id, state.status]);
+  }, [persistenceCoordinator, state.document, state.status]);
 
 
   useEffect(() => {
@@ -540,7 +548,7 @@ export function DocumentWorkspace(): React.ReactElement {
     renderSchedule,
     editorSnapshot.documentId,
     editorSnapshot.activePageId,
-    state.document?.id,
+    state.document,
     state.status,
     state.page?.id,
   ]);
@@ -551,7 +559,11 @@ export function DocumentWorkspace(): React.ReactElement {
 
   useEffect(() => {
     return () => {
-      editorEngine.destroy();
+      queueMicrotask(() => {
+        if (!isWorkspaceMountedRef.current) {
+          editorEngine.destroy();
+        }
+      });
     };
   }, [editorEngine]);
 
@@ -819,14 +831,14 @@ export function DocumentWorkspace(): React.ReactElement {
     [
       activePageId,
       clampSize,
-      createAnnotation,
       editorEngine,
       interactionMode,
       setPointer,
       stageSize.height,
       stageSize.width,
-      state.document?.id,
+      state.document,
       state.renderedHeight,
+      state.status,
       state.renderedWidth,
       tableColumns,
       tableRows,
@@ -865,7 +877,7 @@ export function DocumentWorkspace(): React.ReactElement {
       };
       renderSchedule();
     },
-    [clampSize, editorEngine, renderSchedule, setPointer],
+    [clampSize, editorEngine, renderSchedule, setPointer, state.status],
   );
 
   const handlePointerUp = useCallback(
@@ -1009,9 +1021,9 @@ export function DocumentWorkspace(): React.ReactElement {
       activePageId,
       clampSize,
       createAnnotation,
+      editorEngine,
       highlightColor,
       highlightOpacity,
-      isDragDistanceEnough,
       lineStrokeWidth,
       renderSchedule,
       shapeFillColor,
@@ -1028,6 +1040,7 @@ export function DocumentWorkspace(): React.ReactElement {
       underlineThickness,
     ],
   );
+  /* eslint-disable react-hooks/refs -- Transient drag previews intentionally stay outside React state. */
   const dragPreview = (() => {
     const draft = activeDragRef.current;
     if (!draft || !("start" in draft) || !("end" in draft)) {
@@ -1112,6 +1125,7 @@ export function DocumentWorkspace(): React.ReactElement {
       />
     );
   })();
+  /* eslint-enable react-hooks/refs */
   const handlePointerCancel = useCallback(() => {
     const draft = activeDragRef.current;
     if (!draft) {
