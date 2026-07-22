@@ -18,13 +18,13 @@ export function LandingPageContent(): React.ReactElement {
       </p>
 
       <section className="mt-10 flex flex-wrap gap-3" aria-label="주요 이동 링크">
-        <Link
+        <a
           href="/editor"
           aria-label="에디터 페이지 이동"
           className="rounded-md border border-slate-900 px-5 py-3 font-medium text-slate-900 transition-colors hover:bg-slate-900 hover:text-white"
         >
           /editor로 이동
-        </Link>
+        </a>
         <Link
           href="/debug"
           aria-label="디버그 페이지 이동"

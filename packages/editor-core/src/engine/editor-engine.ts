@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AnnotationId,
   DocumentId,
   NormalizedPoint,
@@ -16,11 +16,11 @@ import { deserializeAnnotation, serializeAnnotation } from "../serialization/ann
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
 import { CommandManager } from "../commands/command-manager";
 import { SceneStore } from "../scene/scene-store";
-import { type AnnotationRenderer } from "../rendering/annotation-renderer";
+import type { AnnotationRenderer } from "../rendering/annotation-renderer";
 import { EditorOperation } from "../operations/editor-operation";
-import type { EditorSnapshot } from "./editor-snapshot";
+import type { EditorSnapshot, PageSceneSnapshot } from "./editor-snapshot";
 import type { EditorOptions } from "./editor-options";
-import { type EditorEvents } from "./editor-events";
+import { EditorHistoryAction, type EditorEvents, type EditorPersistenceEvent } from "./editor-events";
 import { isFiniteNumber } from "./editor-utils";
 export const DEFAULT_HISTORY_LIMIT = 100;
 
@@ -36,9 +36,12 @@ type DragState = {
   mode: DragMode;
 };
 
+const PAGE_ID_PATTERN = /-page-(\d+)$/u;
+
 export class EditorEngine {
   private readonly sceneStore = new SceneStore();
   private readonly listeners = new Set<Listener>();
+  private readonly operationListeners = new Set<(event: EditorPersistenceEvent) => void>();
   private readonly commandManager: CommandManager;
   private readonly annotationFactory: AnnotationFactory;
 
@@ -51,6 +54,7 @@ export class EditorEngine {
   private cachedSnapshot: EditorSnapshot | null = null;
   private dragState: DragState | null = null;
   private destroyed = false;
+  private readonly pageRevisions = new Map<PageId, number>();
 
   public constructor(
     options: EditorOptions = {},
@@ -77,6 +81,7 @@ export class EditorEngine {
 
     this.documentId = documentId;
     this.sceneStore.clear();
+    this.pageRevisions.clear();
     this.commandManager.clear();
     this.activePageId = null;
     this.activePageSize = null;
@@ -187,6 +192,45 @@ export class EditorEngine {
     return selected ? serializeAnnotation(selected) : null;
   }
 
+  public exportPageSnapshot(pageId: PageId): PageSceneSnapshot {
+    if (!this.documentId) {
+      throw new Error("Active document is required");
+    }
+
+    const scene = this.sceneStore.getPage(pageId);
+    const annotations = scene ? scene.getAll().map((annotation) => annotation.serialize()) : [];
+
+    return {
+      documentId: this.documentId,
+      pageId,
+      pageNumber: this.parsePageNumber(pageId),
+      revision: this.pageRevisions.get(pageId) ?? 0,
+      annotations,
+    };
+  }
+
+  public hydratePage(snapshot: PageSceneSnapshot): void {
+    if (!this.documentId) {
+      throw new Error("Active document is required");
+    }
+
+    if (snapshot.documentId !== this.documentId) {
+      throw new Error("Cannot hydrate snapshot from different document");
+    }
+
+    const annotations = snapshot.annotations.map((raw) => deserializeAnnotation(raw));
+    this.sceneStore.replacePage(snapshot.pageId, annotations);
+
+    const currentRevision = this.pageRevisions.get(snapshot.pageId) ?? 0;
+    if (snapshot.revision >= currentRevision) {
+      this.pageRevisions.set(snapshot.pageId, snapshot.revision);
+    }
+
+    this.selectedAnnotationId = null;
+    this.dragState = null;
+    this.emit();
+  }
+
   public createAnnotation(input: CreateAnnotationInput): AnnotationId {
     this.assertActiveSession();
 
@@ -209,6 +253,7 @@ export class EditorEngine {
     const command = new CreateAnnotationCommand(annotation, this.documentId as DocumentId);
     this.commandManager.execute(command);
     this.lastOperation = command.toOperation();
+    this.publishOperation(this.lastOperation, "execute");
 
     return annotation.id;
   }
@@ -351,6 +396,7 @@ export class EditorEngine {
             : new MoveAnnotationCommand(before, finalSnapshot, this.documentId);
         this.commandManager.execute(command);
         this.lastOperation = command.toOperation();
+        this.publishOperation(this.lastOperation, "execute");
       } else {
         const original = deserializeAnnotation(before);
         scene.update(original);
@@ -404,6 +450,7 @@ export class EditorEngine {
     const command = new MoveAnnotationCommand(snapshot, next, this.documentId);
     this.commandManager.execute(command);
     this.lastOperation = command.toOperation();
+    this.publishOperation(this.lastOperation, "execute");
   }
 
   public deleteSelected(): void {
@@ -415,6 +462,7 @@ export class EditorEngine {
     const command = new DeleteAnnotationCommand(selected.serialize(), this.documentId);
     this.commandManager.execute(command);
     this.lastOperation = command.toOperation();
+    this.publishOperation(this.lastOperation, "execute");
     this.selectedAnnotationId = null;
   }
 
@@ -436,6 +484,7 @@ export class EditorEngine {
     const command = new UpdateAnnotationCommand(before, updated, this.documentId);
     this.commandManager.execute(command);
     this.lastOperation = command.toOperation();
+    this.publishOperation(this.lastOperation, "execute");
   }
 
   public undo(): void {
@@ -449,6 +498,7 @@ export class EditorEngine {
     }
 
     this.lastOperation = command.toOperation();
+    this.publishOperation(this.lastOperation, "undo");
   }
 
   public redo(): void {
@@ -462,6 +512,7 @@ export class EditorEngine {
     }
 
     this.lastOperation = command.toOperation();
+    this.publishOperation(this.lastOperation, "redo");
   }
 
   public render(renderer: AnnotationRenderer, devicePixelRatio = 1): void {
@@ -509,6 +560,17 @@ export class EditorEngine {
     };
   }
 
+  public subscribeToOperations(listener: (event: EditorPersistenceEvent) => void): () => void {
+    if (this.destroyed) {
+      return () => undefined;
+    }
+
+    this.operationListeners.add(listener);
+    return () => {
+      this.operationListeners.delete(listener);
+    };
+  }
+
   public destroy(): void {
     if (this.destroyed) {
       return;
@@ -516,6 +578,7 @@ export class EditorEngine {
 
     this.destroyed = true;
     this.listeners.clear();
+    this.operationListeners.clear();
     this.commandManager.clear();
     this.sceneStore.clear();
     this.documentId = null;
@@ -524,6 +587,7 @@ export class EditorEngine {
     this.selectedAnnotationId = null;
     this.lastOperation = null;
     this.dragState = null;
+    this.pageRevisions.clear();
     this.emit();
   }
 
@@ -541,6 +605,7 @@ export class EditorEngine {
       height: Math.max(0, normalizedY - annotation.bounds.y),
     };
   }
+
   private getCommandContext(): EditorCommandContext {
     return {
       getSceneStore: () => this.sceneStore,
@@ -610,13 +675,50 @@ export class EditorEngine {
     }
   }
 
+  private publishOperation(operation: EditorOperation, historyAction: EditorHistoryAction): void {
+    if (!this.documentId) {
+      return;
+    }
+
+    const revision = this.bumpPageRevision(operation.pageId);
+    const event: EditorPersistenceEvent = {
+      documentId: this.documentId,
+      pageId: operation.pageId,
+      pageNumber: this.parsePageNumber(operation.pageId),
+      historyAction,
+      operation,
+      revision,
+    };
+
+    for (const listener of this.operationListeners) {
+      listener(event);
+    }
+  }
+
+  private getPageRevision(pageId: PageId): number {
+    return this.pageRevisions.get(pageId) ?? 0;
+  }
+
+  private bumpPageRevision(pageId: PageId): number {
+    const next = this.getPageRevision(pageId) + 1;
+    this.pageRevisions.set(pageId, next);
+    return next;
+  }
+
+  private parsePageNumber(pageId: PageId): number {
+    const match = PAGE_ID_PATTERN.exec(pageId);
+    if (!match?.[1]) {
+      return 1;
+    }
+
+    const parsed = Number(match[1]);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+  }
+
   private assertActiveSession(): void {
     if (this.destroyed || !this.documentId) {
       throw new Error("Active document is required");
     }
   }
 }
-
-
-
 

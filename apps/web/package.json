@@ -15,6 +15,7 @@
   "dependencies": {
     "@ggulnote/editor-core": "workspace:*",
     "@ggulnote/shared-types": "workspace:*",
+    "dexie": "^4.4.4",
     "next": "16.2.10",
     "pdfjs-dist": "^6.1.200",
     "react": "19.2.4",
@@ -29,6 +30,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "26.1.0",
     "rimraf": "6.1.0",
     "tailwindcss": "^4",

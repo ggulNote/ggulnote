@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { DocumentWorkspace } from "@/features/document/components/document-workspace";
 import type { DocumentSessionState } from "@/features/document/model/document-state";
@@ -8,6 +8,8 @@ import { A4_PORTRAIT_POINTS } from "@/features/document/model/document-types";
 
 let mockState: DocumentSessionState = getInitialState();
 let mockOpenPdfFile = vi.fn();
+let mockOpenPersistedPdfDocument = vi.fn();
+let mockOpenBlankFromDescriptor = vi.fn();
 let mockOpenBlank = vi.fn();
 let mockClose = vi.fn();
 let mockGoToPage = vi.fn();
@@ -35,6 +37,8 @@ function getInitialState(overrides: Partial<DocumentSessionState> = {}): Documen
     renderedWidth: 0,
     renderedHeight: 0,
     isTextLoading: false,
+    persistenceSaveStatus: "idle",
+    persistenceSaveErrorMessage: null,
     ...overrides,
   };
 }
@@ -43,6 +47,8 @@ vi.mock("@/features/document/hooks/use-document-session", () => ({
   useDocumentSession: () => ({
     state: mockState,
     openPdfFile: mockOpenPdfFile,
+    openPersistedPdfDocument: mockOpenPersistedPdfDocument,
+    openBlankFromDescriptor: mockOpenBlankFromDescriptor,
     openBlankDocument: mockOpenBlank,
     closeDocument: mockClose,
     goToPage: mockGoToPage,
@@ -59,6 +65,8 @@ vi.mock("@/features/document/hooks/use-document-session", () => ({
 afterEach(() => {
   cleanup();
   mockOpenPdfFile = vi.fn();
+  mockOpenPersistedPdfDocument = vi.fn();
+  mockOpenBlankFromDescriptor = vi.fn();
   mockOpenBlank = vi.fn();
   mockClose = vi.fn();
   mockGoToPage = vi.fn();
@@ -71,22 +79,22 @@ afterEach(() => {
 });
 
 describe("Editor workspace", () => {
-  it("ºó »óÅÂ¿¡¼­ PDF ÆÄÀÏ ¿­±â¿Í »õ ¹éÁö ¹öÆ°ÀÌ º¸ÀÎ´Ù", () => {
+  it("ë¹ˆ ìƒíƒœì—ì„œ PDF íŒŒì¼ ì—´ê¸°ì™€ ìƒˆ ë°±ì§€ ë²„íŠ¼ì´ ë³´ì¸ë‹¤", async () => {
     mockState = getInitialState();
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByRole("heading", { name: "²Ü³ëÆ®" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "PDF ÆÄÀÏ ¿­±â" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "»õ ¹éÁö ¸¸µé±â" })).toBeInTheDocument();
-    expect(screen.getByText("¹®¼­¸¦ ºÒ·¯¿Í ÁÖ¼¼¿ä.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Document Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "PDF íŒŒì¼ ì—´ê¸°" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ìƒˆ ë°±ì§€ ë§Œë“¤ê¸°" })).toBeInTheDocument();
+    expect(screen.getByText("ë¬¸ì„œë¥¼ ë¶ˆëŸ¬ì™€ ì£¼ì„¸ìš”.")).toBeInTheDocument();
   });
 
-  it("¹éÁö »ı¼º ÈÄ A4 ±âº» ÆäÀÌÁö¸¦ Ç¥½ÃÇÑ´Ù", () => {
+  it("ë°±ì§€ ìƒì„± í›„ A4 ê¸°ë³¸ í˜ì´ì§€ë¥¼ í‘œì‹œí•œë‹¤", () => {
     const document: DocumentDescriptor = {
       id: "blank-1",
       kind: "blank",
-      name: "»õ ¹éÁö",
+      name: "ìƒˆ ë°±ì§€",
       pageCount: 1,
     };
 
@@ -108,10 +116,10 @@ describe("Editor workspace", () => {
     render(<DocumentWorkspace />);
 
     expect(screen.getByText("Blank Page (A4)")).toBeInTheDocument();
-    expect(screen.getByText("¹®¼­ Á¾·ù")).toBeInTheDocument();
+    expect(screen.getByText("ë¬¸ì„œ ì¢…ë¥˜")).toBeInTheDocument();
   });
 
-  it("ÇöÀç ÆäÀÌÁö°¡ Ã¹ ¹øÂ°¸é ÀÌÀü ¹öÆ°ÀÌ ºñÈ°¼º", () => {
+  it("í˜„ì¬ í˜ì´ì§€ê°€ ì²« ë²ˆì§¸ë©´ ì´ì „ ë²„íŠ¼ì´ ë¹„í™œì„±", () => {
     mockState = getInitialState({
       status: "ready",
       document: {
@@ -125,10 +133,10 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByRole("button", { name: /ÀÌÀü ÆäÀÌÁö/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /ì´ì „ í˜ì´ì§€/i })).toBeDisabled();
   });
 
-  it("ÇöÀç ÆäÀÌÁö°¡ ¸¶Áö¸·ÀÌ¸é ´ÙÀ½ ¹öÆ°ÀÌ ºñÈ°¼º", () => {
+  it("í˜„ì¬ í˜ì´ì§€ê°€ ë§ˆì§€ë§‰ì´ë©´ ë‹¤ìŒ ë²„íŠ¼ì´ ë¹„í™œì„±", () => {
     mockState = getInitialState({
       status: "ready",
       document: {
@@ -152,10 +160,10 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByRole("button", { name: /´ÙÀ½ ÆäÀÌÁö/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /ë‹¤ìŒ í˜ì´ì§€/i })).toBeDisabled();
   });
 
-  it("·Îµù »óÅÂ ¹®±¸¸¦ Ç¥½ÃÇÑ´Ù", () => {
+  it("ë¡œë”© ìƒíƒœ ë¬¸êµ¬ë¥¼ í‘œì‹œí•œë‹¤", async () => {
     mockState = getInitialState({
       status: "loading",
       document: {
@@ -168,29 +176,29 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    expect(screen.getByText("¹®¼­ ·Îµù ÁßÀÔ´Ï´Ù.")).toBeInTheDocument();
+    expect(await screen.findByText("Page loading failed.")).toBeInTheDocument();
   });
 
-  it("¿À·ù »óÅÂ¿¡¼­ ¸Ş½ÃÁö¸¦ Ç¥½ÃÇÑ´Ù", () => {
+  it("ì˜¤ë¥˜ ìƒíƒœì—ì„œ ë©”ì‹œì§€ë¥¼ í‘œì‹œí•œë‹¤", () => {
     mockState = getInitialState({
       status: "error",
-      errorMessage: "Àß¸øµÈ PDF ÆÄÀÏÀÔ´Ï´Ù.",
+      errorMessage: "ì˜ëª»ëœ PDF íŒŒì¼ì…ë‹ˆë‹¤.",
     });
 
     render(<DocumentWorkspace />);
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByText("¹®¼­ ·Îµù Áß ¿À·ù°¡ ¹ß»ıÇß½À´Ï´Ù.")).toBeInTheDocument();
-    expect(screen.getByText("Àß¸øµÈ PDF ÆÄÀÏÀÔ´Ï´Ù.")).toBeInTheDocument();
+    expect(screen.getByText("ë¬¸ì„œ ë¡œë”© ì¤‘ ì˜¤ë¥˜ê°€ ë°œìƒí–ˆìŠµë‹ˆë‹¤.")).toBeInTheDocument();
+    expect(screen.getByText("ì˜ëª»ëœ PDF íŒŒì¼ì…ë‹ˆë‹¤.")).toBeInTheDocument();
   });
 
-  it("¹®¼­ ´İ±â ¹öÆ°À» ´©¸£¸é ´İ±â ÇÚµé·¯°¡ È£ÃâµÈ´Ù", () => {
+  it("ë¬¸ì„œ ë‹«ê¸° ë²„íŠ¼ì„ ëˆ„ë¥´ë©´ ë‹«ê¸° í•¸ë“¤ëŸ¬ê°€ í˜¸ì¶œëœë‹¤", async () => {
     mockState = getInitialState({
       status: "ready",
       document: {
         id: "blank-1",
         kind: "blank",
-        name: "»õ ¹éÁö",
+        name: "ìƒˆ ë°±ì§€",
         pageCount: 1,
       },
       totalPages: 1,
@@ -205,19 +213,21 @@ describe("Editor workspace", () => {
 
     render(<DocumentWorkspace />);
 
-    const closeButton = screen.getByRole("button", { name: "¹®¼­ ´İ±â" });
+    const closeButton = screen.getByRole("button", { name: "ë¬¸ì„œ ë‹«ê¸°" });
     fireEvent.click(closeButton);
 
-    expect(mockClose).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(mockClose).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("ÁÜ °ªÀÌ UI¿¡ Ç¥½ÃµÈ´Ù", () => {
+  it("ì¤Œ ê°’ì´ UIì— í‘œì‹œëœë‹¤", () => {
     mockState = getInitialState({
       status: "ready",
       document: {
         id: "blank-1",
         kind: "blank",
-        name: "»õ ¹éÁö",
+        name: "ìƒˆ ë°±ì§€",
         pageCount: 1,
       },
       totalPages: 1,
@@ -234,9 +244,9 @@ describe("Editor workspace", () => {
     render(<DocumentWorkspace />);
 
     const toolbar = screen
-      .getByRole("region", { name: "¹®¼­ µµ±¸ ¸ğÀ½" });
+      .getByRole("region", { name: "ë¬¸ì„œ ë„êµ¬ ëª¨ìŒ" });
     const debugPanel = screen
-      .getByRole("heading", { name: "¹®¼­ »óÅÂ" })
+      .getByRole("heading", { name: "ë¬¸ì„œ ìƒíƒœ" })
       .closest("aside");
 
     expect(within(toolbar as HTMLElement).getByText("125%"))

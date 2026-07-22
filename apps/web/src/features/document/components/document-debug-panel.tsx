@@ -1,4 +1,4 @@
-﻿import type { NormalizedPoint } from "../model/document-types";
+import type { NormalizedPoint } from "../model/document-types";
 import type { DocumentSessionState } from "../model/document-state";
 
 type DebugPanelProps = {
@@ -12,6 +12,14 @@ export function DocumentDebugPanel({ state, documentName, pointer }: DebugPanelP
     <aside className="rounded-lg border border-slate-200 bg-white p-4" aria-label="문서 디버그 패널">
       <h2 className="text-sm font-semibold text-slate-700">문서 상태</h2>
       <dl className="mt-3 space-y-2 text-sm">
+        <div>
+          <dt className="font-medium text-slate-600">저장 상태</dt>
+          <dd>{state.persistenceSaveStatus}</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-slate-600">저장 오류</dt>
+          <dd>{state.persistenceSaveErrorMessage ?? "-"}</dd>
+        </div>
         <div>
           <dt className="font-medium text-slate-600">문서 종류</dt>
           <dd>{state.document?.kind ?? "none"}</dd>
