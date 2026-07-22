@@ -271,6 +271,7 @@ export function DocumentWorkspace(): React.ReactElement {
     setDpr(next);
   }, [setDpr]);
 
+
   const renderSchedule = useCallback(() => {
     if (typeof window === "undefined") {
       return;
@@ -319,6 +320,16 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const hasRestoredDocumentRef = useRef(false);
   const activePageId = state.document ? `${state.document.id}-page-${state.currentPage}` : null;
+  const hydratedPagesRef = useRef(new Set<string>());
+  const hydrationRequestRef = useRef(0);
+  const isWorkspaceMountedRef = useRef(true);
+
+  useEffect(() => {
+    isWorkspaceMountedRef.current = true;
+    return () => {
+      isWorkspaceMountedRef.current = false;
+    };
+  }, []);
 
 
   useEffect(() => {
@@ -484,19 +495,42 @@ export function DocumentWorkspace(): React.ReactElement {
     }
   }, [activePageId, editorEngine, stageSize, state.renderedHeight, state.renderedWidth, state.status]);
   useEffect(() => {
-    if (state.status !== "ready" || !activePageId || !state.document) {
+    if (
+      state.status !== "ready"
+      || !activePageId
+      || !state.document
+      || !state.page?.id
+      || editorSnapshot.documentId !== state.document.id
+      || editorSnapshot.activePageId !== activePageId
+    ) {
       return;
+    }
+
+    const pageHydrationKey = `${state.document.id}:${activePageId}`;
+    if (hydratedPagesRef.current.has(pageHydrationKey)) {
+      return;
+    }
+
+    const requestId = ++hydrationRequestRef.current;
+    if (editorEngine.getDocumentId() !== state.document.id) {
+      editorEngine.setDocument(state.document.id);
     }
 
     if (persistenceCoordinator.documentId !== state.document.id) {
-      return;
+      persistenceCoordinator.start(state.document.id);
     }
 
     void persistenceCoordinator.hydratePage(state.document.id, activePageId, (snapshot) => {
+      if (!isWorkspaceMountedRef.current || requestId !== hydrationRequestRef.current) {
+        return;
+      }
+
       if (editorEngine.getDocumentId() !== state.document?.id || editorEngine.getActivePageId() !== activePageId) {
         return;
       }
+
       editorEngine.hydratePage(snapshot);
+      hydratedPagesRef.current.add(pageHydrationKey);
       renderSchedule();
     });
   }, [
@@ -504,9 +538,16 @@ export function DocumentWorkspace(): React.ReactElement {
     editorEngine,
     persistenceCoordinator,
     renderSchedule,
+    editorSnapshot.documentId,
+    editorSnapshot.activePageId,
     state.document?.id,
     state.status,
+    state.page?.id,
   ]);
+
+  useEffect(() => {
+    hydratedPagesRef.current.clear();
+  }, [state.document?.id]);
 
   useEffect(() => {
     return () => {
