@@ -64,6 +64,201 @@ const objectsOfType = <T extends SemanticWord | SemanticLine | SemanticSentence 
   .filter((item): item is T => item.type === type);
 
 describe("semantic geometry and layout", () => {
+  it("prevents transitive baseline chain merging from growing a multi-row line", () => {
+    const model = build([
+      horizontalItem("chain-a", "alpha", 0.1, 0.1, 0.2, 0.02, 0),
+      horizontalItem("chain-b", "beta", 0.1, 0.112, 0.2, 0.02, 1),
+      horizontalItem("chain-c", "gamma", 0.1, 0.124, 0.2, 0.02, 2),
+    ]);
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+
+    expect(lines).toHaveLength(2);
+    expect(Math.max(...lines.map((line) => line.bounds.height))).toBeLessThanOrEqual(0.032);
+  });
+
+  it("separates overlapping x intervals that belong to distinct visual rows", () => {
+    const model = build(Array.from({ length: 6 }, (_, index) =>
+      horizontalItem(
+        `stack-${index}`,
+        `row ${index}`,
+        0.15,
+        0.1 + index * 0.012,
+        0.24,
+        0.02,
+        index,
+      )));
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+
+    expect(lines.length).toBeGreaterThan(1);
+    expect(Math.max(...lines.map((line) => line.bounds.height))).toBeLessThan(0.05);
+  });
+
+  it("infers repeated columns across a long band with offset and missing partner rows", () => {
+    const items: PageTextItemInput[] = [];
+    let sourceIndex = 0;
+    for (let row = 0; row < 20; row += 1) {
+      const y = 0.12 + row * 0.028;
+      items.push(horizontalItem(
+        `left-${row}`,
+        `Left ${row}.`,
+        0.08,
+        y,
+        0.36,
+        0.012,
+        sourceIndex++,
+      ));
+      if (row % 5 !== 2) {
+        items.push(horizontalItem(
+          `right-${row}`,
+          `Right ${row}.`,
+          0.56,
+          y + 0.01,
+          0.36,
+          0.012,
+          sourceIndex++,
+        ));
+      }
+    }
+
+    const model = build(items);
+    const columns = model.getColumns();
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+    const leftOrders = lines
+      .filter((line) => line.text.startsWith("Left"))
+      .map((line) => line.readingOrder);
+    const rightOrders = lines
+      .filter((line) => line.text.startsWith("Right"))
+      .map((line) => line.readingOrder);
+
+    expect(columns).toHaveLength(2);
+    expect(Math.max(...leftOrders)).toBeLessThan(Math.min(...rightOrders));
+  });
+
+  it("keeps full-width bands separate from repeated body columns", () => {
+    const items: PageTextItemInput[] = [
+      horizontalItem("title", "Full width title", 0.08, 0.04, 0.84, 0.035, 0, 24),
+      horizontalItem("authors", "Authors and affiliations", 0.18, 0.1, 0.64, 0.022, 1),
+    ];
+    let sourceIndex = 2;
+    for (let row = 0; row < 8; row += 1) {
+      const y = 0.2 + row * 0.035;
+      items.push(horizontalItem(
+        `left-body-${row}`,
+        `Left body ${row}.`,
+        0.08,
+        y,
+        0.36,
+        0.018,
+        sourceIndex++,
+      ));
+      items.push(horizontalItem(
+        `right-body-${row}`,
+        `Right body ${row}.`,
+        0.56,
+        y,
+        0.36,
+        0.018,
+        sourceIndex++,
+      ));
+    }
+
+    const model = build(items);
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+    const bodyColumns = model.getColumns().filter((column) => column.bounds.y >= 0.18);
+
+    expect(lines.slice(0, 2).map((line) => line.text)).toEqual([
+      "Full width title",
+      "Authors and affiliations",
+    ]);
+    expect(bodyColumns).toHaveLength(2);
+  });
+
+  it("does not split a regular single-column page into false columns", () => {
+    const model = build(Array.from({ length: 12 }, (_, index) =>
+      horizontalItem(
+        `single-${index}`,
+        `A regular prose line number ${index}.`,
+        0.12 + (index % 3) * 0.01,
+        0.08 + index * 0.045,
+        0.68 - (index % 4) * 0.04,
+        0.02,
+        index,
+      )));
+
+    expect(model.getColumns()).toHaveLength(1);
+  });
+
+  it("uses line-level sentence candidates for a directory tree containing dotted filenames", () => {
+    const texts = [
+      "apps/",
+      "├── web/",
+      "│   ├── page.tsx",
+      "│   ├── builder.ts",
+      "│   └── geometry.ts",
+    ];
+    const model = build(texts.map((text, index) =>
+      horizontalItem(
+        `tree-${index}`,
+        text,
+        0.1 + index * 0.015,
+        0.1 + index * 0.035,
+        0.35,
+        0.02,
+        index,
+      )));
+    const sentences = objectsOfType<SemanticSentence>(model, "SENTENCE");
+
+    expect(sentences).toHaveLength(texts.length);
+    expect(Math.max(...sentences.map((sentence) => sentence.lineIds.length))).toBe(1);
+  });
+
+  it("uses line-level sentence candidates for preformatted code", () => {
+    const texts = [
+      "const value = createValue();",
+      "if (value) {",
+      "return value;",
+      "}",
+    ];
+    const model = build(texts.map((text, index) =>
+      horizontalItem(
+        `code-${index}`,
+        text,
+        0.12 + (index > 0 ? 0.02 : 0),
+        0.1 + index * 0.035,
+        0.42,
+        0.02,
+        index,
+      )));
+    const sentences = objectsOfType<SemanticSentence>(model, "SENTENCE");
+
+    expect(sentences).toHaveLength(texts.length);
+    expect(sentences.every((sentence) => sentence.lineIds.length === 1)).toBe(true);
+  });
+
+  it("creates one sentence candidate per bullet item and keeps continuation lines", () => {
+    const model = build([
+      horizontalItem("bullet-1", "• First item", 0.1, 0.1, 0.3, 0.02, 0),
+      horizontalItem("bullet-1-cont", "continues here", 0.13, 0.13, 0.3, 0.02, 1),
+      horizontalItem("bullet-2", "• Second item", 0.1, 0.18, 0.3, 0.02, 2),
+      horizontalItem("bullet-2-cont", "continues too", 0.13, 0.21, 0.3, 0.02, 3),
+    ]);
+    const sentences = objectsOfType<SemanticSentence>(model, "SENTENCE");
+
+    expect(sentences).toHaveLength(2);
+    expect(sentences.map((sentence) => sentence.lineIds.length)).toEqual([2, 2]);
+  });
+
+  it("keeps long natural prose multiline instead of applying structural line fallback", () => {
+    const model = build([
+      horizontalItem("prose-1", "This natural sentence continues over", 0.1, 0.1, 0.45, 0.02, 0),
+      horizontalItem("prose-2", "several visual lines without becoming", 0.1, 0.13, 0.45, 0.02, 1),
+      horizontalItem("prose-3", "a preformatted block.", 0.1, 0.16, 0.3, 0.02, 2),
+    ]);
+    const sentences = objectsOfType<SemanticSentence>(model, "SENTENCE");
+
+    expect(sentences).toHaveLength(1);
+    expect(sentences[0]?.fragments).toHaveLength(3);
+  });
   it("rejects invalid bounds before creating semantic objects", () => {
     const model = build([
       { ...horizontalItem("nan", "invalid", 0.1, 0.1, 0.2, 0.02, 0), bounds: { x: Number.NaN, y: 0.1, width: 0.2, height: 0.02 } },
@@ -251,6 +446,7 @@ describe("semantic geometry and layout", () => {
     const serialized = model.toSerialized();
     const restored = PageSemanticModel.fromSerialized(serialized);
 
+    expect(serialized.extractorVersion).toBe("5");
     expect(restored.toSerialized()).toEqual(serialized);
     expect(restored.getLayoutBlocks()[0]?.id).toBe(serialized.layoutBlocks[0]?.id);
     expect(restored.getAllByReadingOrder().find((item) => item.type === "SENTENCE"))
@@ -262,8 +458,7 @@ describe("semantic geometry and layout", () => {
 
     expect(() => PageSemanticModel.fromSerialized({
       ...serialized,
-      schemaVersion: 1,
-      extractorVersion: "2",
+      extractorVersion: "4",
     })).toThrow("Unsupported or invalid semantic model cache");
   });
 
