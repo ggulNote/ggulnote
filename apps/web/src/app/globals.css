@@ -37,3 +37,23 @@ button:disabled {
   border: 1px dashed rgba(15, 23, 42, 0.2);
 }
 
+
+.pdf-text-layer-debug {
+  overflow: clip;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  transform-origin: 0 0;
+}
+
+.pdf-text-layer-debug :is(span, br) {
+  position: absolute;
+  color: rgba(8, 145, 178, 0.55);
+  white-space: pre;
+  transform-origin: 0 0;
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--font-height) * var(--total-scale-factor));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x));
+}

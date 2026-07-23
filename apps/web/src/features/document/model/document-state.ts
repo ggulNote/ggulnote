@@ -1,5 +1,9 @@
-import type { NormalizedPoint, PageDescriptor, DocumentDescriptor } from "./document-types";
+import type { NormalizedPoint, NormalizedRect } from "@ggulnote/shared-types";
 import { A4_PORTRAIT_POINTS } from "./document-types";
+
+export type SemanticPageStatus = "idle" | "processing" | "ready" | "empty" | "error";
+export type SemanticCacheStatus = "idle" | "hit" | "miss" | "stale" | "error" | "disabled";
+export type SemanticCandidateType = "WORD" | "LINE" | "SENTENCE" | "PARAGRAPH" | "NONE";
 
 type PersistenceSaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -27,7 +31,34 @@ export type DocumentSessionAction =
       type: "PERSISTENCE_STATUS_CHANGED";
       status: PersistenceSaveStatus;
       errorMessage: string | null;
-    };
+    }
+  | {
+      type: "SEMANTIC_STATUS_UPDATED";
+      status: SemanticPageStatus;
+      cacheStatus: SemanticCacheStatus;
+      sourceItemCount: number;
+      wordCount: number;
+      lineCount: number;
+      sentenceCount: number;
+      paragraphCount: number;
+      regionCount?: number;
+      blockCount?: number;
+      columnCount: number;
+      processingDurationMs: number;
+      extractorVersion: string;
+      schemaVersion: number;
+      cacheMessage?: string | null;
+    }
+  | {
+      type: "SEMANTIC_QUERY_UPDATED";
+      selectedType: SemanticCandidateType;
+      selectedId: string;
+      selectedText: string;
+      selectedBounds: NormalizedRect | null;
+      candidateCount: number;
+      nearestDistance: number | null;
+    }
+  | { type: "SEMANTIC_CLEAR_QUERY" };
 
 export interface DocumentSessionState {
   status: "empty" | "loading" | "ready" | "error";
@@ -47,6 +78,26 @@ export interface DocumentSessionState {
   isTextLoading: boolean;
   persistenceSaveStatus: PersistenceSaveStatus;
   persistenceSaveErrorMessage: string | null;
+
+  semanticStatus: SemanticPageStatus;
+  semanticCacheStatus: SemanticCacheStatus;
+  semanticExtractorVersion: string;
+  semanticSchemaVersion: number;
+  semanticSourceItemCount: number;
+  semanticWordCount: number;
+  semanticLineCount: number;
+  semanticSentenceCount: number;
+  semanticParagraphCount: number;
+  semanticRegionCount: number;
+  semanticBlockCount: number;
+  semanticColumnCount: number;
+  semanticProcessingDurationMs: number;
+  semanticSelectedType: SemanticCandidateType;
+  semanticSelectedId: string;
+  semanticSelectedText: string;
+  semanticSelectedBounds: NormalizedRect | null;
+  semanticCandidateCount: number;
+  semanticNearestDistance: number | null;
 }
 
 export const MIN_ZOOM = 50;
@@ -70,13 +121,48 @@ const clampPage = (page: number, totalPages: number): number => {
   return numericPage;
 };
 
-const clampZoom = (value: number): number => {
-  if (!Number.isFinite(value)) {
-    return 100;
-  }
-
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value)));
-};
+const resetSemanticState = (): Pick<
+  DocumentSessionState,
+  | "semanticStatus"
+  | "semanticCacheStatus"
+  | "semanticExtractorVersion"
+  | "semanticSchemaVersion"
+  | "semanticSourceItemCount"
+  | "semanticWordCount"
+  | "semanticLineCount"
+  | "semanticSentenceCount"
+  | "semanticParagraphCount"
+  | "semanticRegionCount"
+  | "semanticBlockCount"
+  | "semanticColumnCount"
+  | "semanticProcessingDurationMs"
+  | "semanticSelectedType"
+  | "semanticSelectedId"
+  | "semanticSelectedText"
+  | "semanticSelectedBounds"
+  | "semanticCandidateCount"
+  | "semanticNearestDistance"
+> => ({
+  semanticStatus: "idle",
+  semanticCacheStatus: "idle",
+  semanticExtractorVersion: "1",
+  semanticSchemaVersion: 1,
+  semanticSourceItemCount: 0,
+  semanticWordCount: 0,
+  semanticLineCount: 0,
+  semanticSentenceCount: 0,
+  semanticParagraphCount: 0,
+  semanticRegionCount: 0,
+  semanticBlockCount: 0,
+  semanticColumnCount: 0,
+  semanticProcessingDurationMs: 0,
+  semanticSelectedType: "NONE",
+  semanticSelectedId: "-",
+  semanticSelectedText: "-",
+  semanticSelectedBounds: null,
+  semanticCandidateCount: 0,
+  semanticNearestDistance: null,
+});
 
 export const getInitialDocumentSessionState = (): DocumentSessionState => ({
   status: "empty",
@@ -96,6 +182,7 @@ export const getInitialDocumentSessionState = (): DocumentSessionState => ({
   isTextLoading: false,
   persistenceSaveStatus: "idle",
   persistenceSaveErrorMessage: null,
+  ...resetSemanticState(),
 });
 
 export function documentSessionReducer(
@@ -113,6 +200,7 @@ export function documentSessionReducer(
         renderedHeight: 0,
         page: null,
         isTextLoading: false,
+        ...resetSemanticState(),
       };
 
     case "PDF_LOADED":
@@ -127,6 +215,7 @@ export function documentSessionReducer(
         errorMessage: null,
         renderedWidth: 0,
         renderedHeight: 0,
+        ...resetSemanticState(),
       };
 
     case "BLANK_CREATED": {
@@ -146,6 +235,7 @@ export function documentSessionReducer(
         },
         textItemCount: 0,
         errorMessage: null,
+        ...resetSemanticState(),
       };
     }
 
@@ -162,6 +252,7 @@ export function documentSessionReducer(
         renderedHeight: 0,
         textItemCount: 0,
         isTextLoading: false,
+        ...resetSemanticState(),
       };
 
     case "GO_TO_PAGE": {
@@ -176,6 +267,7 @@ export function documentSessionReducer(
         page: null,
         renderedWidth: 0,
         renderedHeight: 0,
+        ...resetSemanticState(),
       };
     }
 
@@ -233,6 +325,46 @@ export function documentSessionReducer(
         pointer: action.point,
       };
 
+    case "SEMANTIC_STATUS_UPDATED":
+      return {
+        ...state,
+        semanticStatus: action.status,
+        semanticCacheStatus: action.cacheStatus,
+        semanticSourceItemCount: action.sourceItemCount,
+        semanticWordCount: action.wordCount,
+        semanticLineCount: action.lineCount,
+        semanticSentenceCount: action.sentenceCount,
+        semanticParagraphCount: action.paragraphCount,
+        semanticRegionCount: action.regionCount ?? 0,
+        semanticBlockCount: action.blockCount ?? 0,
+        semanticColumnCount: action.columnCount,
+        semanticProcessingDurationMs: action.processingDurationMs,
+        semanticExtractorVersion: action.extractorVersion,
+        semanticSchemaVersion: action.schemaVersion,
+      };
+
+    case "SEMANTIC_QUERY_UPDATED":
+      return {
+        ...state,
+        semanticSelectedType: action.selectedType,
+        semanticSelectedId: action.selectedId,
+        semanticSelectedText: action.selectedText,
+        semanticSelectedBounds: action.selectedBounds,
+        semanticCandidateCount: action.candidateCount,
+        semanticNearestDistance: action.nearestDistance,
+      };
+
+    case "SEMANTIC_CLEAR_QUERY":
+      return {
+        ...state,
+        semanticSelectedType: "NONE",
+        semanticSelectedId: "-",
+        semanticSelectedText: "-",
+        semanticSelectedBounds: null,
+        semanticCandidateCount: 0,
+        semanticNearestDistance: null,
+      };
+
     case "DOCUMENT_CLOSED":
       return getInitialDocumentSessionState();
 
@@ -247,3 +379,26 @@ export function documentSessionReducer(
       return state;
   }
 }
+
+function clampZoom(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 100;
+  }
+
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value)));
+}
+
+type DocumentDescriptor = {
+  id: string;
+  kind: "pdf" | "blank";
+  name: string;
+  pageCount: number;
+};
+
+type PageDescriptor = {
+  id: string;
+  pageNumber: number;
+  width: number;
+  height: number;
+  rotation: number;
+};

@@ -14,6 +14,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@ggulnote/document-core':
+        specifier: workspace:*
+        version: link:../../packages/document-core
       '@ggulnote/editor-core':
         specifier: workspace:*
         version: link:../../packages/editor-core
@@ -74,6 +77,31 @@ importers:
         version: 4.3.3
       typescript:
         specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: 3.1.4
+        version: 3.1.4(@types/node@20.19.43)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)
+
+  packages/document-core:
+    dependencies:
+      '@ggulnote/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@types/react':
+        specifier: ^19
+        version: 19.2.17
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.0
+      typescript:
+        specifier: ^5.0.0
         version: 5.9.3
       vitest:
         specifier: 3.1.4

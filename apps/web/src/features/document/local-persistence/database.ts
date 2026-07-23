@@ -1,7 +1,18 @@
 import Dexie, { type Table } from "dexie";
-import type { PersistedAppStateRecord, PersistedDocumentRecord, PersistedDocumentFileRecord, PersistedOperationRecord, PersistedPageSnapshotRecord } from "./types";
+import type {
+  PersistedAppStateRecord,
+  PersistedDocumentRecord,
+  PersistedDocumentFileRecord,
+  PersistedOperationRecord,
+  PersistedPageSnapshotRecord,
+  PersistedSemanticPageRecord,
+} from "./types";
 
-import { GGULNOTE_DATABASE_NAME, GGULNOTE_DATABASE_VERSION } from "./types";
+import {
+  GGULNOTE_DATABASE_NAME,
+  GGULNOTE_DATABASE_VERSION,
+  SEMANTIC_DATABASE_VERSION,
+} from "./types";
 
 export class GgulnoteLocalDatabase extends Dexie {
   public documents!: Table<PersistedDocumentRecord, string>;
@@ -9,6 +20,7 @@ export class GgulnoteLocalDatabase extends Dexie {
   public pageSnapshots!: Table<PersistedPageSnapshotRecord, string>;
   public operations!: Table<PersistedOperationRecord, string>;
   public appState!: Table<PersistedAppStateRecord, string>;
+  public semanticPages!: Table<PersistedSemanticPageRecord, string>;
 
   public constructor(name = GGULNOTE_DATABASE_NAME) {
     super(name);
@@ -19,6 +31,15 @@ export class GgulnoteLocalDatabase extends Dexie {
       pageSnapshots: "&id, documentId, pageId, [documentId+pageId], updatedAt, pageNumber",
       operations: "&id, documentId, pageId, sequence, [documentId+sequence], createdAt",
       appState: "&key",
+    });
+
+    this.version(SEMANTIC_DATABASE_VERSION).stores({
+      documents: "&id, kind, updatedAt, lastOpenedAt, persistenceSchemaVersion",
+      documentFiles: "&documentId",
+      pageSnapshots: "&id, documentId, pageId, [documentId+pageId], updatedAt, pageNumber",
+      operations: "&id, documentId, pageId, sequence, [documentId+sequence], createdAt",
+      appState: "&key",
+      semanticPages: "&id, documentId, pageId, [documentId+pageId], extractorVersion, updatedAt",
     });
   }
 }
@@ -46,4 +67,3 @@ export async function openLocalDatabase(
 
   return database;
 }
-

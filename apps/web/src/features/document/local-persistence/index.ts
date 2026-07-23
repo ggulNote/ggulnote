@@ -1,4 +1,4 @@
-export { GGULNOTE_DATABASE_NAME, GGULNOTE_DATABASE_VERSION } from "./types";
+export { GGULNOTE_DATABASE_NAME, GGULNOTE_DATABASE_VERSION, SEMANTIC_DATABASE_VERSION, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "./types";
 export { openLocalDatabase } from "./database";
 
 export type {
@@ -9,6 +9,7 @@ export type {
   PersistedDocumentRecord,
   PersistedOperationRecord,
   PersistedPageSnapshotRecord,
+  PersistedSemanticPageRecord,
   SaveState,
   SaveStatus,
   DocumentRecordViewState,
@@ -21,4 +22,4 @@ export { AppStateRepository } from "./repositories/app-state-repository";
 export { DocumentRepository } from "./repositories/document-repository";
 export { PageSnapshotRepository } from "./repositories/page-snapshot-repository";
 export { OperationRepository } from "./repositories/operation-repository";
-
+export { SemanticPageRepository } from "./repositories/semantic-page-repository";

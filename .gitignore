@@ -1,4 +1,4 @@
-﻿node_modules
+node_modules
 .next
 .turbo
 coverage
@@ -15,3 +15,5 @@ build
 
 docs
 AGENTS.md
+
+tmp-turbo-cache/

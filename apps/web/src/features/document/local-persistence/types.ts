@@ -1,12 +1,16 @@
 import type { DocumentId, PageId, AnnotationId } from "@ggulnote/shared-types";
 import type { EditorOperation } from "@ggulnote/editor-core";
 import type { PageSceneSnapshot } from "@ggulnote/editor-core";
+import type { SerializedSemanticPage } from "@ggulnote/document-core";
 
 export const GGULNOTE_DATABASE_NAME = "ggulnote-local";
 export const GGULNOTE_DATABASE_VERSION = 1;
 
 export const ANNOTATION_SCHEMA_VERSION = 1;
 export const PERSISTENCE_SCHEMA_VERSION = 1;
+export const SEMANTIC_SCHEMA_VERSION = 2;
+export const SEMANTIC_EXTRACTOR_VERSION = "7";
+export const SEMANTIC_DATABASE_VERSION = 2;
 
 export type PersistedDocumentKind = "pdf" | "blank";
 export type PersistedZoomMode = "custom" | "fit-width";
@@ -63,6 +67,20 @@ export interface PersistedOperationRecord {
   createdAt: number;
 }
 
+export interface PersistedSemanticPageRecord {
+  id: string;
+  documentId: DocumentId;
+  pageId: PageId;
+  pageNumber: number;
+  extractorVersion: string;
+  semanticSchemaVersion: number;
+  sourceItemCount: number;
+  sourceSignature: string;
+  model: SerializedSemanticPage;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface PersistedAppStateRecord {
   key: "editor";
   lastOpenedDocumentId: DocumentId | null;
@@ -96,4 +114,4 @@ export interface CreateDocumentInput {
   nextOperationSequence?: number;
 }
 
-
+export const createSemanticPageId = (documentId: DocumentId, pageId: PageId): string => `${documentId}:${pageId}:semantic`;

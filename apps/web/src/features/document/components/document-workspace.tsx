@@ -17,15 +17,28 @@ import {
   normalizedPointToCss,
   normalizedRectToCss,
 } from "../coordinates/coordinate-transformer";
-import type { PdfDocumentDescriptor } from "../model/document-types";
+import type {
+  PageTextContent,
+  PageTextItem,
+  PdfDocumentDescriptor,
+  RawPdfTextItemDebug,
+} from "../model/document-types";
 import { useDocumentSession } from "../hooks/use-document-session";
 import { useFitWidth } from "../hooks/use-fit-width";
 import { usePageRender } from "../hooks/use-page-render";
-import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState } from "../local-persistence";
+import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "../local-persistence";
+import {
+  buildPageSemanticModel,
+  createTextItemSignature,
+  PageSemanticModel,
+  type SemanticCandidate,
+} from "@ggulnote/document-core";
 import { DocumentDebugPanel } from "./document-debug-panel";
 import { DocumentSidebar } from "./document-sidebar";
 import { DocumentStage } from "./document-stage";
 import { DocumentToolbar } from "./document-toolbar";
+import { PdfTextLayerDebug } from "./pdf-text-layer-debug";
+import { isPageTextResultForPage } from "../text/page-text-request";
 
 const ZOOM_STEP = 25;
 const DRAG_CREATE_THRESHOLD_PX = 4;
@@ -61,6 +74,13 @@ const DEFAULT_SHAPE_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
 type FitDimensions = {
   width: number;
   height: number;
+};
+
+type LoadedPdfPage = {
+  documentId: string;
+  pageId: string;
+  pageNumber: number;
+  page: import("pdfjs-dist/types/src/display/api").PDFPageProxy;
 };
 
 type DragDraft =
@@ -188,6 +208,100 @@ function isDragDistanceEnough(
   return Math.hypot(dx, dy) >= DRAG_CREATE_THRESHOLD_PX;
 }
 
+const SEMANTIC_QUERY_MAX_RESULTS = 10;
+
+type SemanticLayerStyleKey =
+  | "rawText"
+  | "text"
+  | "word"
+  | "line"
+  | "region"
+  | "block"
+  | "column"
+  | "sentence"
+  | "sentenceFragment"
+  | "paragraph"
+  | "paragraphFragment"
+  | "readingOrder"
+  | "candidate";
+
+const SEMANTIC_LAYER_STYLES: Array<{
+  key: SemanticLayerStyleKey;
+  label: string;
+  color: string;
+}> = [
+  { key: "rawText", label: "Raw PDF.js Text", color: "rgba(220, 38, 38, 0.95)" },
+  { key: "text", label: "Text", color: "rgba(59, 130, 246, 0.95)" },
+  { key: "word", label: "Word", color: "rgba(16, 185, 129, 0.95)" },
+  { key: "line", label: "Line", color: "rgba(249, 115, 22, 0.95)" },
+  { key: "region", label: "Region", color: "rgba(236, 72, 153, 0.95)" },
+  { key: "block", label: "Block", color: "rgba(234, 179, 8, 0.95)" },
+  { key: "column", label: "Column", color: "rgba(6, 182, 212, 0.95)" },
+  { key: "sentence", label: "Sentence", color: "rgba(168, 85, 247, 0.95)" },
+  { key: "sentenceFragment", label: "Sentence fragment", color: "rgba(192, 132, 252, 0.95)" },
+  { key: "paragraph", label: "Paragraph", color: "rgba(14, 116, 144, 0.95)" },
+  { key: "paragraphFragment", label: "Paragraph fragment", color: "rgba(34, 211, 238, 0.95)" },
+  { key: "readingOrder", label: "Reading order", color: "rgba(244, 63, 94, 0.95)" },
+  { key: "candidate", label: "Candidate", color: "rgba(251, 146, 60, 1)" },
+];
+
+type SemanticDebugLayerState = {
+  pdfTextLayer: boolean;
+  rawTextItems: boolean;
+  textItems: boolean;
+  words: boolean;
+  lines: boolean;
+  layoutRegions: boolean;
+  layoutBlocks: boolean;
+  columns: boolean;
+  sentences: boolean;
+  sentenceFragments: boolean;
+  paragraphs: boolean;
+  paragraphFragments: boolean;
+  readingOrder: boolean;
+  candidates: boolean;
+  boxOnly: boolean;
+};
+
+const initialSemanticDebugLayer: SemanticDebugLayerState = {
+  pdfTextLayer: false,
+  rawTextItems: false,
+  textItems: false,
+  words: false,
+  lines: false,
+  layoutRegions: false,
+  layoutBlocks: false,
+  columns: false,
+  sentences: false,
+  sentenceFragments: false,
+  paragraphs: false,
+  paragraphFragments: false,
+  readingOrder: false,
+  candidates: true,
+  boxOnly: true,
+};
+
+function shortenText(value: string, maxLength = 80): string {
+  const normalized = value.trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
+function preserveSemanticCoord(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function clampSemanticRect(value: NormalizedRect): NormalizedRect {
+  return {
+    x: preserveSemanticCoord(value.x),
+    y: preserveSemanticCoord(value.y),
+    width: Math.max(0, preserveSemanticCoord(value.width)),
+    height: Math.max(0, preserveSemanticCoord(value.height)),
+  };
+}
 export function DocumentWorkspace(): React.ReactElement {
   const {
     state,
@@ -206,7 +320,7 @@ export function DocumentWorkspace(): React.ReactElement {
   } = useDocumentSession();
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
-  const [pageProxy, setPageProxy] = useState<import("pdfjs-dist/types/src/display/api").PDFPageProxy | null>(null);
+  const [pdfPageContext, setPdfPageContext] = useState<LoadedPdfPage | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [interactionMode, setInteractionMode] = useState<EditorInteractionMode>(DEFAULT_INTERACTION_MODE);
   const [textMemo, setTextMemo] = useState("memo");
@@ -327,10 +441,356 @@ export function DocumentWorkspace(): React.ReactElement {
   }, [state.currentPage, state.zoom, state.zoomMode]);
 
   const hasRestoredDocumentRef = useRef(false);
+  const pageSemanticModelRef = useRef<PageSemanticModel | null>(null);
+  const semanticBuildTokenRef = useRef(0);
+  const semanticBuildPageKeyRef = useRef<string | null>(null);
+  const semanticBuildSignatureRef = useRef<string>("");
   const activePageId = state.document ? `${state.document.id}-page-${state.currentPage}` : null;
   const hydratedPagesRef = useRef(new Set<string>());
   const hydrationRequestRef = useRef(0);
   const isWorkspaceMountedRef = useRef(true);
+
+
+  const [semanticCandidates, setSemanticCandidates] = useState<SemanticCandidate[]>([]);
+  const [pageTextDebug, setPageTextDebug] = useState<PageTextContent | null>(null);
+  const [semanticDebugModel, setSemanticDebugModel] = useState<PageSemanticModel | null>(null);
+  const [semanticDebugLayer, setSemanticDebugLayer] = useState<SemanticDebugLayerState>(initialSemanticDebugLayer);
+  const visiblePageText = isPageTextResultForPage(
+    pageTextDebug,
+    state.document?.id ?? null,
+    activePageId,
+  ) ? pageTextDebug : null;
+  const semanticDebugTextItems = visiblePageText?.items ?? [];
+  const selectedRawTextItem = useMemo<RawPdfTextItemDebug | null>(() => {
+    if (!state.pointer || !visiblePageText) return null;
+    return visiblePageText.rawItems
+      .filter((item) => {
+        const bounds = item.computed.normalizedBounds;
+        return state.pointer
+          && state.pointer.x >= bounds.x
+          && state.pointer.x <= bounds.x + bounds.width
+          && state.pointer.y >= bounds.y
+          && state.pointer.y <= bounds.y + bounds.height;
+      })
+      .sort((left, right) => {
+        const leftArea = left.computed.width * left.computed.height;
+        const rightArea = right.computed.width * right.computed.height;
+        return leftArea - rightArea || left.sourceIndex - right.sourceIndex;
+      })[0] ?? null;
+  }, [state.pointer, visiblePageText]);
+
+  const clearSemanticQuery = useCallback(() => {
+    setSemanticCandidates([]);
+    dispatch({ type: "SEMANTIC_CLEAR_QUERY" });
+  }, [dispatch]);
+
+  const runSemanticPointQuery = useCallback(
+    (point: NormalizedPoint | null, pageId: string | null) => {
+      if (!point || pageId === null || pageId !== activePageId || !isWorkspaceMountedRef.current) {
+        clearSemanticQuery();
+        return;
+      }
+
+      const model = visiblePageText ? semanticDebugModel : null;
+      if (!model) {
+        clearSemanticQuery();
+        return;
+      }
+
+      const searchRadius = 0.012;
+      const candidates = (() => {
+        const atPointCandidates = model.findAtPoint(point, {
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          limit: SEMANTIC_QUERY_MAX_RESULTS,
+        });
+
+        if (atPointCandidates.length > 0) {
+          return atPointCandidates;
+        }
+
+        const nearestCandidates = model.findNearest(point, {
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          limit: SEMANTIC_QUERY_MAX_RESULTS,
+          maxDistance: searchRadius * 5,
+        });
+
+        if (nearestCandidates.length > 0) {
+          return nearestCandidates;
+        }
+
+        return model.findInRect(
+          {
+            x: Math.max(0, point.x - searchRadius),
+            y: Math.max(0, point.y - searchRadius),
+            width: searchRadius * 2,
+            height: searchRadius * 2,
+          },
+          {
+            types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+            limit: SEMANTIC_QUERY_MAX_RESULTS,
+            minimumOverlapRatio: 0,
+          },
+        );
+      })();
+
+      setSemanticCandidates(candidates);
+
+      if (candidates.length === 0) {
+        dispatch({
+          type: "SEMANTIC_CLEAR_QUERY",
+        });
+        return;
+      }
+
+      const nearest = candidates[0];
+      dispatch({
+        type: "SEMANTIC_QUERY_UPDATED",
+        selectedType: nearest.type,
+        selectedId: nearest.id,
+        selectedText: nearest.text,
+        selectedBounds: nearest.bounds,
+        candidateCount: candidates.length,
+        nearestDistance: Number.isFinite(nearest.distance) ? nearest.distance : null,
+      });
+    },
+    [activePageId, clearSemanticQuery, dispatch, semanticDebugModel, visiblePageText],
+  );
+
+  const dispatchSemanticStatus = useCallback(
+    ({
+      status,
+      cacheStatus,
+      sourceItemCount,
+      wordCount,
+      lineCount,
+      sentenceCount,
+      paragraphCount,
+      columnCount,
+      processingDurationMs,
+      extractorVersion,
+      schemaVersion,
+    }: {
+      status: "idle" | "processing" | "ready" | "empty" | "error";
+      cacheStatus: "idle" | "hit" | "miss" | "stale" | "error" | "disabled";
+      sourceItemCount: number;
+      wordCount: number;
+      lineCount: number;
+      sentenceCount: number;
+      paragraphCount: number;
+      columnCount: number;
+      processingDurationMs: number;
+      extractorVersion: string;
+      schemaVersion: number;
+    }) => {
+      dispatch({
+        type: "SEMANTIC_STATUS_UPDATED",
+        status,
+        cacheStatus,
+        sourceItemCount,
+        wordCount,
+        lineCount,
+        sentenceCount,
+        paragraphCount,
+        columnCount,
+        processingDurationMs,
+        extractorVersion,
+        schemaVersion,
+      });
+    },
+    [dispatch],
+  );
+
+  const dispatchSemanticEmpty = useCallback((message: string) => {
+    semanticBuildPageKeyRef.current = null;
+    semanticBuildSignatureRef.current = "";
+    dispatchSemanticStatus({
+      status: "empty",
+      cacheStatus: "disabled",
+      sourceItemCount: 0,
+      wordCount: 0,
+      lineCount: 0,
+      sentenceCount: 0,
+      paragraphCount: 0,
+      columnCount: 0,
+      processingDurationMs: 0,
+      extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+      schemaVersion: SEMANTIC_SCHEMA_VERSION,
+    });
+
+    setSemanticDebugModel(null);
+    clearSemanticQuery();
+    pageSemanticModelRef.current = null;
+
+  }, [clearSemanticQuery, dispatchSemanticStatus]);
+
+  const getSemanticTextSignature = useCallback(
+    (textItems: PageTextItem[]): string => createTextItemSignature(textItems),
+    [],
+  );
+
+  const hydrateSemanticModel = useCallback(
+    async (
+      documentId: string,
+      pageId: string,
+      pageNumber: number,
+      textItems: PageTextItem[],
+      requestToken: number,
+    ) => {
+      if (!isWorkspaceMountedRef.current || requestToken !== semanticBuildTokenRef.current) {
+        return;
+      }
+
+      const signature = getSemanticTextSignature(textItems);
+      if (
+        pageId === semanticBuildPageKeyRef.current
+        && signature === semanticBuildSignatureRef.current
+        && pageSemanticModelRef.current !== null
+      ) {
+        return;
+      }
+
+
+
+      setSemanticDebugModel(null);
+
+      if (textItems.length === 0) {
+        dispatchSemanticEmpty("텍스트 아이템이 없어 Semantic Layer를 생성하지 않습니다.");
+        return;
+      }
+
+      dispatchSemanticStatus({
+        status: "processing",
+        cacheStatus: "idle",
+        sourceItemCount: textItems.length,
+        wordCount: 0,
+        lineCount: 0,
+        sentenceCount: 0,
+        paragraphCount: 0,
+        columnCount: 0,
+        processingDurationMs: 0,
+        extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+        schemaVersion: SEMANTIC_SCHEMA_VERSION,
+      });
+
+      let cacheStatus: "hit" | "miss" | "stale" | "error" = "miss";
+      let model: PageSemanticModel | null = null;
+
+      try {
+        const cachedRecord = await localPersistence.getSemanticPage(documentId, pageId, {
+          extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+          semanticSchemaVersion: SEMANTIC_SCHEMA_VERSION,
+        });
+        if (requestToken !== semanticBuildTokenRef.current || !isWorkspaceMountedRef.current) {
+          return;
+        }
+
+        if (
+          cachedRecord
+          && cachedRecord.sourceItemCount === textItems.length
+          && cachedRecord.sourceSignature === signature
+          && cachedRecord.model.sourceSignature === signature
+        ) {
+          model = PageSemanticModel.fromSerialized(cachedRecord.model);
+          cacheStatus = "hit";
+        } else if (cachedRecord) {
+          cacheStatus = "stale";
+        }
+      } catch {
+        cacheStatus = "miss";
+      }
+
+      if (!model) {
+        try {
+          const builtModel = buildPageSemanticModel({
+            documentId,
+            pageId,
+            pageNumber,
+            textItems,
+            extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+            schemaVersion: SEMANTIC_SCHEMA_VERSION,
+          });
+
+          if (requestToken !== semanticBuildTokenRef.current || !isWorkspaceMountedRef.current) {
+            return;
+          }
+
+          model = builtModel;
+
+          try {
+            await localPersistence.saveSemanticPage({
+              documentId,
+              pageId,
+              pageNumber,
+              model: builtModel.toSerialized(),
+              extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+              semanticSchemaVersion: SEMANTIC_SCHEMA_VERSION,
+            });
+          } catch {
+            cacheStatus = "error";
+          }
+        } catch {
+          dispatchSemanticStatus({
+            status: "error",
+            cacheStatus: "error",
+            sourceItemCount: textItems.length,
+            wordCount: 0,
+            lineCount: 0,
+            sentenceCount: 0,
+            paragraphCount: 0,
+            columnCount: 0,
+            processingDurationMs: 0,
+            extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+            schemaVersion: SEMANTIC_SCHEMA_VERSION,
+          });
+          return;
+        }
+      }
+
+      if (!model || requestToken !== semanticBuildTokenRef.current || !isWorkspaceMountedRef.current) {
+        return;
+      }
+
+      const summary = model.getSummary();
+      const serialized = model.toSerialized();
+
+      pageSemanticModelRef.current = model;
+      semanticBuildPageKeyRef.current = pageId;
+      semanticBuildSignatureRef.current = signature;
+      if (summary.sourceItemCount === 0 || summary.wordCount + summary.lineCount + summary.sentenceCount + summary.paragraphCount === 0) {
+        dispatchSemanticStatus({
+          status: "empty",
+          cacheStatus: "disabled",
+          sourceItemCount: 0,
+          wordCount: 0,
+          lineCount: 0,
+          sentenceCount: 0,
+          paragraphCount: 0,
+          columnCount: 0,
+          processingDurationMs: 0,
+          extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+          schemaVersion: SEMANTIC_SCHEMA_VERSION,
+        });
+        clearSemanticQuery();
+        return;
+      }
+
+      setSemanticDebugModel(model);
+      dispatchSemanticStatus({
+        status: "ready",
+        cacheStatus,
+        sourceItemCount: summary.sourceItemCount,
+        wordCount: summary.wordCount,
+        lineCount: summary.lineCount,
+        sentenceCount: summary.sentenceCount,
+        paragraphCount: summary.paragraphCount,
+        columnCount: summary.columnCount,
+        processingDurationMs: summary.processingDurationMs,
+        extractorVersion: serialized.extractorVersion,
+        schemaVersion: serialized.schemaVersion,
+      });
+    },
+    [clearSemanticQuery, dispatchSemanticEmpty, dispatchSemanticStatus, getSemanticTextSignature, localPersistence],
+  );
 
   useEffect(() => {
     isWorkspaceMountedRef.current = true;
@@ -339,6 +799,32 @@ export function DocumentWorkspace(): React.ReactElement {
     };
   }, []);
 
+  useEffect(() => {
+    pageSemanticModelRef.current = null;
+    semanticBuildPageKeyRef.current = null;
+    semanticBuildSignatureRef.current = "";
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    clearSemanticQuery();
+  }, [activePageId, clearSemanticQuery]);
+
+  useEffect(() => {
+    if (state.status !== "ready" || !state.document || state.document.kind !== "blank" || !activePageId) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    dispatchSemanticEmpty("백지 페이지는 Semantic Cache를 사용하지 않습니다.");
+  }, [
+    activePageId,
+    dispatchSemanticEmpty,
+    state.document?.kind,
+    state.document?.id,
+    state.document?.name,
+    state.status,
+    state.totalPages,
+    state.document,
+  ]);
 
   useEffect(() => {
     if (hasRestoredDocumentRef.current || state.status !== "empty") {
@@ -393,16 +879,15 @@ export function DocumentWorkspace(): React.ReactElement {
     setZoomMode,
     state.status,
   ]);
-
   useEffect(() => {
-    const coordinator = persistenceCoordinator;
     if (state.document && state.status === "ready") {
-      coordinator.start(state.document.id);
+      persistenceCoordinator.start(state.document.id);
       return;
     }
 
-    coordinator.stop();
+    persistenceCoordinator.stop();
   }, [persistenceCoordinator, state.document, state.status]);
+
 
 
   useEffect(() => {
@@ -448,6 +933,12 @@ export function DocumentWorkspace(): React.ReactElement {
   const documentName = useMemo(() => state.document?.name ?? "-", [state.document?.name]);
   const isPdfReady = state.document?.kind === "pdf" && state.status === "ready";
   const hasDocument = Boolean(state.document);
+  const currentPdfPageContext = pdfPageContext
+    && pdfPageContext.documentId === state.document?.id
+    && pdfPageContext.pageId === activePageId
+    && pdfPageContext.pageNumber === state.currentPage
+    ? pdfPageContext
+    : null;
 
 
   const fitWidthTargetPageWidth = useMemo(() => {
@@ -615,18 +1106,24 @@ export function DocumentWorkspace(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    if (!isPdfReady) {
-      return;
-    }
+    if (!isPdfReady || !state.document || !activePageId) return;
 
     const token = pageRequestTokenRef.current + 1;
     pageRequestTokenRef.current = token;
+    const requestedDocumentId = state.document.id;
+    const requestedPageId = activePageId;
+    const requestedPageNumber = state.currentPage;
 
     const loadPage = async () => {
       try {
-        const page = await getPage(state.currentPage);
-        if (pageRequestTokenRef.current === token && state.status === "ready") {
-          setPageProxy(page);
+        const page = await getPage(requestedPageNumber);
+        if (pageRequestTokenRef.current === token && isWorkspaceMountedRef.current) {
+          setPdfPageContext({
+            documentId: requestedDocumentId,
+            pageId: requestedPageId,
+            pageNumber: requestedPageNumber,
+            page,
+          });
         }
       } catch {
         if (pageRequestTokenRef.current === token) {
@@ -636,39 +1133,321 @@ export function DocumentWorkspace(): React.ReactElement {
     };
 
     void loadPage();
-  }, [dispatch, getPage, isPdfReady, state.currentPage, state.status]);
+  }, [activePageId, dispatch, getPage, isPdfReady, state.currentPage, state.document]);
 
-  usePageRender({
-    canvas,
-    page: pageProxy,
-    zoom: state.zoom,
-    onRendered: ({ width, height, renderedWidth, renderedHeight }) => {
-      if (!pageProxy || !state.document) {
+  const handlePageRendered = useCallback(
+    ({
+      width,
+      height,
+      renderedWidth,
+      renderedHeight,
+      rotation,
+    }: {
+      width: number;
+      height: number;
+      renderedWidth: number;
+      renderedHeight: number;
+      rotation: number;
+    }) => {
+      if (!currentPdfPageContext || !state.document || currentPdfPageContext.pageId !== activePageId) {
         return;
       }
 
       dispatch({
         type: "PAGE_RENDERED",
         page: {
-          id: `${state.document.id}-page-${state.currentPage}`,
-          pageNumber: state.currentPage,
+          id: currentPdfPageContext.pageId,
+          pageNumber: currentPdfPageContext.pageNumber,
           width,
           height,
-          rotation: 0,
+          rotation,
         },
         renderedWidth,
         renderedHeight,
       });
 
-      void requestPageText(pageProxy, state.currentPage, {
-        width,
-        height,
+      const semanticRequestToken = ++semanticBuildTokenRef.current;
+      const semanticRequestDocumentId = currentPdfPageContext.documentId;
+      const semanticRequestPageId = currentPdfPageContext.pageId;
+      const semanticRequestPageNumber = currentPdfPageContext.pageNumber;
+
+      void requestPageText(currentPdfPageContext.page, {
+        documentId: semanticRequestDocumentId,
+        pageId: semanticRequestPageId,
+        pageNumber: semanticRequestPageNumber,
+      }).then((textContent) => {
+        if (!textContent) {
+          dispatchSemanticEmpty("텍스트 추출 실패로 Semantic Layer를 건너뜁니다.");
+          return;
+        }
+        if (
+          semanticRequestToken !== semanticBuildTokenRef.current
+          || !isWorkspaceMountedRef.current
+          || textContent.documentId !== semanticRequestDocumentId
+          || textContent.pageId !== semanticRequestPageId
+          || textContent.pageNumber !== semanticRequestPageNumber
+        ) {
+          return;
+        }
+
+        setPageTextDebug(textContent);
+        void hydrateSemanticModel(
+          semanticRequestDocumentId,
+          semanticRequestPageId,
+          semanticRequestPageNumber,
+          textContent.items,
+          semanticRequestToken,
+        );
       });
     },
-    onError: (message) => {
+    [
+      activePageId,
+      currentPdfPageContext,
+      dispatch,
+      dispatchSemanticEmpty,
+      hydrateSemanticModel,
+      requestPageText,
+      state.document,
+    ],
+  );
+
+  const handlePageRenderError = useCallback(
+    (message: string) => {
       dispatch({ type: "LOAD_FAILED", message });
     },
+    [dispatch],
+  );
+
+  usePageRender({
+    canvas,
+    page: currentPdfPageContext?.page ?? null,
+    zoom: state.zoom,
+    onRendered: handlePageRendered,
+    onError: handlePageRenderError,
   });
+
+  const getLayerStyle = (
+    key: SemanticLayerStyleKey,
+  ) => {
+    const style = SEMANTIC_LAYER_STYLES.find((entry) => entry.key === key);
+    return style ?? { key, label: key, color: "rgba(0, 0, 0, 0.5)" };
+  };
+
+  const semanticDebugLayerNodes = (() => {
+    if (state.status !== "ready" || stageSize.width <= 0 || stageSize.height <= 0) {
+      return null;
+    }
+
+    type DebugLayerItem = {
+      key: SemanticLayerStyleKey;
+      id: string;
+      label: string;
+      rect: NormalizedRect;
+      suffix?: string;
+    };
+
+    const objects: DebugLayerItem[] = [];
+
+    if (semanticDebugLayer.rawTextItems && visiblePageText) {
+      objects.push(
+        ...visiblePageText.rawItems
+          .filter((item) => item.str.trim().length > 0)
+          .map((item) => ({
+            key: "rawText" as const,
+            id: `raw-${item.sourceIndex}`,
+            label: `RAW #${item.sourceIndex}`,
+            rect: clampSemanticRect(item.computed.normalizedBounds),
+            suffix: item.str,
+          })),
+      );
+    }
+
+    if (semanticDebugLayer.textItems) {
+      objects.push(
+        ...semanticDebugTextItems.map((item) => ({
+          key: "text" as const,
+          id: item.id,
+          label: `TEXT #${item.sourceIndex}`,
+          rect: clampSemanticRect(item.bounds),
+          suffix: item.text,
+        })),
+      );
+    }
+    const model = visiblePageText ? semanticDebugModel : null;
+    if (model) {
+      const semanticObjects = model.getAllByReadingOrder();
+
+      if (semanticDebugLayer.words) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "WORD")
+          .map((item) => ({
+            key: "word" as const,
+            id: item.id,
+            label: "WORD #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
+      }
+
+      if (semanticDebugLayer.lines) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "LINE")
+          .map((item) => ({
+            key: "line" as const,
+            id: item.id,
+            label: "LINE #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
+      }
+
+      if (semanticDebugLayer.layoutRegions) {
+        objects.push(...model.getLayoutRegions().map((region) => ({
+          key: "region" as const,
+          id: region.id,
+          label: "REGION #" + String(region.readingOrder),
+          rect: clampSemanticRect(region.bounds),
+          suffix: region.orientation.writingMode,
+        })));
+      }
+
+      if (semanticDebugLayer.layoutBlocks) {
+        objects.push(...model.getLayoutBlocks().map((block) => ({
+          key: "block" as const,
+          id: block.id,
+          label: "BLOCK #" + String(block.readingOrder),
+          rect: clampSemanticRect(block.bounds),
+          suffix: block.type,
+        })));
+      }
+
+      if (semanticDebugLayer.columns) {
+        objects.push(...model.getColumns().map((column) => ({
+          key: "column" as const,
+          id: column.id,
+          label: "COLUMN #" + String(column.columnIndex),
+          rect: clampSemanticRect(column.bounds),
+        })));
+      }
+
+      if (semanticDebugLayer.sentences) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "SENTENCE")
+          .map((item) => ({
+            key: "sentence" as const,
+            id: item.id,
+            label: "SENTENCE #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
+      }
+
+      if (semanticDebugLayer.sentenceFragments) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "SENTENCE")
+          .flatMap((item) => item.fragments.map((fragment, index) => ({
+            key: "sentenceFragment" as const,
+            id: item.id + "-fragment-" + String(index),
+            label: "SENTENCE #" + String(item.readingOrder) + " F" + String(index),
+            rect: clampSemanticRect(fragment),
+          }))));
+      }
+
+      if (semanticDebugLayer.paragraphs) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "PARAGRAPH")
+          .map((item) => ({
+            key: "paragraph" as const,
+            id: item.id,
+            label: "PARAGRAPH #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
+      }
+
+      if (semanticDebugLayer.paragraphFragments) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "PARAGRAPH")
+          .flatMap((item) => item.fragments.map((fragment, index) => ({
+            key: "paragraphFragment" as const,
+            id: item.id + "-fragment-" + String(index),
+            label: "PARAGRAPH #" + String(item.readingOrder) + " F" + String(index),
+            rect: clampSemanticRect(fragment),
+          }))));
+      }
+
+      if (semanticDebugLayer.readingOrder) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "LINE")
+          .map((item) => ({
+            key: "readingOrder" as const,
+            id: item.id + "-reading-order",
+            label: "#" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+          })));
+      }
+    }
+
+    if (semanticDebugLayer.candidates) {
+      objects.push(
+        ...semanticCandidates.flatMap((candidate) =>
+          candidate.fragments.map((fragment, index) => ({
+            key: "candidate" as const,
+            id: candidate.type.toLowerCase() + "-" + candidate.id + "-" + String(index),
+            label: candidate.type + " #" + String(candidate.readingOrder) + " (" + candidate.distance.toFixed(4) + ")",
+            rect: clampSemanticRect(fragment),
+            suffix: candidate.text,
+          }))),
+      );
+    }
+
+    if (objects.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="pointer-events-none absolute inset-0">
+        {objects.map((item) => {
+          const style = getLayerStyle(item.key);
+          const cssRect = normalizedRectToCss(item.rect, stageSize);
+          if (cssRect.width <= 0 || cssRect.height <= 0) {
+            return null;
+          }
+
+          const layerBorderWidth = 2;
+
+          const renderedWidth = Math.max(cssRect.width, 1);
+          const renderedHeight = Math.max(cssRect.height, 1);
+
+          return (
+            <div
+              key={`${state.document?.id ?? "none"}:${activePageId ?? "none"}:${item.key}:${item.id}`}
+              className="absolute"
+              style={{
+                left: `${cssRect.left}px`,
+                top: `${cssRect.top}px`,
+                width: `${renderedWidth}px`,
+                height: `${renderedHeight}px`,
+                border: `${layerBorderWidth}px solid ${style.color}`,
+                backgroundColor: item.key === "candidate" ? `${style.color}80` : `${style.color}22`,
+                opacity: 0.95,
+                boxSizing: "border-box",
+              }}
+            >
+              {!semanticDebugLayer.boxOnly ? (
+                <span
+                  className="absolute -left-[2px] -top-[19px] rounded bg-black/70 px-1 text-[10px] font-medium"
+                  style={{ color: style.color }}
+                >
+                  {`${style.label}: ${item.label}`}
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  })();
 
   const clampSize = useCallback(
     (point: NormalizedPoint): NormalizedPoint => ({
@@ -884,18 +1663,20 @@ export function DocumentWorkspace(): React.ReactElement {
     (event: React.PointerEvent<HTMLElement>) => {
       if (state.status !== "ready") {
         activeDragRef.current = null;
+        clearSemanticQuery();
         return;
       }
 
       const point = getSnapshotPoint(event, stageElementRef);
-      if (!activePageId) {
+      const clampedPoint = point ? clampSize(point) : null;
+      if (!activePageId || !clampedPoint || !state.document) {
         activeDragRef.current = null;
+        clearSemanticQuery();
         return;
       }
 
       const draft = activeDragRef.current;
-      const clampedPoint = point ? clampSize(point) : null;
-      const end = draft && "start" in draft && draft.start ? clampedPoint ?? draft.start : { x: 0, y: 0 };
+      const end = draft && "start" in draft && draft.start ? clampedPoint : { x: 0, y: 0 };
 
       if (draft?.type === "move") {
         editorEngine.commitDrag();
@@ -1016,9 +1797,16 @@ export function DocumentWorkspace(): React.ReactElement {
         activeDragRef.current = null;
         renderSchedule();
       }
+
+      if (state.document.kind === "pdf") {
+        runSemanticPointQuery(clampedPoint, activePageId);
+      } else {
+        clearSemanticQuery();
+      }
     },
     [
       activePageId,
+      clearSemanticQuery,
       clampSize,
       createAnnotation,
       editorEngine,
@@ -1026,10 +1814,12 @@ export function DocumentWorkspace(): React.ReactElement {
       highlightOpacity,
       lineStrokeWidth,
       renderSchedule,
+      runSemanticPointQuery,
       shapeFillColor,
       shapeFilled,
       shapeStrokeWidth,
       stageSize,
+      state.document,
       state.status,
       strokeColor,
       tableStrokeWidth,
@@ -1412,6 +2202,14 @@ export function DocumentWorkspace(): React.ReactElement {
           stageRef={stageRef}
           pointer={state.pointer}
         >
+          {semanticDebugLayer.pdfTextLayer && currentPdfPageContext ? (
+            <PdfTextLayerDebug
+              key={`${currentPdfPageContext.documentId}:${currentPdfPageContext.pageId}:pdf-text-layer`}
+              page={currentPdfPageContext.page}
+              pageKey={currentPdfPageContext.pageId}
+              zoom={state.zoom}
+            />
+          ) : null}
           <AnnotationCanvasLayer
             ref={annotationCanvasRef}
             hidden={!hasDocument || state.status !== "ready"}
@@ -1424,6 +2222,7 @@ export function DocumentWorkspace(): React.ReactElement {
             onPointerLeave={handlePointerLeave}
           />
           {dragPreview}
+          {semanticDebugLayerNodes}
         </DocumentStage>
 
         <div className="space-y-4">
@@ -1535,10 +2334,18 @@ export function DocumentWorkspace(): React.ReactElement {
             redoStackSize={redoStackSize}
           />
 
-          <DocumentDebugPanel state={state} documentName={documentName} pointer={state.pointer} />
+          <DocumentDebugPanel
+            state={state}
+            documentName={documentName}
+            pointer={state.pointer}
+            semanticDebugLayer={semanticDebugLayer}
+            semanticCandidates={semanticCandidates}
+            pageTextDebug={visiblePageText}
+            selectedRawTextItem={selectedRawTextItem}
+            onSemanticDebugLayerChange={setSemanticDebugLayer}
+          />
         </div>
       </div>
     </main>
   );
 }
-

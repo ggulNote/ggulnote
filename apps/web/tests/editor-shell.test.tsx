@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { DocumentWorkspace } from "@/features/document/components/document-workspace";
-import type { DocumentSessionState } from "@/features/document/model/document-state";
+import { getInitialDocumentSessionState, type DocumentSessionState } from "@/features/document/model/document-state";
 import type { DocumentDescriptor } from "@/features/document/model/document-types";
 import { A4_PORTRAIT_POINTS } from "@/features/document/model/document-types";
 
@@ -22,27 +22,10 @@ let mockDispatch = vi.fn();
 
 function getInitialState(overrides: Partial<DocumentSessionState> = {}): DocumentSessionState {
   return {
-    status: "empty",
-    document: null,
-    currentPage: 1,
-    zoom: 100,
-    zoomMode: "custom",
-    page: null,
-    textItemCount: 0,
-    pointer: null,
-    errorMessage: null,
-    totalPages: 0,
-    isPdfJsReady: false,
-    isPdfWorkerReady: false,
-    renderedWidth: 0,
-    renderedHeight: 0,
-    isTextLoading: false,
-    persistenceSaveStatus: "idle",
-    persistenceSaveErrorMessage: null,
+    ...getInitialDocumentSessionState(),
     ...overrides,
   };
 }
-
 vi.mock("@/features/document/hooks/use-document-session", () => ({
   useDocumentSession: () => ({
     state: mockState,
@@ -255,4 +238,3 @@ describe("Editor workspace", () => {
       .toBeInTheDocument();
   });
 });
-

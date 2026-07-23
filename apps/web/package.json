@@ -13,6 +13,7 @@
     "clean": "rimraf build coverage"
   },
   "dependencies": {
+    "@ggulnote/document-core": "workspace:*",
     "@ggulnote/editor-core": "workspace:*",
     "@ggulnote/shared-types": "workspace:*",
     "dexie": "^4.4.4",
