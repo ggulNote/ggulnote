@@ -100,7 +100,7 @@ describe("semantic geometry and layout", () => {
       const y = 0.12 + row * 0.028;
       items.push(horizontalItem(
         `left-${row}`,
-        `Left ${row}.`,
+        `Left column body text ${row}.`,
         0.08,
         y,
         0.36,
@@ -110,7 +110,7 @@ describe("semantic geometry and layout", () => {
       if (row % 5 !== 2) {
         items.push(horizontalItem(
           `right-${row}`,
-          `Right ${row}.`,
+          `Right column body text ${row}.`,
           0.56,
           y + 0.01,
           0.36,
@@ -360,6 +360,209 @@ describe("semantic geometry and layout", () => {
     }
   });
 
+  it("does not treat hasEOL on a source run as a visual line boundary", () => {
+    const model = build([
+      horizontalItem("run-a", "same", 0.1, 0.2, 0.12, 0.02, 0, 12, true),
+      horizontalItem("run-b", "line", 0.23, 0.2, 0.12, 0.02, 1, 12, false),
+    ]);
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.text).toBe("same line");
+  });
+
+  it("separates aligned column runs after provisional fragment gutter inference", () => {
+    const items: PageTextItemInput[] = [];
+    let sourceIndex = 0;
+    for (let row = 0; row < 8; row += 1) {
+      const y = 0.12 + row * 0.045;
+      items.push(
+        horizontalItem(
+          `aligned-left-${row}`,
+          `Left body row ${row}.`,
+          0.1,
+          y,
+          0.3,
+          0.02,
+          sourceIndex++,
+          12,
+          true,
+        ),
+        horizontalItem(
+          `aligned-right-${row}`,
+          `Right body row ${row}.`,
+          0.435,
+          y,
+          0.3,
+          0.02,
+          sourceIndex++,
+          12,
+          false,
+        ),
+      );
+    }
+
+    const model = build(items);
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+    const leftLines = lines.filter((line) => line.text.startsWith("Left"));
+    const rightLines = lines.filter((line) => line.text.startsWith("Right"));
+
+    expect(lines).toHaveLength(16);
+    expect(model.getColumns()).toHaveLength(2);
+    expect(new Set(leftLines.map((line) => line.columnId)).size).toBe(1);
+    expect(new Set(rightLines.map((line) => line.columnId)).size).toBe(1);
+    expect(leftLines[0]?.columnId).not.toBe(rightLines[0]?.columnId);
+    expect(Math.max(...leftLines.map((line) => line.readingOrder)))
+      .toBeLessThan(Math.min(...rightLines.map((line) => line.readingOrder)));
+    expect(lines.every((line) =>
+      !(line.bounds.x < 0.4 && line.bounds.x + line.bounds.width > 0.435))).toBe(true);
+  });
+
+  it("repairs a provisional line that crosses a selected gutter", () => {
+    const items: PageTextItemInput[] = [];
+    let sourceIndex = 0;
+    for (let row = 0; row < 8; row += 1) {
+      const y = 0.12 + row * 0.045;
+      items.push(
+        horizontalItem(
+          `repair-left-${row}`,
+          `Left repair row ${row}.`,
+          0.1,
+          y,
+          0.3,
+          0.02,
+          sourceIndex++,
+          12,
+          row !== 4,
+        ),
+        horizontalItem(
+          `repair-right-${row}`,
+          `Right repair row ${row}.`,
+          0.435,
+          y,
+          0.3,
+          0.02,
+          sourceIndex++,
+          12,
+          false,
+        ),
+      );
+    }
+
+    const model = build(items);
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+    const paragraphs = objectsOfType<SemanticParagraph>(model, "PARAGRAPH");
+    const sentences = objectsOfType<SemanticSentence>(model, "SENTENCE");
+
+    expect(lines).toHaveLength(16);
+    expect(model.getColumns()).toHaveLength(2);
+    expect(lines.every((line) =>
+      !(line.text.includes("Left") && line.text.includes("Right")))).toBe(true);
+    expect(paragraphs.every((paragraph) =>
+      paragraph.lineIds.every((lineId) =>
+        model.getLine(lineId)?.columnId === paragraph.columnId))).toBe(true);
+    expect(sentences.every((sentence) =>
+      sentence.lineIds.every((lineId) =>
+        model.getLine(lineId)?.columnId === sentence.columnId))).toBe(true);
+  });
+  it("keeps real baseline changes separate after removing the hasEOL hard split", () => {
+    const model = build([
+      horizontalItem("row-a", "first row", 0.1, 0.2, 0.3, 0.02, 0, 12, true),
+      horizontalItem("row-b", "second row", 0.1, 0.24, 0.3, 0.02, 1, 12, false),
+    ]);
+
+    expect(objectsOfType<SemanticLine>(model, "LINE")).toHaveLength(2);
+  });
+
+  it("still splits a large advance gap on the same baseline", () => {
+    const model = build([
+      horizontalItem("left-gap", "left", 0.1, 0.2, 0.1, 0.02, 0, 12, true),
+      horizontalItem("right-gap", "right", 0.6, 0.2, 0.1, 0.02, 1, 12, false),
+    ]);
+
+    expect(objectsOfType<SemanticLine>(model, "LINE")).toHaveLength(2);
+  });
+
+  it("selects a narrow persistent gutter without letting noise seeds reject it", () => {
+    const items: PageTextItemInput[] = [];
+    let sourceIndex = 0;
+    for (let row = 0; row < 18; row += 1) {
+      const y = 0.08 + row * 0.04;
+      items.push(horizontalItem(
+        `persistent-left-${row}`,
+        `Left column body text ${row}.`,
+        0.1,
+        y,
+        0.35,
+        0.02,
+        sourceIndex++,
+      ));
+      if (row !== 5 && row !== 13) {
+        items.push(horizontalItem(
+          `persistent-right-${row}`,
+          `Right column body text ${row}.`,
+          0.494,
+          y + 0.015,
+          0.35,
+          0.02,
+          sourceIndex++,
+        ));
+      }
+    }
+    items.push(
+      horizontalItem("noise-a", "noise", 0.462, 0.185, 0.02, 0.02, sourceIndex++),
+      horizontalItem("noise-b", "noise", 0.462, 0.505, 0.02, 0.02, sourceIndex),
+    );
+
+    const model = build(items);
+    const lines = objectsOfType<SemanticLine>(model, "LINE");
+    const leftLines = lines.filter((line) => line.text.startsWith("Left"));
+    const rightLines = lines.filter((line) => line.text.startsWith("Right"));
+
+    expect(model.getColumns()).toHaveLength(2);
+    expect(new Set(leftLines.map((line) => line.columnId)).size).toBe(1);
+    expect(new Set(rightLines.map((line) => line.columnId)).size).toBe(1);
+    expect(leftLines[0]?.columnId).not.toBe(rightLines[0]?.columnId);
+    expect(Math.max(...leftLines.map((line) => line.readingOrder)))
+      .toBeLessThan(Math.min(...rightLines.map((line) => line.readingOrder)));
+  });
+
+  it("uses line-level candidates for a repeated short-label stack", () => {
+    const labels = [
+      "Editor status",
+      "Document ID",
+      "Active page ID",
+      "Interaction mode",
+      "Annotation count",
+      "Can undo",
+      "Can redo",
+    ];
+    const model = build(labels.map((text, index) =>
+      horizontalItem(
+        `label-${index}`,
+        text,
+        0.12,
+        0.1 + index * 0.035,
+        0.28,
+        0.02,
+        index,
+      )));
+    const sentences = objectsOfType<SemanticSentence>(model, "SENTENCE");
+
+    expect(sentences).toHaveLength(labels.length);
+    expect(sentences.every((sentence) => sentence.lineIds.length === 1)).toBe(true);
+  });
+
+  it("preserves separate visual sentences with explicit line-end boundaries", () => {
+    const model = build([
+      horizontalItem("statement-a", "First operation completed。", 0.1, 0.1, 0.42, 0.02, 0),
+      horizontalItem("statement-b", "Second operation completed。", 0.1, 0.135, 0.42, 0.02, 1),
+    ]);
+    const sentences = objectsOfType<SemanticSentence>(model, "SENTENCE");
+
+    expect(sentences).toHaveLength(2);
+    expect(sentences.every((sentence) => sentence.lineIds.length === 1)).toBe(true);
+  });
   it("builds full-width and local two-column regions with block reading order", () => {
     const model = build([
       horizontalItem("title", "A Full Width Title", 0.1, 0.05, 0.8, 0.04, 0, 24),
@@ -446,7 +649,7 @@ describe("semantic geometry and layout", () => {
     const serialized = model.toSerialized();
     const restored = PageSemanticModel.fromSerialized(serialized);
 
-    expect(serialized.extractorVersion).toBe("5");
+    expect(serialized.extractorVersion).toBe("7");
     expect(restored.toSerialized()).toEqual(serialized);
     expect(restored.getLayoutBlocks()[0]?.id).toBe(serialized.layoutBlocks[0]?.id);
     expect(restored.getAllByReadingOrder().find((item) => item.type === "SENTENCE"))
@@ -458,7 +661,7 @@ describe("semantic geometry and layout", () => {
 
     expect(() => PageSemanticModel.fromSerialized({
       ...serialized,
-      extractorVersion: "4",
+      extractorVersion: "6",
     })).toThrow("Unsupported or invalid semantic model cache");
   });
 

@@ -9,7 +9,7 @@ export const GGULNOTE_DATABASE_VERSION = 1;
 export const ANNOTATION_SCHEMA_VERSION = 1;
 export const PERSISTENCE_SCHEMA_VERSION = 1;
 export const SEMANTIC_SCHEMA_VERSION = 2;
-export const SEMANTIC_EXTRACTOR_VERSION = "4";
+export const SEMANTIC_EXTRACTOR_VERSION = "7";
 export const SEMANTIC_DATABASE_VERSION = 2;
 
 export type PersistedDocumentKind = "pdf" | "blank";

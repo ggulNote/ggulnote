@@ -168,6 +168,19 @@ interface ColumnSeed {
   centers: number[];
 }
 
+interface GutterCandidate {
+  start: number;
+  end: number;
+  center: number;
+  medianWidth: number;
+  rowSupport: number;
+  supportRatio: number;
+  leftSupport: number;
+  rightSupport: number;
+  verticalCoverage: number;
+  score: number;
+}
+
 const finitePositive = (value: number | undefined, fallback: number): number => {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 };
@@ -536,7 +549,12 @@ const sameOrientation = (left: TextOrientation, right: TextOrientation): boolean
     && angleDistance(left.angle, right.angle) <= ORIENTATION_ANGLE_TOLERANCE;
 };
 
-const buildLineDrafts = (words: SourceWordCandidate[]): LineDraft[] => {
+type LineDraftPhase = "provisional" | "final";
+
+const buildLineDrafts = (
+  words: SourceWordCandidate[],
+  phase: LineDraftPhase = "final",
+): LineDraft[] => {
   const baselines: BaselineDraft[] = [];
   const sorted = [...words].sort((left, right) => {
     if (left.orientation.writingMode !== right.orientation.writingMode) {
@@ -689,11 +707,14 @@ const buildLineDrafts = (words: SourceWordCandidate[]): LineDraft[] => {
         const previousProjection = advanceProjection(previous.bounds, baseline.axis);
         const currentProjection = advanceProjection(word.bounds, baseline.axis);
         const gap = Math.max(0, currentProjection.start - previousProjection.end);
-        const eolBoundary = previous.hasEOL
-          && previous.sourceIndex !== word.sourceIndex
-          && gap > crossSize * 0.25;
-
-        if (gap > gapLimit || eolBoundary) flush();
+        const sourceBoundary = previous.sourceIndex !== word.sourceIndex;
+        const provisionalBoundary = phase === "provisional"
+          && sourceBoundary
+          && (
+            previous.hasEOL
+            || gap > Math.max(typicalSpace * 1.5, crossSize * 0.75)
+          );
+        if (gap > gapLimit || provisionalBoundary) flush();
         else gaps.push(gap);
       }
       chunk.push(word);
@@ -702,7 +723,10 @@ const buildLineDrafts = (words: SourceWordCandidate[]): LineDraft[] => {
   }
   return lines;
 };
-const clusterHorizontalRows = (lines: LineDraft[]): LineDraft[][] => {
+const clusterHorizontalRows = (
+  lines: LineDraft[],
+  centerToleranceRatio = LINE_BASELINE_TOLERANCE_RATIO,
+): LineDraft[][] => {
   const rows: LineDraft[][] = [];
   const sorted = [...lines].sort((left, right) => {
     const yDelta = yCenter(left.bounds) - yCenter(right.bounds);
@@ -722,7 +746,7 @@ const clusterHorizontalRows = (lines: LineDraft[]): LineDraft[][] => {
       median(current.map((entry) => entry.bounds.height)),
       Number.EPSILON,
     );
-    if (Math.abs(yCenter(line.bounds) - rowCenter) <= referenceHeight * LINE_BASELINE_TOLERANCE_RATIO) {
+    if (Math.abs(yCenter(line.bounds) - rowCenter) <= referenceHeight * centerToleranceRatio) {
       current.push(line);
     } else {
       rows.push([line]);
@@ -790,34 +814,123 @@ const createColumnSeeds = (lines: LineDraft[]): ColumnSeed[] => {
     columnSeedInterval(left).center - columnSeedInterval(right).center);
 };
 
-const hasRepeatedColumnGutters = (
+const selectRepeatedColumnGutters = (
   seeds: ColumnSeed[],
+  lines: LineDraft[],
   typicalHeight: number,
-): boolean => {
-  if (seeds.length < 2) return false;
+  regionBounds: Bounds,
+): GutterCandidate[] => {
+  if (seeds.length < 2) return [];
 
-  for (let index = 1; index < seeds.length; index += 1) {
-    const left = seeds[index - 1];
-    const right = seeds[index];
-    if (!left || !right) return false;
+  const rows = clusterHorizontalRows(lines, 1.25);
+  const positiveIntraLineGaps = lines.flatMap((line) =>
+    line.horizontalGaps.filter((gap) => Number.isFinite(gap) && gap > Number.EPSILON));
+  const typicalIntraLineGap = Math.max(
+    Number.EPSILON,
+    median(positiveIntraLineGaps),
+    typicalHeight * 0.25,
+  );
+  const candidates: GutterCandidate[] = [];
 
-    const leftInterval = columnSeedInterval(left);
-    const rightInterval = columnSeedInterval(right);
-    const gutter = rightInterval.start - leftInterval.end;
-    if (gutter <= typicalHeight * 3) return false;
+  for (let leftIndex = 0; leftIndex < seeds.length - 1; leftIndex += 1) {
+    const left = seeds[leftIndex];
+    if (!left) continue;
 
-    const leftBounds = unionBounds(left.lines.map((line) => line.bounds));
-    const rightBounds = unionBounds(right.lines.map((line) => line.bounds));
-    if (!leftBounds || !rightBounds) return false;
+    for (let rightIndex = leftIndex + 1; rightIndex < seeds.length; rightIndex += 1) {
+      const right = seeds[rightIndex];
+      if (!right) continue;
 
-    const sharedVerticalSpan = Math.min(
-      leftBounds.y + leftBounds.height,
-      rightBounds.y + rightBounds.height,
-    ) - Math.max(leftBounds.y, rightBounds.y);
-    if (sharedVerticalSpan <= typicalHeight * 1.5) return false;
+      const leftInterval = columnSeedInterval(left);
+      const rightInterval = columnSeedInterval(right);
+      if (rightInterval.start <= leftInterval.end) continue;
+
+      const targetCenter = (leftInterval.end + rightInterval.start) / 2;
+      const rowGaps: Array<{ start: number; end: number; yStart: number; yEnd: number }> = [];
+      for (const row of rows) {
+        const ordered = [...row].sort((first, second) => first.bounds.x - second.bounds.x);
+        for (let index = 1; index < ordered.length; index += 1) {
+          const previous = ordered[index - 1];
+          const current = ordered[index];
+          if (!previous || !current) continue;
+
+          const start = previous.bounds.x + previous.bounds.width;
+          const end = current.bounds.x;
+          if (start < targetCenter && targetCenter < end) {
+            const rowBounds = unionBounds([previous.bounds, current.bounds]);
+            if (rowBounds) {
+              rowGaps.push({
+                start,
+                end,
+                yStart: rowBounds.y,
+                yEnd: rowBounds.y + rowBounds.height,
+              });
+            }
+            break;
+          }
+        }
+      }
+
+      if (rowGaps.length === 0) continue;
+      const start = median(rowGaps.map((gap) => gap.start));
+      const end = median(rowGaps.map((gap) => gap.end));
+      const medianWidth = end - start;
+      if (medianWidth <= Number.EPSILON) continue;
+
+      const rowSupport = rowGaps.length;
+      const supportRatio = rowSupport / Math.max(1, rows.length);
+      const yStart = Math.min(...rowGaps.map((gap) => gap.yStart));
+      const yEnd = Math.max(...rowGaps.map((gap) => gap.yEnd));
+      const verticalCoverage = Math.max(0, yEnd - yStart)
+        / Math.max(Number.EPSILON, regionBounds.height);
+      const leftSupport = left.lines.length;
+      const rightSupport = right.lines.length;
+      const broadGutter = medianWidth >= Math.max(typicalHeight * 3, typicalIntraLineGap * 4)
+        && rowSupport >= Math.max(2, Math.ceil(rows.length * 0.12))
+        && verticalCoverage >= 0.12;
+      const persistentGutter = medianWidth >= Math.max(
+        typicalHeight * 1.5,
+        typicalIntraLineGap * 2,
+      )
+        && rowSupport >= Math.max(4, Math.ceil(rows.length * 0.3))
+        && supportRatio >= 0.3
+        && verticalCoverage >= 0.25
+        && leftSupport >= 3
+        && rightSupport >= 3;
+
+      if (!broadGutter && !persistentGutter) continue;
+      candidates.push({
+        start,
+        end,
+        center: (start + end) / 2,
+        medianWidth,
+        rowSupport,
+        supportRatio,
+        leftSupport,
+        rightSupport,
+        verticalCoverage,
+        score: supportRatio * 2
+          + verticalCoverage
+          + Math.min(4, medianWidth / typicalHeight) * 0.2,
+      });
+    }
   }
 
-  return true;
+  const selected: GutterCandidate[] = [];
+  for (const candidate of [...candidates].sort((left, right) => {
+    const scoreDelta = right.score - left.score;
+    return Math.abs(scoreDelta) > Number.EPSILON ? scoreDelta : left.center - right.center;
+  })) {
+    const overlapsSelected = selected.some((existing) => {
+      const overlap = Math.min(candidate.end, existing.end)
+        - Math.max(candidate.start, existing.start);
+      const minimumWidth = Math.min(candidate.medianWidth, existing.medianWidth);
+      return overlap > minimumWidth * 0.5
+        || Math.abs(candidate.center - existing.center) <= typicalHeight;
+    });
+    if (!overlapsSelected) selected.push(candidate);
+  }
+
+  return selected.sort((left, right) => left.center - right.center);
 };
 
 const inferRegionColumns = (
@@ -835,40 +948,108 @@ const inferRegionColumns = (
     : 2;
   const supportedSeeds = createColumnSeeds(lines)
     .filter((seed) => seed.lines.length >= minimumSupport);
-
-  if (!hasRepeatedColumnGutters(supportedSeeds, typicalHeight)) {
-    return [{ lines: [...lines], bounds }];
+  const selectedGutters = selectRepeatedColumnGutters(
+    supportedSeeds,
+    lines,
+    typicalHeight,
+    bounds,
+  );
+  if (selectedGutters.length === 0) {
+    const finalLines = buildLineDrafts(
+      lines.flatMap((line) => line.words),
+      "final",
+    );
+    const finalBounds = unionBounds(finalLines.map((line) => line.bounds));
+    return finalBounds ? [{ lines: finalLines, bounds: finalBounds }] : [];
   }
 
-  const assignments = supportedSeeds.map((seed) => ({
-    seed,
-    lines: [] as LineDraft[],
-  }));
+  const intervals: Array<{ start: number; end: number }> = [];
+  let intervalStart = bounds.x;
+  for (const gutter of selectedGutters) {
+    if (gutter.start > intervalStart) {
+      intervals.push({ start: intervalStart, end: gutter.start });
+    }
+    intervalStart = Math.max(intervalStart, gutter.end);
+  }
+  const boundsEnd = bounds.x + bounds.width;
+  if (intervalStart < boundsEnd) intervals.push({ start: intervalStart, end: boundsEnd });
+
+  const assignments = intervals.map((interval) => ({ interval, lines: [] as LineDraft[] }));
+  const intervalScore = (
+    itemBounds: Bounds,
+    interval: { start: number; end: number },
+  ): number => {
+    const intervalWidth = Math.max(Number.EPSILON, interval.end - interval.start);
+    const overlap = Math.max(
+      0,
+      Math.min(itemBounds.x + itemBounds.width, interval.end)
+        - Math.max(itemBounds.x, interval.start),
+    );
+    const overlapRatio = overlap / Math.max(
+      Number.EPSILON,
+      Math.min(itemBounds.width, intervalWidth),
+    );
+    const intervalCenter = (interval.start + interval.end) / 2;
+    const containsCenter = interval.start <= xCenter(itemBounds)
+      && xCenter(itemBounds) <= interval.end;
+    const centerDistance = Math.abs(xCenter(itemBounds) - intervalCenter)
+      / Math.max(intervalWidth, itemBounds.width);
+    return overlapRatio * 2 + (containsCenter ? 1 : 0) - centerDistance * 0.1;
+  };
+
   for (const line of lines) {
-    let best = assignments[0];
-    let bestScore = Number.POSITIVE_INFINITY;
-    for (const assignment of assignments) {
-      const interval = columnSeedInterval(assignment.seed);
-      const centerDistance = Math.abs(xCenter(line.bounds) - interval.center);
-      const intervalWidth = Math.max(Number.EPSILON, interval.end - interval.start);
-      const score = centerDistance / Math.max(intervalWidth, line.bounds.width);
-      if (score < bestScore - Number.EPSILON) {
-        best = assignment;
+    const wordBuckets = intervals.map(() => [] as SourceWordCandidate[]);
+    for (const word of line.words) {
+      let bestIndex = 0;
+      let bestScore = Number.NEGATIVE_INFINITY;
+      for (let index = 0; index < intervals.length; index += 1) {
+        const interval = intervals[index];
+        if (!interval) continue;
+        const score = intervalScore(word.bounds, interval);
+        if (score > bestScore + Number.EPSILON) {
+          bestIndex = index;
+          bestScore = score;
+        }
+      }
+      wordBuckets[bestIndex]?.push(word);
+    }
+
+    const occupiedBuckets = wordBuckets
+      .map((bucket, index) => ({ bucket, index }))
+      .filter(({ bucket }) => bucket.length > 0);
+    if (occupiedBuckets.length > 1) {
+      for (const { bucket, index } of occupiedBuckets) {
+        assignments[index]?.lines.push(...buildLineDrafts(bucket, "final"));
+      }
+      continue;
+    }
+
+    let bestIndex = 0;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < intervals.length; index += 1) {
+      const interval = intervals[index];
+      if (!interval) continue;
+      const score = intervalScore(line.bounds, interval);
+      if (score > bestScore + Number.EPSILON) {
+        bestIndex = index;
         bestScore = score;
       }
     }
-    best?.lines.push(line);
+    assignments[bestIndex]?.lines.push(line);
   }
 
   return assignments
     .map(({ lines: assigned }) => {
-      const assignedBounds = unionBounds(assigned.map((line) => line.bounds));
-      return assignedBounds ? { lines: assigned, bounds: assignedBounds } : null;
+      const finalLines = buildLineDrafts(
+        assigned.flatMap((line) => line.words),
+        "final",
+      );
+      const assignedBounds = unionBounds(finalLines.map((line) => line.bounds));
+      return assignedBounds ? { lines: finalLines, bounds: assignedBounds } : null;
     })
     .filter((group): group is { lines: LineDraft[]; bounds: Bounds } => group !== null)
     .sort((left, right) => left.bounds.x - right.bounds.x);
 };
-
 const buildHorizontalBands = (lines: LineDraft[]): LineDraft[][] => {
   const rows = clusterHorizontalRows(lines);
   const typicalHeight = Math.max(
@@ -996,9 +1177,12 @@ const analyzeLayout = (lineDrafts: LineDraft[]): RegionDraft[] => {
 
       const columnGroups = inferRegionColumns(lines);
       const multiColumn = columnGroups.length > 1;
+      const finalLines = columnGroups.flatMap((group) => group.lines);
+      const finalBounds = unionBounds(finalLines.map((line) => line.bounds));
+      if (!finalBounds) continue;
       regions.push({
-        lines,
-        bounds,
+        lines: finalLines,
+        bounds: finalBounds,
         orientation: { ...orientation },
         columns: columnGroups.map((group) => ({
           lines: [...group.lines],
@@ -1018,17 +1202,21 @@ const analyzeLayout = (lineDrafts: LineDraft[]): RegionDraft[] => {
   }
 
   for (const lines of rotatedGroups.values()) {
-    const bounds = unionBounds(lines.map((line) => line.bounds));
-    const orientation = lines[0]?.orientation;
+    const finalLines = buildLineDrafts(
+      lines.flatMap((line) => line.words),
+      "final",
+    );
+    const bounds = unionBounds(finalLines.map((line) => line.bounds));
+    const orientation = finalLines[0]?.orientation;
     if (!bounds || !orientation) continue;
     regions.push({
-      lines,
+      lines: finalLines,
       bounds,
       orientation: { ...orientation },
       columns: [{
-        lines: [...lines],
+        lines: [...finalLines],
         bounds,
-        blocks: splitColumnBlocks(lines, pageMedianFontSize, false),
+        blocks: splitColumnBlocks(finalLines, pageMedianFontSize, false),
       }],
     });
   }
@@ -1473,10 +1661,82 @@ const fallbackSegmentsByListItem = (
   return segments;
 };
 
+const hasNaturalSentenceBoundary = (text: string): boolean => {
+  let candidate = text.trim();
+  const closingCharacters = "\"')]}”’";
+  while (candidate.length > 0 && closingCharacters.includes(candidate.slice(-1))) {
+    candidate = candidate.slice(0, -1).trimEnd();
+  }
+  if (!candidate) return false;
+
+  const words = candidate.split(/\s+/u);
+  if (
+    words.length <= 2
+    && (URL_OR_EMAIL_PATTERN.test(candidate) || PATH_OR_MEMBER_PATTERN.test(candidate))
+  ) {
+    return false;
+  }
+  return SENTENCE_END_PATTERN.test(candidate.slice(-1));
+};
+
+const isShortLabelStack = (
+  reconstructed: ReconstructedParagraph,
+  proseSegments: readonly SentenceSegment[],
+): boolean => {
+  const ranges = reconstructed.lineRanges;
+  if (ranges.length < 5 || proseSegments.length > 1) return false;
+
+  const wordCounts = ranges.map((range) =>
+    range.text.trim().split(/\s+/u).filter((word) => word.length > 0).length);
+  const characterCounts = ranges.map((range) => range.text.trim().length);
+  const indentCounts = new Map<string, number>();
+  for (const range of ranges) {
+    const key = range.indent.toFixed(3);
+    indentCounts.set(key, (indentCounts.get(key) ?? 0) + 1);
+  }
+  const repeatedIndentationRatio = Math.max(...indentCounts.values())
+    / Math.max(1, ranges.length);
+  const sentenceBoundaryCount = ranges
+    .filter((range) => hasNaturalSentenceBoundary(range.text))
+    .length;
+
+  return repeatedIndentationRatio >= 0.8
+    && median(wordCounts) <= 4
+    && median(characterCounts) <= 40
+    && sentenceBoundaryCount <= Math.max(1, Math.floor(ranges.length * 0.15));
+};
+
+const splitProseAtVisualSentenceBoundaries = (
+  reconstructed: ReconstructedParagraph,
+  proseSegments: readonly SentenceSegment[],
+): SentenceSegment[] => {
+  if (proseSegments.length > 1) return [...proseSegments];
+  const boundaryCount = reconstructed.lineRanges
+    .filter((range) => hasNaturalSentenceBoundary(range.text))
+    .length;
+  if (boundaryCount < 2) return [...proseSegments];
+
+  const segments: SentenceSegment[] = [];
+  let start = reconstructed.lineRanges[0]?.start ?? 0;
+  let end = start;
+  for (const range of reconstructed.lineRanges) {
+    end = range.end;
+    if (!hasNaturalSentenceBoundary(range.text)) continue;
+    const text = reconstructed.text.slice(start, end).trim();
+    if (text) segments.push({ start, end, text });
+    start = end;
+  }
+  if (end < reconstructed.text.length) {
+    const text = reconstructed.text.slice(start).trim();
+    if (text) segments.push({ start, end: reconstructed.text.length, text });
+  }
+  return segments.length > 1 ? segments : [...proseSegments];
+};
 const classifyParagraphSegmentationMode = (
   paragraph: SemanticParagraph,
   block: LayoutBlock | undefined,
   reconstructed: ReconstructedParagraph,
+  proseSegments: readonly SentenceSegment[],
 ): ParagraphSegmentationMode => {
   if (block?.type === "heading") return "heading";
 
@@ -1509,6 +1769,10 @@ const classifyParagraphSegmentationMode = (
     return "preformatted";
   }
 
+  if (isShortLabelStack(reconstructed, proseSegments)) {
+    return "preformatted";
+  }
+
   return paragraph.lineIds.length === 1 && block?.type === "metadata"
     ? "heading"
     : "prose";
@@ -1517,7 +1781,7 @@ const classifyParagraphSegmentationMode = (
 const segmentsForParagraph = (
   mode: ParagraphSegmentationMode,
   reconstructed: ReconstructedParagraph,
-  segmenter: ReturnType<typeof createSentenceSegmenter>,
+  proseSegments: readonly SentenceSegment[],
 ): SentenceSegment[] => {
   if (mode === "preformatted") return fallbackSegmentsByLine(reconstructed);
   if (mode === "list") return fallbackSegmentsByListItem(reconstructed);
@@ -1528,7 +1792,7 @@ const segmentsForParagraph = (
       text: reconstructed.text.trim(),
     }];
   }
-  return segmenter.segment(reconstructed.text);
+  return splitProseAtVisualSentenceBoundaries(reconstructed, proseSegments);
 };
 const buildSentences = (
   paragraphs: SemanticParagraph[],
@@ -1549,12 +1813,14 @@ const buildSentences = (
     const reconstructed = reconstructParagraph(paragraph, lineMap, wordMap);
     if (!reconstructed.text.trim()) continue;
 
+    const proseSegments = segmenter.segment(reconstructed.text);
     const mode = classifyParagraphSegmentationMode(
       paragraph,
       blockMap.get(paragraph.blockId),
       reconstructed,
+      proseSegments,
     );
-    let segments = segmentsForParagraph(mode, reconstructed, segmenter);
+    let segments = segmentsForParagraph(mode, reconstructed, proseSegments);
     if (segments.length === 0) {
       segments = [{ start: 0, end: reconstructed.text.length, text: reconstructed.text }];
     }
@@ -1681,8 +1947,8 @@ export const buildPageSemanticModel = (input: BuildPageInput): PageSemanticModel
     ));
   }
 
-  const lineDrafts = buildLineDrafts(sourceWords);
-  const regionDrafts = analyzeLayout(lineDrafts);
+  const provisionalLineFragments = buildLineDrafts(sourceWords, "provisional");
+  const regionDrafts = analyzeLayout(provisionalLineFragments);
   const { placements, layoutRegions, layoutBlocks, columns } = materializeLayout(
     regionDrafts,
     input.pageId,
