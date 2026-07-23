@@ -91,7 +91,7 @@ describe("document-core semantic model", () => {
       .getAllByReadingOrder()
       .filter((item): item is SemanticWord => item.type === "WORD");
 
-    expect(words.length).toBeGreaterThan(4);
+    expect(words.map((word) => word.text)).toEqual(["public", "readonly", "id:", "AnnotationId,"]);
     expect(new Set(words.map((word) => word.bounds)).size).toBe(words.length);
     expect(new Set(words.map((word) => word.bounds.x)).size).toBeGreaterThan(1);
 

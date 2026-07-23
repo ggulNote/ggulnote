@@ -1,8 +1,44 @@
-import type { NormalizedPoint, NormalizedRect, DocumentId, PageId } from "@ggulnote/shared-types";
+import type { DocumentId, NormalizedPoint, NormalizedRect, PageId } from "@ggulnote/shared-types";
 
 export type TextDirection = "ltr" | "rtl" | "ttb";
+export type TextWritingMode = "horizontal" | "vertical" | "rotated";
+
+export interface TextOrientation {
+  angle: number;
+  writingMode: TextWritingMode;
+}
+
+export interface LocalTextAxis {
+  advanceX: number;
+  advanceY: number;
+  normalX: number;
+  normalY: number;
+}
+
+export interface TextQuad {
+  points: [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint];
+}
+
+export interface WordSourceRange {
+  sourceTextItemId: string;
+  startOffset: number;
+  endOffset: number;
+}
+
+export interface SemanticGeometry {
+  bounds: NormalizedRect;
+  fragments: NormalizedRect[];
+}
 
 export type SemanticObjectType = "WORD" | "LINE" | "SENTENCE" | "PARAGRAPH";
+export type LayoutBlockType =
+  | "heading"
+  | "body"
+  | "sidebar"
+  | "caption"
+  | "list"
+  | "metadata"
+  | "unknown";
 
 export interface SemanticObjectBase {
   id: string;
@@ -13,17 +49,25 @@ export interface SemanticObjectBase {
   bounds: NormalizedRect;
   readingOrder: number;
   confidence: number;
+  orientation: TextOrientation;
+  regionId: string;
+  blockId: string;
+  columnId: string;
 }
 
 export interface SemanticWord extends SemanticObjectBase {
   type: "WORD";
   sourceItemIds: string[];
+  sourceRanges: WordSourceRange[];
   lineId: string;
   direction: TextDirection;
   fontName?: string;
   fontSize?: number;
   startsWithPunctuation: boolean;
   endsWithPunctuation: boolean;
+  hasEOL: boolean;
+  axis: LocalTextAxis;
+  quad: TextQuad;
 }
 
 export interface SemanticLine extends SemanticObjectBase {
@@ -34,23 +78,61 @@ export interface SemanticLine extends SemanticObjectBase {
   direction: TextDirection;
   averageFontSize?: number;
   columnIndex: number;
+  axis: LocalTextAxis;
+  horizontalGaps: number[];
 }
 
-export interface SemanticSentence extends SemanticObjectBase {
+export interface SemanticSentence extends SemanticObjectBase, SemanticGeometry {
   type: "SENTENCE";
   wordIds: string[];
   lineIds: string[];
-  paragraphId: string | null;
+  paragraphId: string;
   startWordId: string;
   endWordId: string;
 }
 
-export interface SemanticParagraph extends SemanticObjectBase {
+export interface SemanticParagraph extends SemanticObjectBase, SemanticGeometry {
   type: "PARAGRAPH";
   lineIds: string[];
   sentenceIds: string[];
   columnIndex: number;
   averageFontSize?: number;
+}
+
+export type SemanticObject = SemanticWord | SemanticLine | SemanticSentence | SemanticParagraph;
+
+export interface LayoutRegion {
+  id: string;
+  pageId: PageId;
+  bounds: NormalizedRect;
+  orientation: TextOrientation;
+  blockIds: string[];
+  columnIds: string[];
+  readingOrder: number;
+}
+
+export interface LayoutColumn {
+  id: string;
+  pageId: PageId;
+  regionId: string;
+  bounds: NormalizedRect;
+  orientation: TextOrientation;
+  blockIds: string[];
+  lineIds: string[];
+  columnIndex: number;
+  readingOrder: number;
+}
+
+export interface LayoutBlock {
+  id: string;
+  pageId: PageId;
+  regionId: string;
+  type: LayoutBlockType;
+  orientation: TextOrientation;
+  bounds: NormalizedRect;
+  lineIds: string[];
+  columnId: string;
+  readingOrder: number;
 }
 
 export interface SemanticCandidate {
@@ -59,15 +141,21 @@ export interface SemanticCandidate {
   pageId: PageId;
   text: string;
   bounds: NormalizedRect;
+  fragments: NormalizedRect[];
   containsPoint: boolean;
+  directHit: boolean;
   distance: number;
   overlapRatio: number;
+  fragmentOverlapRatio: number;
   readingOrder: number;
   confidence: number;
+  regionId: string;
+  blockId: string;
+  columnId: string;
 }
 
 export interface SemanticQueryOptions {
-  types?: SemanticObjectType[];
+  types?: readonly SemanticObjectType[];
   limit?: number;
   maxDistance?: number;
   minimumOverlapRatio?: number;
@@ -81,6 +169,13 @@ export interface PageTextItemInput {
   fontName?: string;
   fontSize?: number;
   direction?: TextDirection;
+  hasEOL?: boolean;
+  transform?: [number, number, number, number, number, number];
+  pdfWidth?: number;
+  pdfHeight?: number;
+  orientation?: TextOrientation;
+  axis?: LocalTextAxis;
+  quad?: TextQuad;
 }
 
 export interface BuildPageInput {
@@ -98,8 +193,12 @@ export interface PageSemanticModelData {
   documentId: DocumentId;
   pageId: PageId;
   pageNumber: number;
+  sourceSignature: string;
   words: SemanticWord[];
   lines: SemanticLine[];
+  layoutRegions: LayoutRegion[];
+  layoutBlocks: LayoutBlock[];
+  columns: LayoutColumn[];
   sentences: SemanticSentence[];
   paragraphs: SemanticParagraph[];
   createdAt: number;
@@ -107,13 +206,15 @@ export interface PageSemanticModelData {
   processingDurationMs: number;
 }
 
-export interface SerializedSemanticPage extends PageSemanticModelData {}
+export type SerializedSemanticPage = PageSemanticModelData;
 
 export interface SemanticModelQueryResult {
   wordCount: number;
   lineCount: number;
   sentenceCount: number;
   paragraphCount: number;
+  regionCount: number;
+  blockCount: number;
   columnCount: number;
   sourceItemCount: number;
   processingDurationMs: number;
@@ -124,7 +225,10 @@ export interface SemanticModelQuery {
   getLine(id: string): SemanticLine | null;
   getSentence(id: string): SemanticSentence | null;
   getParagraph(id: string): SemanticParagraph | null;
-  getAllByReadingOrder(): SemanticObjectBase[];
+  getLayoutRegions(): readonly LayoutRegion[];
+  getLayoutBlocks(): readonly LayoutBlock[];
+  getColumns(): readonly LayoutColumn[];
+  getAllByReadingOrder(): SemanticObject[];
   getSummary(): SemanticModelQueryResult;
   findAtPoint(point: NormalizedPoint, options?: SemanticQueryOptions): SemanticCandidate[];
   findNearest(point: NormalizedPoint, options?: SemanticQueryOptions): SemanticCandidate[];

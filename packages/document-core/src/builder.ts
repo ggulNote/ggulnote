@@ -1,25 +1,29 @@
 import {
-  FallbackSentenceSegmenter,
-  SentenceSegment,
-  createSentenceSegmenter,
-} from "./segmentation";
-import {
+  LINE_BASELINE_TOLERANCE_RATIO,
+  LINE_GAP_HEIGHT_RATIO,
+  ORIENTATION_ANGLE_TOLERANCE,
+  PARAGRAPH_GAP_MULTIPLIER,
   SEMANTIC_EXTRACTOR_VERSION,
   SEMANTIC_SCHEMA_VERSION,
-  LINE_BASELINE_TOLERANCE_RATIO,
-  PARAGRAPH_GAP_MULTIPLIER,
 } from "./constants";
 import {
+  boundsFromPoints,
   clampRect,
-  sortByReadingPoint,
+  horizontalOverlapRatio,
+  isValidBounds,
   unionBounds,
-  verticalOverlapRatio,
-  yCenter,
   xCenter,
+  yCenter,
 } from "./geometry";
 import { PageSemanticModel } from "./page-semantic-model";
+import { createSentenceSegmenter, type SentenceSegment } from "./segmentation";
 import type {
   BuildPageInput,
+  LayoutBlock,
+  LayoutBlockType,
+  LayoutColumn,
+  LayoutRegion,
+  LocalTextAxis,
   PageSemanticModelData,
   PageTextItemInput,
   SemanticLine,
@@ -28,961 +32,1400 @@ import type {
   SemanticSentence,
   SemanticWord,
   TextDirection,
+  TextOrientation,
+  TextQuad,
+  WordSourceRange,
 } from "./types";
 
 const DEFAULT_DIRECTION: TextDirection = "ltr";
-const WORD_TOKEN_PATTERN = /(?:\p{L}[\p{L}\p{N}\-']*|\p{N}+\.\p{N}+|\.{3}|[.!?,:;()\[\]{}"“”'’])/gu;
-const FALLBACK_WORD_TOKEN_PATTERN = /\S+/gu;
-const FALLBACK_BOUNDARY_PATTERN = /\s+/gu;
-const WORD_FALLBACK_TOKEN_BOUNDARY_PATTERN = /(\s+|[.!?,:;()\[\]{}"“”'’\-\/])/gu;
-const WORD_OR_PUNCTUATION_PATTERN = /^(?:\p{L}|\p{N}|\p{P}|\p{S})+$/u;
+const CJK_PATTERN = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u;
+const WHITESPACE_PATTERN = /\s/u;
+const NON_WHITESPACE_RUN_PATTERN = /\S+/gu;
+const PUNCTUATION_ONLY_PATTERN = /^[\p{P}\p{S}]+$/u;
+const CLOSE_PUNCTUATION_PATTERN = /^[,.;:!?%)\]}”’。！？]/u;
+const OPEN_PUNCTUATION_PATTERN = /[(\[{“‘]$/u;
+const SENTENCE_END_PATTERN = /[.!?。！？]/u;
+const LOWERCASE_START_PATTERN = /^\p{Ll}/u;
+const URL_OR_EMAIL_PATTERN = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,})/iu;
 
-const isCoverageComplete = (rawText: string, tokens: readonly string[]): boolean => {
-  if (tokens.length === 0) {
-    return false;
-  }
+type Bounds = PageTextItemInput["bounds"];
 
-  const compactText = rawText.replace(FALLBACK_BOUNDARY_PATTERN, "");
-  const compactTokens = tokens.join("").replace(FALLBACK_BOUNDARY_PATTERN, "");
+interface NormalizedTextItem extends PageTextItemInput {
+  direction: TextDirection;
+  fontSize: number;
+  hasEOL: boolean;
+  orientation: TextOrientation;
+  axis: LocalTextAxis;
+  quad: TextQuad;
+}
 
-  return compactTokens.length > 0 && compactTokens === compactText;
-};
-
-const buildWordTokensBySegmenter = (text: string): string[] => {
-  if (!text || !("Segmenter" in Intl)) {
-    return [];
-  }
-
-  try {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
-    const tokens = Array.from(segmenter.segment(text), (entry) => entry.segment)
-      .filter((token) => token.length > 0)
-      .map((token) => token.trim())
-      .filter((token) => token.length > 0);
-
-    const compact = tokens.filter((token) => WORD_OR_PUNCTUATION_PATTERN.test(token));
-    return compact.length > 0 ? compact : tokens;
-  } catch {
-    return [];
-  }
-};
-const clampPositive = (value: number): number => (Number.isFinite(value) && value > 0 ? value : 0);
-
-const isFiniteBounds = (bounds: PageTextItemInput["bounds"]): boolean => {
-  return Number.isFinite(bounds.x)
-    && Number.isFinite(bounds.y)
-    && Number.isFinite(bounds.width)
-    && Number.isFinite(bounds.height)
-    && bounds.width > 0
-    && bounds.height > 0;
-};
-
-const normalizeDirection = (value: unknown): TextDirection => {
-  if (value === "rtl" || value === "ttb" || value === "ltr") {
-    return value;
-  }
-
-  return DEFAULT_DIRECTION;
-};
-
-const normalizeText = (value: string): string => {
-  const normalized = value.replace(/\u00a0/g, " ").replace(/\s+/gu, " ").trim();
-  return normalized;
-};
-
-const normalizeTextWithSource = (item: PageTextItemInput): PageTextItemInput => {
-  const normalizedText = normalizeText(item.text);
-
-  return {
-    id: item.id,
-    text: normalizedText,
-    bounds: clampRect(item.bounds),
-    sourceIndex: Number.isFinite(item.sourceIndex) ? item.sourceIndex : 0,
-    fontName: item.fontName,
-    fontSize: clampPositive(item.fontSize ?? item.bounds.height),
-    direction: normalizeDirection(item.direction),
-  };
-};
-
-const createSemanticId = (pageId: string, type: SemanticObjectType, readingOrder: number, extractorVersion: string): string => {
-  return `${pageId}:${type.toLowerCase()}:${extractorVersion}:${readingOrder}`;
-};
-
-const median = (values: number[]): number => {
-  if (values.length === 0) {
-    return 0;
-  }
-
-  const sorted = [...values].sort((left, right) => left - right);
-  const center = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[center - 1] + sorted[center]) / 2;
-  }
-
-  return sorted[center];
-};
+interface WordToken {
+  text: string;
+  startOffset: number;
+  endOffset: number;
+}
 
 interface SourceWordCandidate {
   text: string;
   normalizedText: string;
-  bounds: PageTextItemInput["bounds"];
-  sourceItemId: string;
+  bounds: Bounds;
+  sourceRange: WordSourceRange;
   sourceIndex: number;
   fontName?: string;
   fontSize: number;
   direction: TextDirection;
+  hasEOL: boolean;
+  orientation: TextOrientation;
+  axis: LocalTextAxis;
+  quad: TextQuad;
+  spaceAdvance: number;
 }
 
-const createWordTokens = (item: PageTextItemInput): string[] => {
-  const text = item.text;
-  if (!text) {
-    return [];
-  }
+interface Projection {
+  start: number;
+  end: number;
+  center: number;
+  size: number;
+}
 
-  const segmenterTokens = buildWordTokensBySegmenter(text);
-  if (isCoverageComplete(text, segmenterTokens)) {
-    return segmenterTokens;
-  }
-
-  const regexMatches = text.match(WORD_TOKEN_PATTERN);
-  if (regexMatches && isCoverageComplete(text, regexMatches)) {
-    return regexMatches.filter((token) => token.length > 0);
-  }
-
-  const fallbackTokens = text
-    .split(WORD_FALLBACK_TOKEN_BOUNDARY_PATTERN)
-    .map((token) => normalizeText(token))
-    .filter((token) => token.length > 0);
-
-  if (fallbackTokens.length > 0) {
-    return fallbackTokens;
-  }
-
-  return text.match(FALLBACK_WORD_TOKEN_PATTERN) ?? [];
-};
-const spreadBoundsForTokens = (
-  item: PageTextItemInput,
-  tokens: string[],
-): PageTextItemInput["bounds"][] => {
-  const normalizedTokens = tokens
-    .map((token) => normalizeText(token))
-    .filter((token) => token.length > 0);
-
-  if (normalizedTokens.length === 0) {
-    return [];
-  }
-
-  const boundsList: PageTextItemInput["bounds"][] = [];
-  const sourceText = item.text;
-  const sourceLength = Math.max(1, sourceText.length);
-  let sourceCursor = 0;
-
-  for (let index = 0; index < normalizedTokens.length; index += 1) {
-    const token = normalizedTokens[index] ?? "";
-    const foundAt = sourceText.indexOf(token, sourceCursor);
-    const tokenStart = foundAt >= 0 ? foundAt : sourceCursor;
-    const tokenEnd = Math.min(sourceLength, tokenStart + Math.max(1, token.length));
-    const startRatio = tokenStart / sourceLength;
-    const endRatio = tokenEnd / sourceLength;
-    const width = item.bounds.width * Math.max(Number.EPSILON, endRatio - startRatio);
-    const x = item.direction === "rtl"
-      ? item.bounds.x + item.bounds.width * (1 - endRatio)
-      : item.bounds.x + item.bounds.width * startRatio;
-
-    const tokenBounds: PageTextItemInput["bounds"] = {
-      x,
-      y: item.bounds.y,
-      width,
-      height: item.bounds.height,
-    };
-
-    const normalized = clampRect(tokenBounds);
-    if (normalized.width <= 0 || normalized.height <= 0) {
-      sourceCursor = tokenEnd;
-      continue;
-    }
-
-    boundsList.push(normalized);
-    sourceCursor = tokenEnd;
-  }
-
-  return boundsList;
-};
-const splitToSourceWords = (item: PageTextItemInput): SourceWordCandidate[] => {
-  const tokens = createWordTokens(item);
-  if (tokens.length === 0 || !isFiniteBounds(item.bounds)) {
-    return [];
-  }
-
-  const normalized = item.text;
-  const boundsList = spreadBoundsForTokens(item, tokens);
-  const fontSize = clampPositive(item.fontSize ?? item.bounds.height);
-  const result: SourceWordCandidate[] = [];
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = normalizeText(tokens[index] ?? "");
-    if (!token) {
-      continue;
-    }
-
-    const tokenBounds = boundsList[index];
-    if (!tokenBounds || tokenBounds.width <= 0 || tokenBounds.height <= 0) {
-      continue;
-    }
-
-    result.push({
-      text: token,
-      normalizedText: token,
-      bounds: tokenBounds,
-      sourceItemId: item.id,
-      sourceIndex: item.sourceIndex,
-      fontName: item.fontName,
-      fontSize,
-      direction: item.direction ?? DEFAULT_DIRECTION,
-    });
-  }
-
-  return result;
-};
+interface BaselineDraft {
+  words: SourceWordCandidate[];
+  bounds: Bounds;
+  orientation: TextOrientation;
+  axis: LocalTextAxis;
+  baseline: number;
+}
 
 interface LineDraft {
   words: SourceWordCandidate[];
-  baseline: number;
-  bounds: PageTextItemInput["bounds"];
+  bounds: Bounds;
+  orientation: TextOrientation;
+  axis: LocalTextAxis;
   direction: TextDirection;
-  wordIndices: number[];
+  baseline: number;
+  horizontalGaps: number[];
+  averageFontSize: number;
 }
 
-const buildLineDrafts = (
-  candidates: SourceWordCandidate[],
-): LineDraft[] => {
-  if (candidates.length === 0) {
-    return [];
+interface BlockDraft {
+  lines: LineDraft[];
+  bounds: Bounds;
+  type: LayoutBlockType;
+}
+
+interface ColumnDraft {
+  lines: LineDraft[];
+  bounds: Bounds;
+  blocks: BlockDraft[];
+}
+
+interface RegionDraft {
+  lines: LineDraft[];
+  bounds: Bounds;
+  orientation: TextOrientation;
+  columns: ColumnDraft[];
+}
+
+interface LinePlacement {
+  line: LineDraft;
+  lineId: string;
+  readingOrder: number;
+  regionId: string;
+  blockId: string;
+  columnId: string;
+  columnIndex: number;
+}
+
+interface ReconstructedParagraph {
+  text: string;
+  wordRanges: Array<{ word: SemanticWord; start: number; end: number }>;
+  lineRanges: Array<{ lineId: string; start: number; end: number }>;
+}
+
+const finitePositive = (value: number | undefined, fallback: number): number => {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
+const median = (values: readonly number[]): number => {
+  const finite = values.filter((value) => Number.isFinite(value)).sort((left, right) => left - right);
+  if (finite.length === 0) {
+    return 0;
   }
 
-  const sorted = [...candidates]
-    .sort((left, right) => {
-      const leftCenter = yCenter(left.bounds);
-      const rightCenter = yCenter(right.bounds);
-      const centerDelta = leftCenter - rightCenter;
+  const center = Math.floor(finite.length / 2);
+  return finite.length % 2 === 0
+    ? ((finite[center - 1] ?? 0) + (finite[center] ?? 0)) / 2
+    : finite[center] ?? 0;
+};
 
-      const centerTolerance = Math.max(Number.EPSILON, Math.min(left.bounds.height, right.bounds.height) * 0.1);
-      if (Number.isFinite(centerDelta) && Math.abs(centerDelta) > centerTolerance) {
-        return centerDelta;
+const normalizeAngle = (angle: number): number => {
+  if (!Number.isFinite(angle)) {
+    return 0;
+  }
+
+  let normalized = angle % (Math.PI * 2);
+  if (normalized > Math.PI) {
+    normalized -= Math.PI * 2;
+  } else if (normalized <= -Math.PI) {
+    normalized += Math.PI * 2;
+  }
+
+  return Math.abs(normalized) < 1e-10 ? 0 : normalized;
+};
+
+const angleDistance = (left: number, right: number): number => {
+  return Math.abs(normalizeAngle(left - right));
+};
+
+const normalizeVector = (
+  x: number,
+  y: number,
+  fallbackX: number,
+  fallbackY: number,
+): { x: number; y: number } => {
+  const length = Math.hypot(x, y);
+  if (!Number.isFinite(length) || length <= Number.EPSILON) {
+    return { x: fallbackX, y: fallbackY };
+  }
+
+  return { x: x / length, y: y / length };
+};
+
+const resolveOrientation = (item: PageTextItemInput): TextOrientation => {
+  const transformAngle = item.transform
+    ? Math.atan2(item.transform[1], item.transform[0])
+    : item.direction === "ttb"
+      ? Math.PI / 2
+      : 0;
+  const angle = normalizeAngle(item.orientation?.angle ?? transformAngle);
+  const horizontalDistance = Math.min(angleDistance(angle, 0), angleDistance(angle, Math.PI));
+  const writingMode = item.orientation?.writingMode
+    ?? (item.direction === "ttb"
+      ? "vertical"
+      : horizontalDistance <= ORIENTATION_ANGLE_TOLERANCE
+        ? "horizontal"
+        : "rotated");
+
+  return { angle, writingMode };
+};
+
+const resolveAxis = (
+  item: PageTextItemInput,
+  orientation: TextOrientation,
+): LocalTextAxis => {
+  const screenAngle = -orientation.angle;
+  const fallbackAdvance = { x: Math.cos(screenAngle), y: Math.sin(screenAngle) };
+  const advance = item.axis
+    ? normalizeVector(item.axis.advanceX, item.axis.advanceY, fallbackAdvance.x, fallbackAdvance.y)
+    : fallbackAdvance;
+  const fallbackNormal = { x: -advance.y, y: advance.x };
+  const normal = item.axis
+    ? normalizeVector(item.axis.normalX, item.axis.normalY, fallbackNormal.x, fallbackNormal.y)
+    : fallbackNormal;
+
+  return {
+    advanceX: advance.x,
+    advanceY: advance.y,
+    normalX: normal.x,
+    normalY: normal.y,
+  };
+};
+
+const defaultQuad = (bounds: Bounds, axis: LocalTextAxis): TextQuad => {
+  const horizontal = Math.abs(axis.advanceX) >= Math.abs(axis.advanceY);
+  if (horizontal) {
+    return {
+      points: axis.advanceX >= 0
+        ? [
+          { x: bounds.x, y: bounds.y + bounds.height },
+          { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+          { x: bounds.x + bounds.width, y: bounds.y },
+          { x: bounds.x, y: bounds.y },
+        ]
+        : [
+          { x: bounds.x + bounds.width, y: bounds.y },
+          { x: bounds.x, y: bounds.y },
+          { x: bounds.x, y: bounds.y + bounds.height },
+          { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+        ],
+    };
+  }
+
+  return {
+    points: axis.advanceY >= 0
+      ? [
+        { x: bounds.x + bounds.width, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+        { x: bounds.x, y: bounds.y + bounds.height },
+        { x: bounds.x, y: bounds.y },
+      ]
+      : [
+        { x: bounds.x, y: bounds.y + bounds.height },
+        { x: bounds.x, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+      ],
+  };
+};
+
+const resolveQuad = (item: PageTextItemInput, bounds: Bounds, axis: LocalTextAxis): TextQuad => {
+  const points = item.quad?.points;
+  if (
+    points
+    && points.length === 4
+    && points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+  ) {
+    return {
+      points: points.map((point) => ({
+        x: Math.min(1, Math.max(0, point.x)),
+        y: Math.min(1, Math.max(0, point.y)),
+      })) as TextQuad["points"],
+    };
+  }
+
+  return defaultQuad(bounds, axis);
+};
+
+const normalizeText = (text: string): string => text
+  .replace(/\u00a0/gu, " ")
+  .replace(/\s+/gu, " ")
+  .trim();
+
+const normalizeItems = (items: readonly PageTextItemInput[]): NormalizedTextItem[] => {
+  return items
+    .map((item, index): NormalizedTextItem | null => {
+      if (!isValidBounds(item.bounds)) {
+        return null;
       }
 
-      if (left.sourceIndex !== right.sourceIndex) {
-        return left.sourceIndex - right.sourceIndex;
+      const text = normalizeText(item.text);
+      const bounds = clampRect(item.bounds);
+      if (!text || !isValidBounds(bounds)) {
+        return null;
       }
 
-      if (left.direction !== right.direction) {
-        return left.direction === "rtl" ? 1 : -1;
-      }
+      const orientation = resolveOrientation(item);
+      const axis = resolveAxis(item, orientation);
+      const crossSize = orientation.writingMode === "horizontal" ? bounds.height : bounds.width;
 
-      return xCenter(left.bounds) - xCenter(right.bounds);
-    });
+      return {
+        ...item,
+        id: item.id || String(index),
+        text,
+        bounds,
+        sourceIndex: Number.isFinite(item.sourceIndex) ? item.sourceIndex : index,
+        direction: item.direction === "rtl" || item.direction === "ttb"
+          ? item.direction
+          : DEFAULT_DIRECTION,
+        fontSize: finitePositive(item.fontSize, crossSize),
+        hasEOL: item.hasEOL === true,
+        orientation,
+        axis,
+        quad: resolveQuad(item, bounds, axis),
+      };
+    })
+    .filter((item): item is NormalizedTextItem => item !== null)
+    .sort((left, right) => left.sourceIndex - right.sourceIndex);
+};
 
-  const heightMedian = median(sorted.map((entry) => entry.bounds.height));
+const codePointWeight = (character: string): number => {
+  if (/\s/u.test(character)) return 0.52;
+  if (CJK_PATTERN.test(character)) return 1;
+  if (/[ilI1|.,:;!']/u.test(character)) return 0.48;
+  if (/[mwMW@%&]/u.test(character)) return 1.35;
+  if (/[\p{P}\p{S}]/u.test(character)) return 0.62;
+  if (/[A-Z0-9]/u.test(character)) return 0.96;
+  return 0.82;
+};
 
-  const drafts: LineDraft[] = [];
-  let lineCounter = 0;
+const textWeight = (text: string, start = 0, end = text.length): number => {
+  return Array.from(text.slice(start, end))
+    .reduce((total, character) => total + codePointWeight(character), 0);
+};
 
-  for (const candidate of sorted) {
-    const candidateCenter = yCenter(candidate.bounds);
-    let bestIndex = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
+const segmentCompactText = (text: string): WordToken[] => {
+  if (!CJK_PATTERN.test(text) || !("Segmenter" in Intl)) {
+    return [{ text, startOffset: 0, endOffset: text.length }];
+  }
 
-    for (let index = 0; index < drafts.length; index += 1) {
-      const draft = drafts[index];
-      const overlap = verticalOverlapRatio(draft.bounds, candidate.bounds);
-      const baselineDistance = Math.abs(draft.baseline - candidateCenter);
-      const draftHeight = median(draft.words.map((word) => word.bounds.height));
-      const referenceHeight = Math.max(
-        Number.EPSILON,
-        candidate.bounds.height,
-        draftHeight,
-        heightMedian * 0.5,
-      );
-      const baselineTolerance = referenceHeight * 0.55;
-      const hasVerticalOverlap = overlap >= 0.3;
-      const hasCloseBaseline = baselineDistance <= baselineTolerance;
+  try {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+    const result: WordToken[] = [];
+    let pendingStart: number | null = null;
 
-      if (!hasVerticalOverlap && !hasCloseBaseline) {
+    for (const entry of segmenter.segment(text)) {
+      const start = entry.index;
+      const end = start + entry.segment.length;
+      if (!entry.segment || /^\s+$/u.test(entry.segment)) {
         continue;
       }
 
-      if (candidate.direction !== draft.direction && !hasVerticalOverlap) {
-        continue;
-      }
-
-      const distance = baselineDistance / referenceHeight + (1 - overlap) * 0.25;
-
-      if (distance < bestDistance) {
-        bestIndex = index;
-        bestDistance = distance;
+      if (entry.isWordLike) {
+        const tokenStart = pendingStart ?? start;
+        result.push({
+          text: text.slice(tokenStart, end),
+          startOffset: tokenStart,
+          endOffset: end,
+        });
+        pendingStart = null;
+      } else {
+        const previous = result[result.length - 1];
+        if (previous && previous.endOffset === start) {
+          previous.text = text.slice(previous.startOffset, end);
+          previous.endOffset = end;
+        } else {
+          pendingStart = pendingStart ?? start;
+        }
       }
     }
 
-    if (bestIndex < 0) {
-      drafts.push({
-        words: [candidate],
-        baseline: candidateCenter,
-        bounds: { ...candidate.bounds },
-        direction: candidate.direction,
-        wordIndices: [lineCounter],
+    if (result.length > 0) {
+      if (pendingStart !== null) {
+        const previous = result[result.length - 1];
+        previous.text = text.slice(previous.startOffset);
+        previous.endOffset = text.length;
+      }
+      return result;
+    }
+  } catch {
+    return [{ text, startOffset: 0, endOffset: text.length }];
+  }
+
+  return [{ text, startOffset: 0, endOffset: text.length }];
+};
+
+const createWordTokens = (text: string): WordToken[] => {
+  if (!text) return [];
+  if (!WHITESPACE_PATTERN.test(text)) {
+    return segmentCompactText(text).filter((token) => token.text.trim().length > 0);
+  }
+
+  return Array.from(text.matchAll(NON_WHITESPACE_RUN_PATTERN), (match) => ({
+    text: match[0],
+    startOffset: match.index,
+    endOffset: match.index + match[0].length,
+  }));
+};
+
+const interpolatePoint = (
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  ratio: number,
+): { x: number; y: number } => ({
+  x: start.x + (end.x - start.x) * ratio,
+  y: start.y + (end.y - start.y) * ratio,
+});
+
+const sliceQuad = (quad: TextQuad, startRatio: number, endRatio: number): TextQuad => {
+  const [origin, advanceEnd, farAdvanceEnd, farOrigin] = quad.points;
+  return {
+    points: [
+      interpolatePoint(origin, advanceEnd, startRatio),
+      interpolatePoint(origin, advanceEnd, endRatio),
+      interpolatePoint(farOrigin, farAdvanceEnd, endRatio),
+      interpolatePoint(farOrigin, farAdvanceEnd, startRatio),
+    ],
+  };
+};
+
+const splitToSourceWords = (item: NormalizedTextItem): SourceWordCandidate[] => {
+  const tokens = createWordTokens(item.text);
+  const totalWeight = textWeight(item.text);
+  if (tokens.length === 0 || totalWeight <= 0) {
+    return [];
+  }
+
+  const advanceLength = Math.hypot(
+    item.quad.points[1].x - item.quad.points[0].x,
+    item.quad.points[1].y - item.quad.points[0].y,
+  );
+  const spaceAdvance = advanceLength * codePointWeight(" ") / totalWeight;
+
+  return tokens
+    .map((token, index): SourceWordCandidate | null => {
+      const tokenText = token.text.trim();
+      if (!tokenText) return null;
+
+      const weightedStart = textWeight(item.text, 0, token.startOffset) / totalWeight;
+      const weightedEnd = textWeight(item.text, 0, token.endOffset) / totalWeight;
+      const startRatio = item.direction === "rtl" ? 1 - weightedEnd : weightedStart;
+      const endRatio = item.direction === "rtl" ? 1 - weightedStart : weightedEnd;
+      const quad = sliceQuad(item.quad, startRatio, endRatio);
+      const bounds = boundsFromPoints(quad.points);
+      if (!bounds || !isValidBounds(bounds)) return null;
+
+      return {
+        text: tokenText,
+        normalizedText: tokenText,
+        bounds: { ...bounds },
+        sourceRange: {
+          sourceTextItemId: item.id,
+          startOffset: token.startOffset,
+          endOffset: token.endOffset,
+        },
+        sourceIndex: item.sourceIndex,
+        fontName: item.fontName,
+        fontSize: item.fontSize,
+        direction: item.direction,
+        hasEOL: item.hasEOL && index === tokens.length - 1,
+        orientation: { ...item.orientation },
+        axis: { ...item.axis },
+        quad: {
+          points: quad.points.map((point) => ({ ...point })) as TextQuad["points"],
+        },
+        spaceAdvance,
+      };
+    })
+    .filter((candidate): candidate is SourceWordCandidate => candidate !== null);
+};
+
+const rectProjection = (rect: Bounds, axisX: number, axisY: number): Projection => {
+  const values = [
+    rect.x * axisX + rect.y * axisY,
+    (rect.x + rect.width) * axisX + rect.y * axisY,
+    (rect.x + rect.width) * axisX + (rect.y + rect.height) * axisY,
+    rect.x * axisX + (rect.y + rect.height) * axisY,
+  ];
+  const start = Math.min(...values);
+  const end = Math.max(...values);
+  return { start, end, center: (start + end) / 2, size: end - start };
+};
+
+const advanceProjection = (rect: Bounds, axis: LocalTextAxis): Projection => {
+  return rectProjection(rect, axis.advanceX, axis.advanceY);
+};
+
+const normalProjection = (rect: Bounds, axis: LocalTextAxis): Projection => {
+  return rectProjection(rect, axis.normalX, axis.normalY);
+};
+
+const projectionOverlapRatio = (left: Projection, right: Projection): number => {
+  const overlap = Math.min(left.end, right.end) - Math.max(left.start, right.start);
+  const minimum = Math.min(left.size, right.size);
+  return overlap > 0 && minimum > 0 ? overlap / minimum : 0;
+};
+
+const sameOrientation = (left: TextOrientation, right: TextOrientation): boolean => {
+  return left.writingMode === right.writingMode
+    && angleDistance(left.angle, right.angle) <= ORIENTATION_ANGLE_TOLERANCE;
+};
+
+const buildLineDrafts = (words: SourceWordCandidate[]): LineDraft[] => {
+  const baselines: BaselineDraft[] = [];
+  const sorted = [...words].sort((left, right) => {
+    if (left.orientation.writingMode !== right.orientation.writingMode) {
+      return left.orientation.writingMode.localeCompare(right.orientation.writingMode);
+    }
+
+    const angleDelta = normalizeAngle(left.orientation.angle) - normalizeAngle(right.orientation.angle);
+    if (Math.abs(angleDelta) > ORIENTATION_ANGLE_TOLERANCE) return angleDelta;
+
+    const leftNormal = normalProjection(left.bounds, left.axis);
+    const rightNormal = normalProjection(right.bounds, right.axis);
+    if (Math.abs(leftNormal.center - rightNormal.center) > Number.EPSILON) {
+      return leftNormal.center - rightNormal.center;
+    }
+    return left.sourceIndex - right.sourceIndex;
+  });
+
+  for (const word of sorted) {
+    const wordNormal = normalProjection(word.bounds, word.axis);
+    let best: BaselineDraft | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const baseline of baselines) {
+      if (!sameOrientation(word.orientation, baseline.orientation)) continue;
+
+      const baselineNormal = normalProjection(baseline.bounds, baseline.axis);
+      const overlap = projectionOverlapRatio(wordNormal, baselineNormal);
+      const distance = Math.abs(wordNormal.center - baseline.baseline);
+      const reference = Math.max(Number.EPSILON, wordNormal.size, baselineNormal.size);
+      if (overlap < 0.3 && distance > reference * LINE_BASELINE_TOLERANCE_RATIO) continue;
+
+      const score = distance / reference + (1 - overlap) * 0.2;
+      if (score < bestDistance) {
+        best = baseline;
+        bestDistance = score;
+      }
+    }
+
+    if (!best) {
+      baselines.push({
+        words: [word],
+        bounds: { ...word.bounds },
+        orientation: { ...word.orientation },
+        axis: { ...word.axis },
+        baseline: wordNormal.center,
       });
-      lineCounter += 1;
+    } else {
+      best.words.push(word);
+      best.bounds = unionBounds([best.bounds, word.bounds]) ?? best.bounds;
+      best.baseline = median(best.words.map((entry) => normalProjection(entry.bounds, best.axis).center));
+    }
+  }
+
+  const lines: LineDraft[] = [];
+  for (const baseline of baselines) {
+    const geometricallyOrdered = [...baseline.words].sort((left, right) => {
+      return advanceProjection(left.bounds, baseline.axis).start
+        - advanceProjection(right.bounds, baseline.axis).start;
+    });
+    const crossSize = Math.max(
+      Number.EPSILON,
+      median(geometricallyOrdered.map((word) => normalProjection(word.bounds, baseline.axis).size)),
+    );
+    const typicalSpace = median(geometricallyOrdered.map((word) => word.spaceAdvance));
+    const gapLimit = Math.max(crossSize * LINE_GAP_HEIGHT_RATIO, typicalSpace * LINE_GAP_HEIGHT_RATIO);
+    let chunk: SourceWordCandidate[] = [];
+    let gaps: number[] = [];
+
+    const flush = (): void => {
+      if (chunk.length === 0) return;
+
+      const ordered = [...chunk].sort((left, right) => {
+        const delta = advanceProjection(left.bounds, baseline.axis).start
+          - advanceProjection(right.bounds, baseline.axis).start;
+        return baseline.words[0]?.direction === "rtl" ? -delta : delta;
+      });
+      const bounds = unionBounds(ordered.map((word) => word.bounds));
+      if (bounds) {
+        lines.push({
+          words: ordered,
+          bounds,
+          orientation: { ...baseline.orientation },
+          axis: { ...baseline.axis },
+          direction: ordered[0]?.direction ?? DEFAULT_DIRECTION,
+          baseline: normalProjection(bounds, baseline.axis).center,
+          horizontalGaps: [...gaps],
+          averageFontSize: median(ordered.map((word) => word.fontSize)),
+        });
+      }
+      chunk = [];
+      gaps = [];
+    };
+
+    for (const word of geometricallyOrdered) {
+      const previous = chunk[chunk.length - 1];
+      if (previous) {
+        const previousProjection = advanceProjection(previous.bounds, baseline.axis);
+        const currentProjection = advanceProjection(word.bounds, baseline.axis);
+        const gap = Math.max(0, currentProjection.start - previousProjection.end);
+        const eolBoundary = previous.hasEOL
+          && previous.sourceIndex !== word.sourceIndex
+          && gap > crossSize * 0.25;
+
+        if (gap > gapLimit || eolBoundary) flush();
+        else gaps.push(gap);
+      }
+      chunk.push(word);
+    }
+    flush();
+  }
+  return lines;
+};
+
+const clusterHorizontalRows = (lines: LineDraft[]): LineDraft[][] => {
+  const rows: LineDraft[][] = [];
+  const sorted = [...lines].sort((left, right) => {
+    const yDelta = yCenter(left.bounds) - yCenter(right.bounds);
+    return Math.abs(yDelta) > Number.EPSILON ? yDelta : left.bounds.x - right.bounds.x;
+  });
+
+  for (const line of sorted) {
+    const current = rows[rows.length - 1];
+    if (!current) {
+      rows.push([line]);
       continue;
     }
 
-    const draft = drafts[bestIndex];
-    draft.words.push(candidate);
-    draft.baseline = median(draft.words.map((entry) => yCenter(entry.bounds)));
-    draft.bounds = unionBounds([draft.bounds, candidate.bounds]) ?? draft.bounds;
-    draft.wordIndices.push(lineCounter);
-    lineCounter += 1;
+    const rowCenter = median(current.map((entry) => yCenter(entry.bounds)));
+    const referenceHeight = Math.max(
+      line.bounds.height,
+      median(current.map((entry) => entry.bounds.height)),
+      Number.EPSILON,
+    );
+    if (Math.abs(yCenter(line.bounds) - rowCenter) <= referenceHeight * LINE_BASELINE_TOLERANCE_RATIO) {
+      current.push(line);
+    } else {
+      rows.push([line]);
+    }
   }
 
-  for (const draft of drafts) {
-    draft.words.sort((left, right) => {
-      if (left.direction === "rtl") {
-        return xCenter(right.bounds) - xCenter(left.bounds);
-      }
+  for (const row of rows) row.sort((left, right) => left.bounds.x - right.bounds.x);
+  return rows;
+};
 
-      return xCenter(left.bounds) - xCenter(right.bounds);
+const rowHasColumns = (row: LineDraft[]): boolean => {
+  if (row.length < 2) return false;
+  const height = Math.max(Number.EPSILON, median(row.map((line) => line.bounds.height)));
+
+  for (let index = 1; index < row.length; index += 1) {
+    const previous = row[index - 1];
+    const current = row[index];
+    if (!previous || !current) continue;
+    const gap = current.bounds.x - (previous.bounds.x + previous.bounds.width);
+    if (gap > height * 3) return true;
+  }
+  return false;
+};
+
+const inferRegionColumns = (
+  lines: LineDraft[],
+  multiColumn: boolean,
+): Array<{ lines: LineDraft[]; bounds: Bounds }> => {
+  if (!multiColumn) {
+    const bounds = unionBounds(lines.map((line) => line.bounds));
+    return bounds ? [{ lines: [...lines], bounds }] : [];
+  }
+
+  const groups: Array<{ lines: LineDraft[]; bounds: Bounds }> = [];
+  for (const line of [...lines].sort((left, right) => left.bounds.x - right.bounds.x)) {
+    let best: { lines: LineDraft[]; bounds: Bounds } | null = null;
+    let bestOverlap = 0;
+    for (const group of groups) {
+      const overlap = horizontalOverlapRatio(group.bounds, line.bounds);
+      if (overlap > bestOverlap && overlap >= 0.18) {
+        best = group;
+        bestOverlap = overlap;
+      }
+    }
+
+    if (!best) groups.push({ lines: [line], bounds: { ...line.bounds } });
+    else {
+      best.lines.push(line);
+      best.bounds = unionBounds([best.bounds, line.bounds]) ?? best.bounds;
+    }
+  }
+  return groups.sort((left, right) => left.bounds.x - right.bounds.x);
+};
+
+const splitColumnBlocks = (
+  lines: LineDraft[],
+  pageMedianFontSize: number,
+  regionIsMultiColumn: boolean,
+): BlockDraft[] => {
+  const ordered = [...lines].sort((left, right) => {
+    const yDelta = yCenter(left.bounds) - yCenter(right.bounds);
+    return Math.abs(yDelta) > Number.EPSILON ? yDelta : xCenter(left.bounds) - xCenter(right.bounds);
+  });
+  const typicalCrossSize = Math.max(
+    Number.EPSILON,
+    median(ordered.map((line) => line.orientation.writingMode === "horizontal"
+      ? line.bounds.height
+      : line.bounds.width)),
+  );
+  const result: BlockDraft[] = [];
+  let current: LineDraft[] = [];
+
+  const flush = (): void => {
+    const bounds = unionBounds(current.map((line) => line.bounds));
+    if (!bounds) {
+      current = [];
+      return;
+    }
+
+    const averageFont = median(current.map((line) => line.averageFontSize));
+    const orientation = current[0]?.orientation;
+    const type: LayoutBlockType = orientation?.writingMode !== "horizontal"
+      ? "sidebar"
+      : averageFont > pageMedianFontSize * 1.2
+        ? "heading"
+        : !regionIsMultiColumn && bounds.y < 0.25
+          ? "metadata"
+          : "body";
+    result.push({ lines: [...current], bounds, type });
+    current = [];
+  };
+
+  for (const line of ordered) {
+    const previous = current[current.length - 1];
+    if (previous) {
+      const fontRatio = Math.max(previous.averageFontSize, line.averageFontSize)
+        / Math.max(Number.EPSILON, Math.min(previous.averageFontSize, line.averageFontSize));
+      const previousEnd = previous.orientation.writingMode === "horizontal"
+        ? previous.bounds.y + previous.bounds.height
+        : advanceProjection(previous.bounds, previous.axis).end;
+      const currentStart = line.orientation.writingMode === "horizontal"
+        ? line.bounds.y
+        : advanceProjection(line.bounds, line.axis).start;
+      const gap = Math.max(0, currentStart - previousEnd);
+      if (fontRatio > 1.25 || gap > typicalCrossSize * 2.2) flush();
+    }
+    current.push(line);
+  }
+
+  flush();
+  return result;
+};
+
+const analyzeLayout = (lineDrafts: LineDraft[]): RegionDraft[] => {
+  if (lineDrafts.length === 0) return [];
+
+  const pageMedianFontSize = Math.max(
+    Number.EPSILON,
+    median(lineDrafts.map((line) => line.averageFontSize)),
+  );
+  const horizontal = lineDrafts.filter((line) => line.orientation.writingMode === "horizontal");
+  const rotated = lineDrafts.filter((line) => line.orientation.writingMode !== "horizontal");
+  const regions: RegionDraft[] = [];
+
+  if (horizontal.length > 0) {
+    const rows = clusterHorizontalRows(horizontal);
+    const modes = rows.map(rowHasColumns);
+    for (let index = 1; index < modes.length - 1; index += 1) {
+      if (!modes[index] && modes[index - 1] && modes[index + 1]) modes[index] = true;
+    }
+
+    const bands: Array<{ rows: LineDraft[][]; multi: boolean }> = [];
+    const typicalHeight = Math.max(Number.EPSILON, median(horizontal.map((line) => line.bounds.height)));
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index] ?? [];
+      const multi = modes[index] ?? false;
+      const previousBand = bands[bands.length - 1];
+      const previousRow = previousBand?.rows[previousBand.rows.length - 1];
+      const previousBounds = previousRow ? unionBounds(previousRow.map((line) => line.bounds)) : null;
+      const currentBounds = unionBounds(row.map((line) => line.bounds));
+      const verticalGap = previousBounds && currentBounds
+        ? currentBounds.y - (previousBounds.y + previousBounds.height)
+        : 0;
+
+      if (!previousBand || previousBand.multi !== multi || verticalGap > typicalHeight * 5) {
+        bands.push({ rows: [row], multi });
+      } else {
+        previousBand.rows.push(row);
+      }
+    }
+
+    for (const band of bands) {
+      const lines = band.rows.flat();
+      const bounds = unionBounds(lines.map((line) => line.bounds));
+      const orientation = lines[0]?.orientation;
+      if (!bounds || !orientation) continue;
+
+      const columnGroups = inferRegionColumns(lines, band.multi);
+      regions.push({
+        lines,
+        bounds,
+        orientation: { ...orientation },
+        columns: columnGroups.map((group) => ({
+          lines: [...group.lines],
+          bounds: group.bounds,
+          blocks: splitColumnBlocks(group.lines, pageMedianFontSize, band.multi),
+        })),
+      });
+    }
+  }
+
+  const rotatedGroups = new Map<string, LineDraft[]>();
+  for (const line of rotated) {
+    const angleBucket = Math.round(normalizeAngle(line.orientation.angle) / ORIENTATION_ANGLE_TOLERANCE);
+    const key = line.orientation.writingMode + ":" + String(angleBucket);
+    const group = rotatedGroups.get(key) ?? [];
+    group.push(line);
+    rotatedGroups.set(key, group);
+  }
+
+  for (const lines of rotatedGroups.values()) {
+    const bounds = unionBounds(lines.map((line) => line.bounds));
+    const orientation = lines[0]?.orientation;
+    if (!bounds || !orientation) continue;
+    regions.push({
+      lines,
+      bounds,
+      orientation: { ...orientation },
+      columns: [{
+        lines: [...lines],
+        bounds,
+        blocks: splitColumnBlocks(lines, pageMedianFontSize, false),
+      }],
     });
   }
 
-  return drafts;
-};
-interface ColumnDraft extends LineDraft {
-  columnIndex: number;
-  readingOrder: number;
-}
-
-const inferColumns = (drafts: LineDraft[]): ColumnDraft[] => {
-  const sortedByCenter = [...drafts].sort((left, right) => xCenter(left.bounds) - xCenter(right.bounds));
-
-  if (sortedByCenter.length === 0) {
-    return [];
-  }
-
-  const widths = sortedByCenter.map((entry) => entry.bounds.width);
-  const gapThreshold = Math.max(0.04, median(widths) * 2.2);
-
-  let nextColumn = 0;
-  const columns: { left: number; right: number }[] = [];
-  const output: ColumnDraft[] = [];
-
-  for (const draft of sortedByCenter) {
-    const left = draft.bounds.x;
-    const right = draft.bounds.x + draft.bounds.width;
-
-    let matched = -1;
-    for (let index = 0; index < columns.length; index += 1) {
-      const column = columns[index];
-      const overlap = Math.min(column.right, right) - Math.max(column.left, left);
-      if (overlap >= 0 || left - column.right <= gapThreshold) {
-        matched = index;
-        column.left = Math.min(column.left, left);
-        column.right = Math.max(column.right, right);
-        break;
-      }
-    }
-
-    if (matched < 0) {
-      matched = nextColumn;
-      columns.push({ left, right });
-      nextColumn += 1;
-    }
-
-    output.push({ ...draft, columnIndex: matched, readingOrder: 0 });
-  }
-
-  return output;
+  return regions.sort((left, right) => {
+    const leftRotated = left.orientation.writingMode === "horizontal" ? 0 : 1;
+    const rightRotated = right.orientation.writingMode === "horizontal" ? 0 : 1;
+    if (leftRotated !== rightRotated) return leftRotated - rightRotated;
+    const yDelta = left.bounds.y - right.bounds.y;
+    return Math.abs(yDelta) > Number.EPSILON ? yDelta : left.bounds.x - right.bounds.x;
+  });
 };
 
-const normalizeLineText = (words: SourceWordCandidate[]): string => {
-  if (words.length === 0) {
-    return "";
-  }
+const createSemanticId = (
+  pageId: string,
+  type: SemanticObjectType,
+  readingOrder: number,
+  extractorVersion: string,
+): string => pageId + ":" + type.toLowerCase() + ":" + extractorVersion + ":" + String(readingOrder);
 
-  const normalized = words.map((word) => word.normalizedText.trim()).filter(Boolean);
-  return normalized.join(" ").trim();
+const createLayoutId = (
+  pageId: string,
+  type: "region" | "column" | "block",
+  readingOrder: number,
+  extractorVersion: string,
+): string => pageId + ":" + type + ":" + extractorVersion + ":" + String(readingOrder);
+
+const joinWordTexts = (words: readonly { normalizedText: string }[]): string => {
+  let result = "";
+  for (const word of words) {
+    const text = word.normalizedText.trim();
+    if (!text) continue;
+
+    const previous = result.slice(-1);
+    const separator = !result
+      || CLOSE_PUNCTUATION_PATTERN.test(text)
+      || OPEN_PUNCTUATION_PATTERN.test(previous)
+      ? ""
+      : " ";
+    result += separator + text;
+  }
+  return result.trim();
 };
 
-const buildWords = (orderedLines: ColumnDraft[], pageId: string, extractorVersion: string): {
-  words: SemanticWord[];
-  lineWordIds: Map<string, string[]>;
+const materializeLayout = (
+  regions: RegionDraft[],
+  pageId: string,
+  extractorVersion: string,
+): {
+  placements: LinePlacement[];
+  layoutRegions: LayoutRegion[];
+  layoutBlocks: LayoutBlock[];
+  columns: LayoutColumn[];
 } => {
+  const placements: LinePlacement[] = [];
+  const layoutRegions: LayoutRegion[] = [];
+  const layoutBlocks: LayoutBlock[] = [];
+  const columns: LayoutColumn[] = [];
+  let lineOrder = 0;
+  let blockOrder = 0;
+  let columnOrder = 0;
+
+  for (let regionOrder = 0; regionOrder < regions.length; regionOrder += 1) {
+    const region = regions[regionOrder];
+    if (!region) continue;
+
+    const regionId = createLayoutId(pageId, "region", regionOrder, extractorVersion);
+    const regionBlockIds: string[] = [];
+    const regionColumnIds: string[] = [];
+
+    for (const column of region.columns) {
+      const columnId = createLayoutId(pageId, "column", columnOrder, extractorVersion);
+      const columnBlockIds: string[] = [];
+      const columnLineIds: string[] = [];
+      regionColumnIds.push(columnId);
+
+      for (const block of column.blocks) {
+        const blockId = createLayoutId(pageId, "block", blockOrder, extractorVersion);
+        const blockLineIds: string[] = [];
+        regionBlockIds.push(blockId);
+        columnBlockIds.push(blockId);
+
+        for (const line of block.lines) {
+          const lineId = createSemanticId(pageId, "LINE", lineOrder, extractorVersion);
+          placements.push({
+            line,
+            lineId,
+            readingOrder: lineOrder,
+            regionId,
+            blockId,
+            columnId,
+            columnIndex: columnOrder,
+          });
+          blockLineIds.push(lineId);
+          columnLineIds.push(lineId);
+          lineOrder += 1;
+        }
+
+        layoutBlocks.push({
+          id: blockId,
+          pageId,
+          regionId,
+          type: block.type,
+          orientation: { ...region.orientation },
+          bounds: { ...block.bounds },
+          lineIds: blockLineIds,
+          columnId,
+          readingOrder: blockOrder,
+        });
+        blockOrder += 1;
+      }
+
+      columns.push({
+        id: columnId,
+        pageId,
+        regionId,
+        bounds: { ...column.bounds },
+        orientation: { ...region.orientation },
+        blockIds: columnBlockIds,
+        lineIds: columnLineIds,
+        columnIndex: columnOrder,
+        readingOrder: columnOrder,
+      });
+      columnOrder += 1;
+    }
+
+    layoutRegions.push({
+      id: regionId,
+      pageId,
+      bounds: { ...region.bounds },
+      orientation: { ...region.orientation },
+      blockIds: regionBlockIds,
+      columnIds: regionColumnIds,
+      readingOrder: regionOrder,
+    });
+  }
+
+  return { placements, layoutRegions, layoutBlocks, columns };
+};
+
+const buildWordsAndLines = (
+  placements: LinePlacement[],
+  pageId: string,
+  extractorVersion: string,
+): { words: SemanticWord[]; lines: SemanticLine[] } => {
   const words: SemanticWord[] = [];
-  const lineWordIds = new Map<string, string[]>();
+  const lines: SemanticLine[] = [];
+  let wordOrder = 0;
 
-  let order = 0;
-  for (const line of orderedLines) {
-    const lineId = createSemanticId(pageId, "LINE", line.readingOrder, extractorVersion);
-    const ids: string[] = [];
-
-    for (const word of line.words) {
-      const wordId = createSemanticId(pageId, "WORD", order, extractorVersion);
-      const normalizedText = word.normalizedText;
-
+  for (const placement of placements) {
+    const wordIds: string[] = [];
+    for (const candidate of placement.line.words) {
+      const wordId = createSemanticId(pageId, "WORD", wordOrder, extractorVersion);
       words.push({
         id: wordId,
         type: "WORD",
         pageId,
-        text: word.text,
-        normalizedText,
-        bounds: word.bounds,
-        readingOrder: order,
-        confidence: clampPositive(Math.min(1, 0.6 + (word.fontSize / 20))),
-        sourceItemIds: [word.sourceItemId],
-        lineId,
-        direction: word.direction,
-        fontName: word.fontName,
-        fontSize: word.fontSize,
-        startsWithPunctuation: /^[\p{P}\p{S}]/u.test(normalizedText),
-        endsWithPunctuation: /[\p{P}\p{S}]$|\.$/u.test(normalizedText),
+        text: candidate.text,
+        normalizedText: candidate.normalizedText,
+        bounds: { ...candidate.bounds },
+        readingOrder: wordOrder,
+        confidence: 0.82,
+        orientation: { ...candidate.orientation },
+        regionId: placement.regionId,
+        blockId: placement.blockId,
+        columnId: placement.columnId,
+        sourceItemIds: [candidate.sourceRange.sourceTextItemId],
+        sourceRanges: [{ ...candidate.sourceRange }],
+        lineId: placement.lineId,
+        direction: candidate.direction,
+        fontName: candidate.fontName,
+        fontSize: candidate.fontSize,
+        startsWithPunctuation: PUNCTUATION_ONLY_PATTERN.test(candidate.normalizedText)
+          || /^[\p{P}\p{S}]/u.test(candidate.normalizedText),
+        endsWithPunctuation: /[\p{P}\p{S}]$/u.test(candidate.normalizedText),
+        hasEOL: candidate.hasEOL,
+        axis: { ...candidate.axis },
+        quad: {
+          points: candidate.quad.points.map((point) => ({ ...point })) as TextQuad["points"],
+        },
       });
-
-      ids.push(wordId);
-      order += 1;
+      wordIds.push(wordId);
+      wordOrder += 1;
     }
 
-    lineWordIds.set(lineId, ids);
-  }
-
-  return { words, lineWordIds };
-};
-
-const resolveLineReadingOrder = (drafts: ColumnDraft[]): ColumnDraft[] => {
-  return [...drafts]
-    .sort((left, right) => {
-      if (left.columnIndex !== right.columnIndex) {
-        return left.columnIndex - right.columnIndex;
-      }
-
-      const baselineDelta = left.baseline - right.baseline;
-      if (Number.isFinite(baselineDelta) && Math.abs(baselineDelta) > Number.EPSILON) {
-        return baselineDelta;
-      }
-
-      if (left.direction === "rtl" && right.direction === "rtl") {
-        return xCenter(right.bounds) - xCenter(left.bounds);
-      }
-
-      return xCenter(left.bounds) - xCenter(right.bounds);
-    })
-    .map((draft, index) => ({
-      ...draft,
-      readingOrder: index,
-    }));
-};
-
-const buildLines = (
-  lineDrafts: ColumnDraft[],
-  pageId: string,
-  extractorVersion: string,
-  words: SemanticWord[],
-  lineWordIds: Map<string, string[]>,
-): SemanticLine[] => {
-  const lines: SemanticLine[] = [];
-
-  for (const draft of lineDrafts) {
-    const lineId = createSemanticId(pageId, "LINE", draft.readingOrder, extractorVersion);
-    const wordIds = lineWordIds.get(lineId) ?? words
-      .filter((word) => word.lineId === lineId)
-      .map((word) => word.id);
-    const text = normalizeLineText(draft.words);
-    const bounds = unionBounds(draft.words.map((word) => word.bounds)) ?? draft.bounds;
-    const fonts = draft.words.map((word) => word.fontSize).filter((font) => font > 0);
-
-    const line: SemanticLine = {
-      id: lineId,
+    const text = joinWordTexts(placement.line.words);
+    lines.push({
+      id: placement.lineId,
       type: "LINE",
       pageId,
       text,
       normalizedText: text,
-      bounds,
-      readingOrder: draft.readingOrder,
-      confidence: wordIds.length > 0 ? 0.75 : 0.3,
+      bounds: { ...placement.line.bounds },
+      readingOrder: placement.readingOrder,
+      confidence: 0.84,
+      orientation: { ...placement.line.orientation },
+      regionId: placement.regionId,
+      blockId: placement.blockId,
+      columnId: placement.columnId,
       wordIds,
       paragraphId: null,
-      baseline: yCenter(bounds),
-      direction: draft.direction,
-      averageFontSize: fonts.length === 0 ? undefined : fonts.reduce((left, right) => left + right, 0) / fonts.length,
-      columnIndex: draft.columnIndex,
-    };
-
-    lines.push(line);
-  }
-
-  return lines;
-};
-const SENTENCE_END_MARKS = new Set([".", "!", "?", "。", "！", "？"]);
-
-const buildFallbackSentencesByLines = (
-  words: SemanticWord[],
-  lines: SemanticLine[],
-  pageId: string,
-  extractorVersion: string,
-): SemanticSentence[] => {
-  if (words.length === 0) {
-    return [];
-  }
-
-  const sortedLines = [...lines].sort(sortByReadingPoint);
-  const lineWordIds = new Map<string, string[]>();
-  const lineIds = sortedLines
-    .map((line) => {
-      const ids = words
-        .filter((word) => word.lineId === line.id)
-        .map((word) => word.id);
-      if (ids.length === 0) {
-        return "";
-      }
-
-      lineWordIds.set(line.id, ids);
-      return line.id;
-    })
-    .filter((value): value is string => value.length > 0);
-
-  if (lineIds.length === 0) {
-    return [];
-  }
-
-  return lineIds.map((lineId, order): SemanticSentence | null => {
-    const ids = lineWordIds.get(lineId) ?? [];
-    if (ids.length === 0) {
-      return null;
-    }
-
-    const bounds = ids
-      .map((id) => words.find((word) => word.id === id)?.bounds)
-      .filter((rect): rect is NonNullable<typeof rect> => typeof rect !== "undefined");
-    const text = ids
-      .map((id) => words.find((word) => word.id === id)?.normalizedText)
-      .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-      .join(" ");
-
-    return {
-      id: createSemanticId(pageId, "SENTENCE", order, extractorVersion),
-      type: "SENTENCE",
-      pageId,
-      text,
-      normalizedText: text,
-      bounds: unionBounds(bounds) ?? {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-      },
-      readingOrder: order,
-      confidence: 0.74,
-      wordIds: ids,
-      lineIds: [lineId],
-      paragraphId: null,
-      startWordId: ids[0] ?? "",
-      endWordId: ids[ids.length - 1] ?? "",
-    };
-  })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-};
-
-const buildSentences = (
-  words: SemanticWord[],
-  lines: SemanticLine[],
-  pageId: string,
-  extractorVersion: string,
-): SemanticSentence[] => {
-  if (words.length === 0) {
-    return [];
-  }
-
-  const sortedWords = [...words].sort(sortByReadingPoint);
-  const normalizedText = sortedWords
-    .map((word) => word.normalizedText)
-    .join(" ")
-    .trim();
-
-  if (normalizedText.length === 0) {
-    return [];
-  }
-
-  const segmenter = createSentenceSegmenter();
-  const segments = segmenter.segment(normalizedText);
-  const fallbackSegments = segments.length > 0
-    ? segments
-    : [{
-      start: 0,
-      end: normalizedText.length,
-      text: normalizedText,
-    }];
-
-  const hasSentenceEnd = normalizedText.split("").some((char) => SENTENCE_END_MARKS.has(char));
-  if (lines.length > 1 && (!hasSentenceEnd || fallbackSegments.length === 1)) {
-    const fallback = buildFallbackSentencesByLines(sortedWords, lines, pageId, extractorVersion);
-    if (fallback.length > 0) {
-      return fallback;
-    }
-  }
-
-  const wordCharacterRanges = (() => {
-    let cursor = 0;
-    return sortedWords.map((word) => {
-      const start = cursor;
-      const end = start + word.normalizedText.length;
-      cursor = end + 1;
-      return { start, end };
+      baseline: placement.line.baseline,
+      direction: placement.line.direction,
+      averageFontSize: placement.line.averageFontSize,
+      columnIndex: placement.columnIndex,
+      axis: { ...placement.line.axis },
+      horizontalGaps: [...placement.line.horizontalGaps],
     });
-  })();
-
-  const positions = fallbackSegments
-      .map((segment) => {
-        const text = segment.text.trim();
-        if (!text) {
-          return null;
-        }
-
-        const includedWordIndices = wordCharacterRanges
-          .map((range, index) => ({ range, index }))
-          .filter(({ range }) => range.end > segment.start && range.start < segment.end)
-          .map(({ index }) => index);
-        const start = includedWordIndices[0] ?? 0;
-        const end = (includedWordIndices[includedWordIndices.length - 1] ?? -1) + 1;
-
-        return { start, end, segment };
-      })
-      .filter((position): position is { start: number; end: number; segment: SentenceSegment } => position !== null)
-      .filter((position) => position.end > position.start);
-
-  const result: SemanticSentence[] = [];
-  let order = 0;
-
-  for (const position of positions) {
-    const wordIds = sortedWords
-      .slice(position.start, position.end)
-      .map((word) => word.id);
-
-    if (wordIds.length === 0) {
-      continue;
-    }
-
-    const sentenceLineIds = Array.from(
-      new Set(
-        wordIds
-          .map((id) => sortedWords.find((word) => word.id === id)?.lineId)
-          .filter((id): id is string => typeof id === "string" && id.length > 0),
-      ),
-    );
-
-    const sentenceWordBounds = wordIds
-      .map((wordId) => sortedWords.find((word) => word.id === wordId)?.bounds)
-      .filter((rect): rect is NonNullable<typeof rect> => typeof rect !== "undefined");
-
-    const sentenceText = wordIds
-      .map((wordId) => sortedWords.find((word) => word.id === wordId)?.normalizedText)
-      .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-      .join(" ");
-
-    const bounds = unionBounds(sentenceWordBounds) ?? {
-      x: 0,
-      y: 0,
-      width: 0,
-      height: 0,
-    };
-
-    result.push({
-      id: createSemanticId(pageId, "SENTENCE", order, extractorVersion),
-      type: "SENTENCE",
-      pageId,
-      text: sentenceText,
-      normalizedText: sentenceText,
-      bounds,
-      readingOrder: order,
-      confidence: 0.7,
-      wordIds,
-      lineIds: sentenceLineIds,
-      paragraphId: null,
-      startWordId: wordIds[0] ?? "",
-      endWordId: wordIds[wordIds.length - 1] ?? "",
-    });
-    order += 1;
   }
-
-  if (result.length > 0) {
-    return result;
-  }
-
-  return [
-    {
-      id: createSemanticId(pageId, "SENTENCE", 0, extractorVersion),
-      type: "SENTENCE",
-      pageId,
-      text: normalizedText,
-      normalizedText,
-      bounds: unionBounds(sortedWords.map((word) => word.bounds)) ?? {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-      },
-      readingOrder: 0,
-      confidence: 0.65,
-      wordIds: sortedWords.map((word) => word.id),
-      lineIds: [...new Set(lines.map((line) => line.id))],
-      paragraphId: null,
-      startWordId: sortedWords[0]?.id ?? "",
-      endWordId: sortedWords[sortedWords.length - 1]?.id ?? "",
-    },
-  ];
+  return { words, lines };
 };
+
+const lineGap = (previous: SemanticLine, current: SemanticLine): number => {
+  if (previous.orientation.writingMode === "horizontal") {
+    return current.bounds.y - (previous.bounds.y + previous.bounds.height);
+  }
+
+  const previousProjection = advanceProjection(previous.bounds, previous.axis);
+  const currentProjection = advanceProjection(current.bounds, current.axis);
+  return currentProjection.start - previousProjection.end;
+};
+
 const buildParagraphs = (
   lines: SemanticLine[],
-  sentences: SemanticSentence[],
+  blocks: LayoutBlock[],
   pageId: string,
   extractorVersion: string,
 ): SemanticParagraph[] => {
-  if (lines.length === 0) {
-    return [];
-  }
-
-  const sortedLines = [...lines].sort(sortByReadingPoint);
-  const gaps = sortedLines
-    .slice(1)
-    .map((current, index) => {
-      const prev = sortedLines[index];
-      if (!prev || !current.bounds) {
-        return 0;
-      }
-
-      return current.bounds.y - (prev.bounds.y + prev.bounds.height);
-    })
-    .filter((value) => value > 0);
-
-  const typicalLineHeight = median(sortedLines.map((line) => line.bounds.height));
-  const gapThreshold = gaps.length > 0
-    ? Math.max(typicalLineHeight * 0.75, median(gaps) * PARAGRAPH_GAP_MULTIPLIER)
-    : Number.POSITIVE_INFINITY;
-
-  let nextOrder = 0;
+  const lineMap = new Map(lines.map((line) => [line.id, line]));
   const paragraphs: SemanticParagraph[] = [];
-  let currentLineIds: string[] = [];
-  let currentSentenceIds: string[] = [];
-  let currentColumn = sortedLines[0]!.columnIndex;
-  let previousLine: SemanticLine | null = null;
+  let paragraphOrder = 0;
 
-  const flushParagraph = () => {
-    if (currentLineIds.length === 0) {
-      return;
-    }
+  for (const block of [...blocks].sort((left, right) => left.readingOrder - right.readingOrder)) {
+    const blockLines = block.lineIds
+      .map((lineId) => lineMap.get(lineId))
+      .filter((line): line is SemanticLine => line !== undefined)
+      .sort((left, right) => left.readingOrder - right.readingOrder);
+    if (blockLines.length === 0) continue;
 
-    const text = currentLineIds
-      .map((lineId) => lines.find((line) => line.id === lineId)?.normalizedText)
-      .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-      .join(" ");
+    const typicalCross = Math.max(
+      Number.EPSILON,
+      median(blockLines.map((line) => line.orientation.writingMode === "horizontal"
+        ? line.bounds.height
+        : line.bounds.width)),
+    );
+    const positiveGaps = blockLines
+      .slice(1)
+      .map((line, index) => {
+        const previous = blockLines[index];
+        return previous ? lineGap(previous, line) : 0;
+      })
+      .filter((gap) => gap > 0);
+    const gapThreshold = Math.max(
+      typicalCross * 1.4,
+      median(positiveGaps) * PARAGRAPH_GAP_MULTIPLIER,
+    );
+    let current: SemanticLine[] = [];
 
-    const bounds = unionBounds(currentLineIds
-      .map((lineId) => lines.find((line) => line.id === lineId)?.bounds)
-      .filter((entry): entry is NonNullable<typeof entry> => typeof entry !== "undefined")
-    ) ?? {
-      x: 0,
-      y: 0,
-      width: 0,
-      height: 0,
+    const flush = (): void => {
+      const bounds = unionBounds(current.map((line) => line.bounds));
+      const first = current[0];
+      if (!bounds || !first) {
+        current = [];
+        return;
+      }
+
+      const paragraphId = createSemanticId(pageId, "PARAGRAPH", paragraphOrder, extractorVersion);
+      const text = current.map((line) => line.normalizedText).join(" ").trim();
+      const paragraph: SemanticParagraph = {
+        id: paragraphId,
+        type: "PARAGRAPH",
+        pageId,
+        text,
+        normalizedText: text,
+        bounds,
+        fragments: current.map((line) => ({ ...line.bounds })),
+        readingOrder: paragraphOrder,
+        confidence: 0.82,
+        orientation: { ...first.orientation },
+        regionId: first.regionId,
+        blockId: first.blockId,
+        columnId: first.columnId,
+        lineIds: current.map((line) => line.id),
+        sentenceIds: [],
+        columnIndex: first.columnIndex,
+        averageFontSize: median(current
+          .map((line) => line.averageFontSize ?? 0)
+          .filter((value) => value > 0)),
+      };
+
+      for (const line of current) line.paragraphId = paragraphId;
+      paragraphs.push(paragraph);
+      paragraphOrder += 1;
+      current = [];
     };
 
-    const paragraph: SemanticParagraph = {
-      id: createSemanticId(pageId, "PARAGRAPH", nextOrder, extractorVersion),
-      type: "PARAGRAPH",
-      pageId,
-      text,
-      normalizedText: text,
-      bounds,
-      readingOrder: nextOrder,
-      confidence: 0.75,
-      lineIds: [...currentLineIds],
-      sentenceIds: [...new Set(currentSentenceIds)],
-      columnIndex: currentColumn,
-      averageFontSize: undefined,
-    };
-
-    for (const lineId of currentLineIds) {
-      const line = lines.find((entry) => entry.id === lineId);
-      if (line) {
-        line.paragraphId = paragraph.id;
+    for (const line of blockLines) {
+      const previous = current[current.length - 1];
+      if (previous) {
+        const gap = lineGap(previous, line);
+        const indentDelta = line.orientation.writingMode === "horizontal"
+          ? Math.abs(line.bounds.x - previous.bounds.x)
+          : Math.abs(line.bounds.y - previous.bounds.y);
+        const fontRatio = Math.max(
+          line.averageFontSize ?? typicalCross,
+          previous.averageFontSize ?? typicalCross,
+        ) / Math.max(
+          Number.EPSILON,
+          Math.min(line.averageFontSize ?? typicalCross, previous.averageFontSize ?? typicalCross),
+        );
+        const indentBoundary = indentDelta > typicalCross * 1.5
+          && SENTENCE_END_PATTERN.test(previous.normalizedText.slice(-1));
+        if (gap > gapThreshold || fontRatio > 1.22 || indentBoundary) flush();
       }
+      current.push(line);
     }
-
-    for (const sentenceId of currentSentenceIds) {
-      const sentence = sentences.find((entry) => entry.id === sentenceId);
-      if (sentence) {
-        sentence.paragraphId = paragraph.id;
-      }
-    }
-
-    paragraphs.push(paragraph);
-    nextOrder += 1;
-    currentLineIds = [];
-    currentSentenceIds = [];
-  };
-
-  for (const line of sortedLines) {
-    const paragraphBoundary = (() => {
-      if (!previousLine) {
-        return false;
-      }
-
-      if (line.columnIndex !== currentColumn) {
-        return true;
-      }
-
-      const gap = line.bounds.y - (previousLine.bounds.y + previousLine.bounds.height);
-      if (gap > gapThreshold) {
-        return true;
-      }
-
-      const indentDiff = Math.abs(line.bounds.x - previousLine.bounds.x);
-      if (indentDiff > previousLine.bounds.width * 0.2 && previousLine.bounds.width > 0) {
-        return true;
-      }
-
-      return false;
-    })();
-
-    if (paragraphBoundary) {
-      flushParagraph();
-      currentColumn = line.columnIndex;
-    }
-
-    currentLineIds.push(line.id);
-
-    const sentenceIds = sentences
-      .filter((sentence) => sentence.lineIds.some((lineId) => lineId === line.id))
-      .map((sentence) => sentence.id);
-    for (const sentenceId of sentenceIds) {
-      if (!currentSentenceIds.includes(sentenceId)) {
-        currentSentenceIds.push(sentenceId);
-      }
-    }
-
-    previousLine = line;
+    flush();
   }
-
-  flushParagraph();
   return paragraphs;
 };
 
-const normalizeItems = (items: PageTextItemInput[]): PageTextItemInput[] => {
-  return items
-    .map((item, index) => normalizeTextWithSource({
-      ...item,
-      id: item.id || `${index}`,
-      sourceIndex: Number.isFinite(item.sourceIndex) ? item.sourceIndex : index,
-    }))
-    .filter((item) => item.text.length > 0)
-    .filter((item) => isFiniteBounds(item.bounds))
-    .sort((left, right) => {
-      if (left.sourceIndex !== right.sourceIndex) {
-        return left.sourceIndex - right.sourceIndex;
+const isHyphenatedLineBreak = (previous: SemanticWord, current: SemanticWord): boolean => {
+  return previous.lineId !== current.lineId
+    && previous.normalizedText.endsWith("-")
+    && LOWERCASE_START_PATTERN.test(current.normalizedText)
+    && !URL_OR_EMAIL_PATTERN.test(previous.normalizedText)
+    && !URL_OR_EMAIL_PATTERN.test(current.normalizedText);
+};
+
+const reconstructParagraph = (
+  paragraph: SemanticParagraph,
+  lineMap: ReadonlyMap<string, SemanticLine>,
+  wordMap: ReadonlyMap<string, SemanticWord>,
+): ReconstructedParagraph => {
+  let text = "";
+  const wordRanges: ReconstructedParagraph["wordRanges"] = [];
+  const lineRanges: ReconstructedParagraph["lineRanges"] = [];
+  let previousWord: SemanticWord | null = null;
+
+  for (const lineId of paragraph.lineIds) {
+    const line = lineMap.get(lineId);
+    if (!line) continue;
+
+    const lineStart = text.length;
+    for (const wordId of line.wordIds) {
+      const word = wordMap.get(wordId);
+      if (!word) continue;
+
+      let separator = "";
+      if (text.length > 0) {
+        if (previousWord && isHyphenatedLineBreak(previousWord, word)) {
+          text = text.slice(0, -1);
+          const previousRange = wordRanges[wordRanges.length - 1];
+          if (previousRange) {
+            previousRange.end = Math.max(previousRange.start, previousRange.end - 1);
+          }
+        } else if (
+          !CLOSE_PUNCTUATION_PATTERN.test(word.normalizedText)
+          && !OPEN_PUNCTUATION_PATTERN.test(previousWord?.normalizedText.slice(-1) ?? "")
+        ) {
+          separator = " ";
+        }
       }
 
-      return xCenter(left.bounds) - xCenter(right.bounds);
-    });
+      text += separator;
+      const start = text.length;
+      text += word.normalizedText;
+      wordRanges.push({ word, start, end: text.length });
+      previousWord = word;
+    }
+    lineRanges.push({ lineId, start: lineStart, end: text.length });
+  }
+
+  return { text, wordRanges, lineRanges };
 };
+
+const sentenceFragments = (
+  wordIds: readonly string[],
+  wordMap: ReadonlyMap<string, SemanticWord>,
+): Bounds[] => {
+  const byLine = new Map<string, Bounds[]>();
+  for (const wordId of wordIds) {
+    const word = wordMap.get(wordId);
+    if (!word) continue;
+
+    const bounds = byLine.get(word.lineId) ?? [];
+    bounds.push(word.bounds);
+    byLine.set(word.lineId, bounds);
+  }
+
+  return Array.from(byLine.values())
+    .map((bounds) => unionBounds(bounds))
+    .filter((bounds): bounds is Bounds => bounds !== null);
+};
+
+const fallbackSegmentsByLine = (
+  reconstructed: ReconstructedParagraph,
+): SentenceSegment[] => {
+  return reconstructed.lineRanges
+    .map((range) => ({
+      start: range.start,
+      end: range.end,
+      text: reconstructed.text.slice(range.start, range.end).trim(),
+    }))
+    .filter((segment) => segment.text.length > 0);
+};
+
+const buildSentences = (
+  paragraphs: SemanticParagraph[],
+  lines: SemanticLine[],
+  words: SemanticWord[],
+  pageId: string,
+  extractorVersion: string,
+): SemanticSentence[] => {
+  const lineMap = new Map(lines.map((line) => [line.id, line]));
+  const wordMap = new Map(words.map((word) => [word.id, word]));
+  const segmenter = createSentenceSegmenter();
+  const sentences: SemanticSentence[] = [];
+  let sentenceOrder = 0;
+
+  for (const paragraph of [...paragraphs].sort((left, right) => left.readingOrder - right.readingOrder)) {
+    const reconstructed = reconstructParagraph(paragraph, lineMap, wordMap);
+    if (!reconstructed.text.trim()) continue;
+
+    let segments = segmenter.segment(reconstructed.text);
+    if (
+      paragraph.lineIds.length > 1
+      && segments.length <= 1
+      && !SENTENCE_END_PATTERN.test(reconstructed.text)
+    ) {
+      segments = fallbackSegmentsByLine(reconstructed);
+    }
+    if (segments.length === 0) {
+      segments = [{ start: 0, end: reconstructed.text.length, text: reconstructed.text }];
+    }
+
+    for (const segment of segments) {
+      const included = reconstructed.wordRanges
+        .filter((range) => range.start < segment.end && range.end > segment.start)
+        .map((range) => range.word);
+      if (included.length === 0) continue;
+
+      const wordIds = included.map((word) => word.id);
+      const lineIds = Array.from(new Set(included.map((word) => word.lineId)));
+      const fragments = sentenceFragments(wordIds, wordMap);
+      const bounds = unionBounds(fragments);
+      const first = included[0];
+      if (!bounds || !first) continue;
+
+      const sentenceId = createSemanticId(pageId, "SENTENCE", sentenceOrder, extractorVersion);
+      sentences.push({
+        id: sentenceId,
+        type: "SENTENCE",
+        pageId,
+        text: segment.text.trim(),
+        normalizedText: segment.text.trim(),
+        bounds,
+        fragments,
+        readingOrder: sentenceOrder,
+        confidence: 0.82,
+        orientation: { ...paragraph.orientation },
+        regionId: paragraph.regionId,
+        blockId: paragraph.blockId,
+        columnId: paragraph.columnId,
+        wordIds,
+        lineIds,
+        paragraphId: paragraph.id,
+        startWordId: wordIds[0] ?? "",
+        endWordId: wordIds[wordIds.length - 1] ?? "",
+      });
+      paragraph.sentenceIds.push(sentenceId);
+      sentenceOrder += 1;
+    }
+  }
+
+  return sentences;
+};
+
+export const createTextItemSignature = (
+  textItems: readonly PageTextItemInput[],
+): string => {
+  let hash = 2166136261;
+  const update = (value: string): void => {
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+  };
+
+  for (const item of textItems) {
+    const orientation = resolveOrientation(item);
+    update(item.id);
+    update(item.text);
+    update(String(item.sourceIndex));
+    update(item.bounds.x.toFixed(6));
+    update(item.bounds.y.toFixed(6));
+    update(item.bounds.width.toFixed(6));
+    update(item.bounds.height.toFixed(6));
+    update(orientation.angle.toFixed(6));
+    update(orientation.writingMode);
+    update(item.hasEOL ? "1" : "0");
+  }
+
+  return String(textItems.length) + ":" + (hash >>> 0).toString(16);
+};
+
+const emptyModelData = (
+  input: BuildPageInput,
+  extractorVersion: string,
+  schemaVersion: number,
+  sourceSignature: string,
+  sourceItemCount: number,
+): PageSemanticModelData => ({
+  schemaVersion,
+  extractorVersion,
+  documentId: input.documentId,
+  pageId: input.pageId,
+  pageNumber: input.pageNumber,
+  sourceSignature,
+  words: [],
+  lines: [],
+  layoutRegions: [],
+  layoutBlocks: [],
+  columns: [],
+  sentences: [],
+  paragraphs: [],
+  createdAt: 0,
+  sourceItemCount,
+  processingDurationMs: 0,
+});
 
 export const buildPageSemanticModel = (input: BuildPageInput): PageSemanticModel => {
   const extractorVersion = input.extractorVersion ?? SEMANTIC_EXTRACTOR_VERSION;
   const schemaVersion = input.schemaVersion ?? SEMANTIC_SCHEMA_VERSION;
-
+  const sourceSignature = createTextItemSignature(input.textItems);
   const sourceItems = normalizeItems(input.textItems);
+
   if (sourceItems.length === 0) {
-    return new PageSemanticModel({
-      schemaVersion,
+    return new PageSemanticModel(emptyModelData(
+      input,
       extractorVersion,
-      documentId: input.documentId,
-      pageId: input.pageId,
-      pageNumber: input.pageNumber,
-      words: [],
-      lines: [],
-      sentences: [],
-      paragraphs: [],
-      createdAt: 0,
-      sourceItemCount: 0,
-      processingDurationMs: 0,
-    });
-  }
-
-  const sourceWordCandidates = sourceItems.flatMap((item) => splitToSourceWords(item));
-  if (sourceWordCandidates.length === 0) {
-    return new PageSemanticModel({
       schemaVersion,
+      sourceSignature,
+      0,
+    ));
+  }
+
+  const sourceWords = sourceItems.flatMap(splitToSourceWords);
+  if (sourceWords.length === 0) {
+    return new PageSemanticModel(emptyModelData(
+      input,
       extractorVersion,
-      documentId: input.documentId,
-      pageId: input.pageId,
-      pageNumber: input.pageNumber,
-      words: [],
-      lines: [],
-      sentences: [],
-      paragraphs: [],
-      createdAt: 0,
-      sourceItemCount: sourceItems.length,
-      processingDurationMs: 0,
-    });
+      schemaVersion,
+      sourceSignature,
+      sourceItems.length,
+    ));
   }
 
-  const lineDrafts = inferColumns(buildLineDrafts(sourceWordCandidates));
-  const lineDraftWithOrder = lineDrafts
-    .map((draft) => ({
-      ...draft,
-      readingOrder: 0,
-    }))
-    .sort((left, right) => {
-      if (left.columnIndex !== right.columnIndex) {
-        return left.columnIndex - right.columnIndex;
-      }
+  const lineDrafts = buildLineDrafts(sourceWords);
+  const regionDrafts = analyzeLayout(lineDrafts);
+  const { placements, layoutRegions, layoutBlocks, columns } = materializeLayout(
+    regionDrafts,
+    input.pageId,
+    extractorVersion,
+  );
+  const { words, lines } = buildWordsAndLines(placements, input.pageId, extractorVersion);
+  const paragraphs = buildParagraphs(lines, layoutBlocks, input.pageId, extractorVersion);
+  const sentences = buildSentences(paragraphs, lines, words, input.pageId, extractorVersion);
 
-      return left.baseline - right.baseline;
-    });
-
-  for (let index = 0; index < lineDraftWithOrder.length; index += 1) {
-    lineDraftWithOrder[index] = {
-      ...lineDraftWithOrder[index],
-      readingOrder: index,
-    };
-  }
-
-  const { words, lineWordIds } = buildWords(lineDraftWithOrder, input.pageId, extractorVersion);
-
-  const lines = buildLines(lineDraftWithOrder, input.pageId, extractorVersion, words, lineWordIds);
-  for (const line of lines) {
-    const orderedIds = lineWordIds.get(line.id);
-    if (orderedIds) {
-      line.wordIds = orderedIds.filter((value, index, all) => all.indexOf(value) === index);
-    }
-  }
-
-  const sentences = buildSentences(words, lines, input.pageId, extractorVersion);
-  const paragraphs = buildParagraphs(lines, sentences, input.pageId, extractorVersion);
-
-  const model: PageSemanticModelData = {
+  return new PageSemanticModel({
     schemaVersion,
     extractorVersion,
     documentId: input.documentId,
     pageId: input.pageId,
     pageNumber: input.pageNumber,
+    sourceSignature,
     words,
     lines,
+    layoutRegions,
+    layoutBlocks,
+    columns,
     sentences,
     paragraphs,
     createdAt: 0,
     sourceItemCount: sourceItems.length,
     processingDurationMs: 0,
-  };
-
-  return new PageSemanticModel(model);
+  });
 };
 
-// export alias for compatibility
 export const buildPageModel = buildPageSemanticModel;
 export { PageSemanticModel };

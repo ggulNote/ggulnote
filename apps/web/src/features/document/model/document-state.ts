@@ -41,6 +41,8 @@ export type DocumentSessionAction =
       lineCount: number;
       sentenceCount: number;
       paragraphCount: number;
+      regionCount?: number;
+      blockCount?: number;
       columnCount: number;
       processingDurationMs: number;
       extractorVersion: string;
@@ -86,6 +88,8 @@ export interface DocumentSessionState {
   semanticLineCount: number;
   semanticSentenceCount: number;
   semanticParagraphCount: number;
+  semanticRegionCount: number;
+  semanticBlockCount: number;
   semanticColumnCount: number;
   semanticProcessingDurationMs: number;
   semanticSelectedType: SemanticCandidateType;
@@ -128,6 +132,8 @@ const resetSemanticState = (): Pick<
   | "semanticLineCount"
   | "semanticSentenceCount"
   | "semanticParagraphCount"
+  | "semanticRegionCount"
+  | "semanticBlockCount"
   | "semanticColumnCount"
   | "semanticProcessingDurationMs"
   | "semanticSelectedType"
@@ -146,6 +152,8 @@ const resetSemanticState = (): Pick<
   semanticLineCount: 0,
   semanticSentenceCount: 0,
   semanticParagraphCount: 0,
+  semanticRegionCount: 0,
+  semanticBlockCount: 0,
   semanticColumnCount: 0,
   semanticProcessingDurationMs: 0,
   semanticSelectedType: "NONE",
@@ -327,6 +335,8 @@ export function documentSessionReducer(
         semanticLineCount: action.lineCount,
         semanticSentenceCount: action.sentenceCount,
         semanticParagraphCount: action.paragraphCount,
+        semanticRegionCount: action.regionCount ?? 0,
+        semanticBlockCount: action.blockCount ?? 0,
         semanticColumnCount: action.columnCount,
         semanticProcessingDurationMs: action.processingDurationMs,
         semanticExtractorVersion: action.extractorVersion,

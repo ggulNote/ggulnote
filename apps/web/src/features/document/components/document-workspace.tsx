@@ -24,6 +24,7 @@ import { usePageRender } from "../hooks/use-page-render";
 import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "../local-persistence";
 import {
   buildPageSemanticModel,
+  createTextItemSignature,
   PageSemanticModel,
   type SemanticCandidate,
 } from "@ggulnote/document-core";
@@ -195,16 +196,36 @@ function isDragDistanceEnough(
 
 const SEMANTIC_QUERY_MAX_RESULTS = 10;
 
+type SemanticLayerStyleKey =
+  | "text"
+  | "word"
+  | "line"
+  | "region"
+  | "block"
+  | "column"
+  | "sentence"
+  | "sentenceFragment"
+  | "paragraph"
+  | "paragraphFragment"
+  | "readingOrder"
+  | "candidate";
+
 const SEMANTIC_LAYER_STYLES: Array<{
-  key: "text" | "word" | "line" | "sentence" | "paragraph" | "candidate";
+  key: SemanticLayerStyleKey;
   label: string;
   color: string;
 }> = [
   { key: "text", label: "Text", color: "rgba(59, 130, 246, 0.95)" },
   { key: "word", label: "Word", color: "rgba(16, 185, 129, 0.95)" },
   { key: "line", label: "Line", color: "rgba(249, 115, 22, 0.95)" },
+  { key: "region", label: "Region", color: "rgba(236, 72, 153, 0.95)" },
+  { key: "block", label: "Block", color: "rgba(234, 179, 8, 0.95)" },
+  { key: "column", label: "Column", color: "rgba(6, 182, 212, 0.95)" },
   { key: "sentence", label: "Sentence", color: "rgba(168, 85, 247, 0.95)" },
+  { key: "sentenceFragment", label: "Sentence fragment", color: "rgba(192, 132, 252, 0.95)" },
   { key: "paragraph", label: "Paragraph", color: "rgba(14, 116, 144, 0.95)" },
+  { key: "paragraphFragment", label: "Paragraph fragment", color: "rgba(34, 211, 238, 0.95)" },
+  { key: "readingOrder", label: "Reading order", color: "rgba(244, 63, 94, 0.95)" },
   { key: "candidate", label: "Candidate", color: "rgba(251, 146, 60, 1)" },
 ];
 
@@ -212,18 +233,32 @@ type SemanticDebugLayerState = {
   textItems: boolean;
   words: boolean;
   lines: boolean;
+  layoutRegions: boolean;
+  layoutBlocks: boolean;
+  columns: boolean;
   sentences: boolean;
+  sentenceFragments: boolean;
   paragraphs: boolean;
+  paragraphFragments: boolean;
+  readingOrder: boolean;
   candidates: boolean;
+  boxOnly: boolean;
 };
 
 const initialSemanticDebugLayer: SemanticDebugLayerState = {
   textItems: false,
   words: false,
   lines: false,
+  layoutRegions: false,
+  layoutBlocks: false,
+  columns: false,
   sentences: false,
+  sentenceFragments: false,
   paragraphs: false,
+  paragraphFragments: false,
+  readingOrder: false,
   candidates: true,
+  boxOnly: true,
 };
 
 function shortenText(value: string, maxLength = 80): string {
@@ -554,27 +589,10 @@ export function DocumentWorkspace(): React.ReactElement {
     textItemsOnPageRef.current = [];
   }, [clearSemanticQuery, dispatchSemanticStatus]);
 
-  const getSemanticTextSignature = useCallback((textItems: PageTextItem[]): string => {
-    let hash = 2166136261;
-    const updateHash = (value: string): void => {
-      for (let index = 0; index < value.length; index += 1) {
-        hash ^= value.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-      }
-    };
-
-    for (const item of textItems) {
-      updateHash(item.id);
-      updateHash(item.text);
-      updateHash(String(item.sourceIndex));
-      updateHash(item.bounds.x.toFixed(6));
-      updateHash(item.bounds.y.toFixed(6));
-      updateHash(item.bounds.width.toFixed(6));
-      updateHash(item.bounds.height.toFixed(6));
-    }
-
-    return `${textItems.length}:${(hash >>> 0).toString(16)}`;
-  }, []);
+  const getSemanticTextSignature = useCallback(
+    (textItems: PageTextItem[]): string => createTextItemSignature(textItems),
+    [],
+  );
 
   const hydrateSemanticModel = useCallback(
     async (
@@ -632,7 +650,12 @@ export function DocumentWorkspace(): React.ReactElement {
           return;
         }
 
-        if (cachedRecord && cachedRecord.sourceItemCount === textItems.length) {
+        if (
+          cachedRecord
+          && cachedRecord.sourceItemCount === textItems.length
+          && cachedRecord.sourceSignature === signature
+          && cachedRecord.model.sourceSignature === signature
+        ) {
           model = PageSemanticModel.fromSerialized(cachedRecord.model);
           cacheStatus = "hit";
         } else if (cachedRecord) {
@@ -1153,7 +1176,7 @@ export function DocumentWorkspace(): React.ReactElement {
   });
 
   const getLayerStyle = (
-    key: "text" | "word" | "line" | "sentence" | "paragraph" | "candidate",
+    key: SemanticLayerStyleKey,
   ) => {
     const style = SEMANTIC_LAYER_STYLES.find((entry) => entry.key === key);
     return style ?? { key, label: key, color: "rgba(0, 0, 0, 0.5)" };
@@ -1165,7 +1188,7 @@ export function DocumentWorkspace(): React.ReactElement {
     }
 
     type DebugLayerItem = {
-      key: "text" | "word" | "line" | "sentence" | "paragraph" | "candidate";
+      key: SemanticLayerStyleKey;
       id: string;
       label: string;
       rect: NormalizedRect;
@@ -1185,77 +1208,131 @@ export function DocumentWorkspace(): React.ReactElement {
         })),
       );
     }
-
-      const model = semanticDebugModel;
+    const model = semanticDebugModel;
     if (model) {
       const semanticObjects = model.getAllByReadingOrder();
 
       if (semanticDebugLayer.words) {
-        objects.push(
-          ...semanticObjects
-            .filter((item) => item.type === "WORD")
-            .map((item) => ({
-              key: "word" as const,
-              id: item.id,
-              label: `WORD #${item.readingOrder}`,
-              rect: clampSemanticRect(item.bounds),
-              suffix: item.text,
-            })),
-        );
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "WORD")
+          .map((item) => ({
+            key: "word" as const,
+            id: item.id,
+            label: "WORD #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
       }
 
       if (semanticDebugLayer.lines) {
-        objects.push(
-          ...semanticObjects
-            .filter((item) => item.type === "LINE")
-            .map((item) => ({
-              key: "line" as const,
-              id: item.id,
-              label: `LINE #${item.readingOrder}`,
-              rect: clampSemanticRect(item.bounds),
-              suffix: item.text,
-            })),
-        );
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "LINE")
+          .map((item) => ({
+            key: "line" as const,
+            id: item.id,
+            label: "LINE #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
+      }
+
+      if (semanticDebugLayer.layoutRegions) {
+        objects.push(...model.getLayoutRegions().map((region) => ({
+          key: "region" as const,
+          id: region.id,
+          label: "REGION #" + String(region.readingOrder),
+          rect: clampSemanticRect(region.bounds),
+          suffix: region.orientation.writingMode,
+        })));
+      }
+
+      if (semanticDebugLayer.layoutBlocks) {
+        objects.push(...model.getLayoutBlocks().map((block) => ({
+          key: "block" as const,
+          id: block.id,
+          label: "BLOCK #" + String(block.readingOrder),
+          rect: clampSemanticRect(block.bounds),
+          suffix: block.type,
+        })));
+      }
+
+      if (semanticDebugLayer.columns) {
+        objects.push(...model.getColumns().map((column) => ({
+          key: "column" as const,
+          id: column.id,
+          label: "COLUMN #" + String(column.columnIndex),
+          rect: clampSemanticRect(column.bounds),
+        })));
       }
 
       if (semanticDebugLayer.sentences) {
-        objects.push(
-          ...semanticObjects
-            .filter((item) => item.type === "SENTENCE")
-            .map((item) => ({
-              key: "sentence" as const,
-              id: item.id,
-              label: `SENTENCE #${item.readingOrder}`,
-              rect: clampSemanticRect(item.bounds),
-              suffix: item.text,
-            })),
-        );
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "SENTENCE")
+          .map((item) => ({
+            key: "sentence" as const,
+            id: item.id,
+            label: "SENTENCE #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
+      }
+
+      if (semanticDebugLayer.sentenceFragments) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "SENTENCE")
+          .flatMap((item) => item.fragments.map((fragment, index) => ({
+            key: "sentenceFragment" as const,
+            id: item.id + "-fragment-" + String(index),
+            label: "SENTENCE #" + String(item.readingOrder) + " F" + String(index),
+            rect: clampSemanticRect(fragment),
+          }))));
       }
 
       if (semanticDebugLayer.paragraphs) {
-        objects.push(
-          ...semanticObjects
-            .filter((item) => item.type === "PARAGRAPH")
-            .map((item) => ({
-              key: "paragraph" as const,
-              id: item.id,
-              label: `PARAGRAPH #${item.readingOrder}`,
-              rect: clampSemanticRect(item.bounds),
-              suffix: item.text,
-            })),
-        );
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "PARAGRAPH")
+          .map((item) => ({
+            key: "paragraph" as const,
+            id: item.id,
+            label: "PARAGRAPH #" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+            suffix: item.text,
+          })));
+      }
+
+      if (semanticDebugLayer.paragraphFragments) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "PARAGRAPH")
+          .flatMap((item) => item.fragments.map((fragment, index) => ({
+            key: "paragraphFragment" as const,
+            id: item.id + "-fragment-" + String(index),
+            label: "PARAGRAPH #" + String(item.readingOrder) + " F" + String(index),
+            rect: clampSemanticRect(fragment),
+          }))));
+      }
+
+      if (semanticDebugLayer.readingOrder) {
+        objects.push(...semanticObjects
+          .filter((item) => item.type === "LINE")
+          .map((item) => ({
+            key: "readingOrder" as const,
+            id: item.id + "-reading-order",
+            label: "#" + String(item.readingOrder),
+            rect: clampSemanticRect(item.bounds),
+          })));
       }
     }
 
     if (semanticDebugLayer.candidates) {
       objects.push(
-        ...semanticCandidates.map((candidate) => ({
-          key: "candidate" as const,
-          id: `${candidate.type.toLowerCase()}-${candidate.id}`,
-          label: `${candidate.type} #${candidate.readingOrder} (${candidate.distance.toFixed(4)})`,
-          rect: clampSemanticRect(candidate.bounds),
-          suffix: candidate.text,
-        })),
+        ...semanticCandidates.flatMap((candidate) =>
+          candidate.fragments.map((fragment, index) => ({
+            key: "candidate" as const,
+            id: candidate.type.toLowerCase() + "-" + candidate.id + "-" + String(index),
+            label: candidate.type + " #" + String(candidate.readingOrder) + " (" + candidate.distance.toFixed(4) + ")",
+            rect: clampSemanticRect(fragment),
+            suffix: candidate.text,
+          }))),
       );
     }
 
@@ -1292,12 +1369,14 @@ export function DocumentWorkspace(): React.ReactElement {
                 boxSizing: "border-box",
               }}
             >
-              <span
-                className="absolute -left-[2px] -top-[19px] rounded bg-black/70 px-1 text-[10px] font-medium"
-                style={{ color: style.color }}
-              >
-                {`${style.label}: ${item.label}`}
-              </span>
+              {!semanticDebugLayer.boxOnly ? (
+                <span
+                  className="absolute -left-[2px] -top-[19px] rounded bg-black/70 px-1 text-[10px] font-medium"
+                  style={{ color: style.color }}
+                >
+                  {`${style.label}: ${item.label}`}
+                </span>
+              ) : null}
             </div>
           );
         })}

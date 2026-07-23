@@ -8,8 +8,8 @@ export const GGULNOTE_DATABASE_VERSION = 1;
 
 export const ANNOTATION_SCHEMA_VERSION = 1;
 export const PERSISTENCE_SCHEMA_VERSION = 1;
-export const SEMANTIC_SCHEMA_VERSION = 1;
-export const SEMANTIC_EXTRACTOR_VERSION = "2";
+export const SEMANTIC_SCHEMA_VERSION = 2;
+export const SEMANTIC_EXTRACTOR_VERSION = "3";
 export const SEMANTIC_DATABASE_VERSION = 2;
 
 export type PersistedDocumentKind = "pdf" | "blank";
@@ -75,6 +75,7 @@ export interface PersistedSemanticPageRecord {
   extractorVersion: string;
   semanticSchemaVersion: number;
   sourceItemCount: number;
+  sourceSignature: string;
   model: SerializedSemanticPage;
   createdAt: number;
   updatedAt: number;

@@ -75,6 +75,7 @@ export class SemanticPageRepository {
       extractorVersion: input.extractorVersion ?? SEMANTIC_EXTRACTOR_VERSION,
       semanticSchemaVersion: input.semanticSchemaVersion ?? SEMANTIC_SCHEMA_VERSION,
       sourceItemCount: input.model.sourceItemCount,
+      sourceSignature: input.model.sourceSignature,
       model: input.model,
       createdAt: now,
       updatedAt: now,

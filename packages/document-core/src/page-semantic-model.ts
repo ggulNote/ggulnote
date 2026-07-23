@@ -1,202 +1,252 @@
 import type { NormalizedPoint, NormalizedRect } from "@ggulnote/shared-types";
+import { SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "./constants";
+import {
+  containsPoint,
+  containsPointInRects,
+  distancePointToRects,
+  intersectionArea,
+  overlapRatio,
+  overlapRatioWithRects,
+  sortByReadingPoint,
+} from "./geometry";
 import type {
+  LayoutBlock,
+  LayoutColumn,
+  LayoutRegion,
   PageSemanticModelData,
   SemanticCandidate,
   SemanticLine,
   SemanticModelQuery,
   SemanticModelQueryResult,
-  SemanticObjectBase,
+  SemanticObject,
   SemanticObjectType,
   SemanticParagraph,
+  SemanticQueryOptions,
   SemanticSentence,
   SemanticWord,
 } from "./types";
-import { containsPoint, distancePointToRect, overlapRatio, sortByReadingPoint } from "./geometry";
 
 const DEFAULT_QUERY_LIMIT = 10;
 
-const matchesType = (types: readonly SemanticObjectType[] | undefined, type: SemanticObjectType): boolean => {
-  if (!types || types.length === 0) {
-    return true;
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
+const isFiniteNumber = (value: unknown): value is number => {
+  return typeof value === "number" && Number.isFinite(value);
+};
+
+const isRect = (value: unknown): value is NormalizedRect => {
+  return isRecord(value)
+    && isFiniteNumber(value.x)
+    && isFiniteNumber(value.y)
+    && isFiniteNumber(value.width)
+    && isFiniteNumber(value.height)
+    && value.width > 0
+    && value.height > 0;
+};
+
+const isObjectRecord = (value: unknown, type: SemanticObjectType): boolean => {
+  return isRecord(value)
+    && value.type === type
+    && typeof value.id === "string"
+    && typeof value.pageId === "string"
+    && typeof value.text === "string"
+    && isRect(value.bounds)
+    && isFiniteNumber(value.readingOrder)
+    && isRecord(value.orientation)
+    && isFiniteNumber(value.orientation.angle)
+    && typeof value.regionId === "string"
+    && typeof value.blockId === "string"
+    && typeof value.columnId === "string";
+};
+
+const isLayoutRecord = (value: unknown): boolean => {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.pageId === "string"
+    && isRect(value.bounds)
+    && isFiniteNumber(value.readingOrder);
+};
+
+const isModelData = (value: unknown): value is PageSemanticModelData => {
+  if (!isRecord(value)) {
+    return false;
   }
 
-  return types.includes(type);
+  return value.schemaVersion === SEMANTIC_SCHEMA_VERSION
+    && value.extractorVersion === SEMANTIC_EXTRACTOR_VERSION
+    && typeof value.documentId === "string"
+    && typeof value.pageId === "string"
+    && isFiniteNumber(value.pageNumber)
+    && typeof value.sourceSignature === "string"
+    && Array.isArray(value.words)
+    && value.words.every((entry) => isObjectRecord(entry, "WORD"))
+    && Array.isArray(value.lines)
+    && value.lines.every((entry) => isObjectRecord(entry, "LINE"))
+    && Array.isArray(value.sentences)
+    && value.sentences.every((entry) =>
+      isObjectRecord(entry, "SENTENCE")
+      && isRecord(entry)
+      && Array.isArray(entry.fragments)
+      && entry.fragments.every(isRect))
+    && Array.isArray(value.paragraphs)
+    && value.paragraphs.every((entry) =>
+      isObjectRecord(entry, "PARAGRAPH")
+      && isRecord(entry)
+      && Array.isArray(entry.fragments)
+      && entry.fragments.every(isRect))
+    && Array.isArray(value.layoutRegions)
+    && value.layoutRegions.every(isLayoutRecord)
+    && Array.isArray(value.layoutBlocks)
+    && value.layoutBlocks.every(isLayoutRecord)
+    && Array.isArray(value.columns)
+    && value.columns.every(isLayoutRecord)
+    && isFiniteNumber(value.createdAt)
+    && isFiniteNumber(value.sourceItemCount)
+    && isFiniteNumber(value.processingDurationMs);
 };
+
+const cloneRect = (rect: NormalizedRect): NormalizedRect => ({ ...rect });
+
+const cloneData = (data: PageSemanticModelData): PageSemanticModelData => ({
+  ...data,
+  words: data.words.map((word) => ({
+    ...word,
+    bounds: cloneRect(word.bounds),
+    orientation: { ...word.orientation },
+    sourceItemIds: [...word.sourceItemIds],
+    sourceRanges: word.sourceRanges.map((range) => ({ ...range })),
+    axis: { ...word.axis },
+    quad: {
+      points: word.quad.points.map((point) => ({ ...point })) as SemanticWord["quad"]["points"],
+    },
+  })),
+  lines: data.lines.map((line) => ({
+    ...line,
+    bounds: cloneRect(line.bounds),
+    orientation: { ...line.orientation },
+    wordIds: [...line.wordIds],
+    axis: { ...line.axis },
+    horizontalGaps: [...line.horizontalGaps],
+  })),
+  layoutRegions: data.layoutRegions.map((region) => ({
+    ...region,
+    bounds: cloneRect(region.bounds),
+    orientation: { ...region.orientation },
+    blockIds: [...region.blockIds],
+    columnIds: [...region.columnIds],
+  })),
+  layoutBlocks: data.layoutBlocks.map((block) => ({
+    ...block,
+    bounds: cloneRect(block.bounds),
+    orientation: { ...block.orientation },
+    lineIds: [...block.lineIds],
+  })),
+  columns: data.columns.map((column) => ({
+    ...column,
+    bounds: cloneRect(column.bounds),
+    orientation: { ...column.orientation },
+    blockIds: [...column.blockIds],
+    lineIds: [...column.lineIds],
+  })),
+  sentences: data.sentences.map((sentence) => ({
+    ...sentence,
+    bounds: cloneRect(sentence.bounds),
+    fragments: sentence.fragments.map(cloneRect),
+    orientation: { ...sentence.orientation },
+    wordIds: [...sentence.wordIds],
+    lineIds: [...sentence.lineIds],
+  })),
+  paragraphs: data.paragraphs.map((paragraph) => ({
+    ...paragraph,
+    bounds: cloneRect(paragraph.bounds),
+    fragments: paragraph.fragments.map(cloneRect),
+    orientation: { ...paragraph.orientation },
+    lineIds: [...paragraph.lineIds],
+    sentenceIds: [...paragraph.sentenceIds],
+  })),
+});
+
+const matchesType = (
+  types: readonly SemanticObjectType[] | undefined,
+  type: SemanticObjectType,
+): boolean => !types || types.length === 0 || types.includes(type);
 
 const resolveLimit = (limit: number | undefined): number => {
   if (limit === undefined || !Number.isFinite(limit)) {
     return DEFAULT_QUERY_LIMIT;
   }
 
-  const next = Math.floor(limit);
-  return next > 0 ? next : DEFAULT_QUERY_LIMIT;
+  return Math.max(1, Math.floor(limit));
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
-const toNumber = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
-const toText = (value: unknown): string => (typeof value === "string" ? value : "");
-const toArray = <T>(value: unknown, fallback: T[] = []): T[] => (Array.isArray(value) ? (value as T[]) : fallback);
-
-const cloneArrayOfObjects = <T>(value: T[]): T[] => value.map((item) => ({ ...item }));
-
-const toRect = (value: unknown): NormalizedRect => {
-  if (!isRecord(value)) {
-    return { x: 0, y: 0, width: 0, height: 0 };
+const getFragments = (item: SemanticObject): NormalizedRect[] => {
+  if (item.type === "SENTENCE" || item.type === "PARAGRAPH") {
+    return item.fragments.length > 0
+      ? item.fragments.map(cloneRect)
+      : [cloneRect(item.bounds)];
   }
 
-  return {
-    x: toNumber(value.x),
-    y: toNumber(value.y),
-    width: toNumber(value.width),
-    height: toNumber(value.height),
-  };
-};
-
-const toObjectBase = (value: unknown): SemanticObjectBase | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const type = toText(value.type) as SemanticObjectType;
-  if (type !== "WORD" && type !== "LINE" && type !== "SENTENCE" && type !== "PARAGRAPH") {
-    return null;
-  }
-
-  return {
-    id: toText(value.id),
-    type,
-    pageId: toText(value.pageId),
-    text: toText(value.text),
-    normalizedText: toText(value.normalizedText),
-    bounds: toRect(value.bounds),
-    readingOrder: toNumber(value.readingOrder),
-    confidence: toNumber(value.confidence),
-  };
-};
-
-const toWord = (value: unknown): SemanticWord | null => {
-  const base = toObjectBase(value);
-  if (!base) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  return {
-    ...base,
-    type: "WORD",
-    sourceItemIds: toArray<string>(record.sourceItemIds, []),
-    lineId: toText(record.lineId),
-    direction: (toText(record.direction) as SemanticLine["direction"]) || "ltr",
-    fontName: toText(record.fontName) || undefined,
-    fontSize: record.fontSize as number | undefined,
-    startsWithPunctuation: Boolean(record.startsWithPunctuation),
-    endsWithPunctuation: Boolean(record.endsWithPunctuation),
-  };
-};
-
-const toLine = (value: unknown): SemanticLine | null => {
-  const base = toObjectBase(value);
-  if (!base) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  return {
-    ...base,
-    type: "LINE",
-    wordIds: toArray<string>(record.wordIds, []),
-    paragraphId: (record.paragraphId as string | null) ?? null,
-    baseline: toNumber(record.baseline),
-    direction: (toText(record.direction) as SemanticLine["direction"]) || "ltr",
-    averageFontSize: typeof record.averageFontSize === "number" ? record.averageFontSize : undefined,
-    columnIndex: toNumber(record.columnIndex),
-  };
-};
-
-const toSentence = (value: unknown): SemanticSentence | null => {
-  const base = toObjectBase(value);
-  if (!base) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  return {
-    ...base,
-    type: "SENTENCE",
-    wordIds: toArray<string>(record.wordIds, []),
-    lineIds: toArray<string>(record.lineIds, []),
-    paragraphId: (record.paragraphId as string | null) ?? null,
-    startWordId: toText(record.startWordId),
-    endWordId: toText(record.endWordId),
-  };
-};
-
-const toParagraph = (value: unknown): SemanticParagraph | null => {
-  const base = toObjectBase(value);
-  if (!base) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  return {
-    ...base,
-    type: "PARAGRAPH",
-    lineIds: toArray<string>(record.lineIds, []),
-    sentenceIds: toArray<string>(record.sentenceIds, []),
-    columnIndex: toNumber(record.columnIndex),
-    averageFontSize: typeof record.averageFontSize === "number" ? record.averageFontSize : undefined,
-  };
-};
-
-const emptyData = (): PageSemanticModelData => ({
-  schemaVersion: 1,
-  extractorVersion: "1",
-  documentId: "",
-  pageId: "",
-  pageNumber: 0,
-  words: [],
-  lines: [],
-  sentences: [],
-  paragraphs: [],
-  createdAt: Date.now(),
-  sourceItemCount: 0,
-  processingDurationMs: 0,
-});
-
-const toCandidate = (item: SemanticObjectBase, point: NormalizedPoint): SemanticCandidate => {
-  const distance = distancePointToRect(point, item.bounds);
-  return {
-    id: item.id,
-    type: item.type,
-    pageId: item.pageId,
-    text: item.text,
-    bounds: item.bounds,
-    containsPoint: containsPoint(item.bounds, point),
-    distance,
-    overlapRatio: containsPoint(item.bounds, point) ? 1 : 0,
-    readingOrder: item.readingOrder,
-    confidence: item.confidence,
-  };
+  return [cloneRect(item.bounds)];
 };
 
 const getContainingTypeRank = (type: SemanticObjectType): number => {
-  if (type === "SENTENCE") {
-    return 0;
+  if (type === "SENTENCE") return 0;
+  if (type === "PARAGRAPH") return 1;
+  if (type === "LINE") return 2;
+  return 3;
+};
+
+const createCandidate = (
+  item: SemanticObject,
+  fragments: NormalizedRect[],
+  directHit: boolean,
+  distance: number,
+  envelopeOverlap: number,
+  fragmentOverlap: number,
+): SemanticCandidate => ({
+  id: item.id,
+  type: item.type,
+  pageId: item.pageId,
+  text: item.text,
+  bounds: cloneRect(item.bounds),
+  fragments,
+  containsPoint: directHit,
+  directHit,
+  distance,
+  overlapRatio: envelopeOverlap,
+  fragmentOverlapRatio: fragmentOverlap,
+  readingOrder: item.readingOrder,
+  confidence: item.confidence,
+  regionId: item.regionId,
+  blockId: item.blockId,
+  columnId: item.columnId,
+});
+
+const sortCandidates = (
+  left: SemanticCandidate,
+  right: SemanticCandidate,
+): number => {
+  if (left.directHit !== right.directHit) {
+    return left.directHit ? -1 : 1;
   }
 
-  if (type === "PARAGRAPH") {
-    return 1;
+  if (left.directHit && right.directHit) {
+    const typeDelta = getContainingTypeRank(left.type) - getContainingTypeRank(right.type);
+    if (typeDelta !== 0) return typeDelta;
   }
 
-  if (type === "LINE") {
-    return 2;
+  if (left.distance !== right.distance) {
+    return left.distance - right.distance;
   }
 
-  if (type === "WORD") {
-    return 3;
+  if (left.fragmentOverlapRatio !== right.fragmentOverlapRatio) {
+    return right.fragmentOverlapRatio - left.fragmentOverlapRatio;
   }
 
-  return 4;
+  const typeDelta = getContainingTypeRank(left.type) - getContainingTypeRank(right.type);
+  return typeDelta !== 0 ? typeDelta : left.readingOrder - right.readingOrder;
 };
 
 export class PageSemanticModel implements SemanticModelQuery {
@@ -213,34 +263,11 @@ export class PageSemanticModel implements SemanticModelQuery {
   }
 
   public static fromSerialized(serialized: unknown): PageSemanticModel {
-    if (!isRecord(serialized)) {
-      return new PageSemanticModel(emptyData());
+    if (!isModelData(serialized)) {
+      throw new Error("Unsupported or invalid semantic model cache");
     }
 
-    const normalized: PageSemanticModelData = {
-      schemaVersion: toNumber(serialized.schemaVersion) || 1,
-      extractorVersion: toText(serialized.extractorVersion) || "1",
-      documentId: toText(serialized.documentId),
-      pageId: toText(serialized.pageId),
-      pageNumber: toNumber(serialized.pageNumber),
-      words: toArray<SemanticWord>(serialized.words, [])
-        .map((entry) => toWord(entry))
-        .filter((entry): entry is SemanticWord => entry !== null),
-      lines: toArray<SemanticLine>(serialized.lines, [])
-        .map((entry) => toLine(entry))
-        .filter((entry): entry is SemanticLine => entry !== null),
-      sentences: toArray<SemanticSentence>(serialized.sentences, [])
-        .map((entry) => toSentence(entry))
-        .filter((entry): entry is SemanticSentence => entry !== null),
-      paragraphs: toArray<SemanticParagraph>(serialized.paragraphs, [])
-        .map((entry) => toParagraph(entry))
-        .filter((entry): entry is SemanticParagraph => entry !== null),
-      createdAt: toNumber(serialized.createdAt) || Date.now(),
-      sourceItemCount: Math.max(0, toNumber(serialized.sourceItemCount)),
-      processingDurationMs: Math.max(0, toNumber(serialized.processingDurationMs)),
-    };
-
-    return new PageSemanticModel(normalized);
+    return new PageSemanticModel(cloneData(serialized));
   }
 
   public getWord(id: string): SemanticWord | null {
@@ -259,44 +286,77 @@ export class PageSemanticModel implements SemanticModelQuery {
     return this.paragraphMap.get(id) ?? null;
   }
 
-  public getAllByReadingOrder(): SemanticObjectBase[] {
-    const all: SemanticObjectBase[] = [
+  public getLayoutRegions(): readonly LayoutRegion[] {
+    return this.data.layoutRegions;
+  }
+
+  public getLayoutBlocks(): readonly LayoutBlock[] {
+    return this.data.layoutBlocks;
+  }
+
+  public getColumns(): readonly LayoutColumn[] {
+    return this.data.columns;
+  }
+
+  public getAllByReadingOrder(): SemanticObject[] {
+    return [
       ...this.wordMap.values(),
       ...this.lineMap.values(),
       ...this.sentenceMap.values(),
       ...this.paragraphMap.values(),
-    ];
-
-    return all.sort((left, right) => {
+    ].sort((left, right) => {
       const order = sortByReadingPoint(left, right);
-      if (order !== 0) {
-        return order;
-      }
-
-      return left.type.localeCompare(right.type);
+      return order !== 0 ? order : left.type.localeCompare(right.type);
     });
   }
 
   public getSummary(): SemanticModelQueryResult {
-    const columnCount = new Set(this.data.lines.map((line) => line.columnIndex)).size;
-
     return {
       wordCount: this.data.words.length,
       lineCount: this.data.lines.length,
       sentenceCount: this.data.sentences.length,
       paragraphCount: this.data.paragraphs.length,
-      columnCount,
+      regionCount: this.data.layoutRegions.length,
+      blockCount: this.data.layoutBlocks.length,
+      columnCount: this.data.columns.length,
       sourceItemCount: this.data.sourceItemCount,
       processingDurationMs: this.data.processingDurationMs,
     };
   }
 
-  public findAtPoint(point: NormalizedPoint, options: { types?: readonly SemanticObjectType[]; limit?: number; maxDistance?: number; minimumOverlapRatio?: number } = {}): SemanticCandidate[] {
-    const distanceLimit = options.maxDistance ?? Number.POSITIVE_INFINITY;
-    const minDistance = Number.isFinite(distanceLimit) ? distanceLimit : Number.POSITIVE_INFINITY;
-    const minOverlap = options.minimumOverlapRatio ?? 0;
-    const limit = resolveLimit(options.limit);
+  public findAtPoint(
+    point: NormalizedPoint,
+    options: SemanticQueryOptions = {},
+  ): SemanticCandidate[] {
+    const minimumOverlap = options.minimumOverlapRatio ?? 0;
+    const candidates: SemanticCandidate[] = [];
 
+    for (const item of this.getAllByReadingOrder()) {
+      if (!matchesType(options.types, item.type) || !containsPoint(item.bounds, point)) {
+        continue;
+      }
+
+      const fragments = getFragments(item);
+      if (!containsPointInRects(fragments, point)) {
+        continue;
+      }
+
+      const fragmentOverlap = 1;
+      if (fragmentOverlap < minimumOverlap) {
+        continue;
+      }
+
+      candidates.push(createCandidate(item, fragments, true, 0, 1, fragmentOverlap));
+    }
+
+    return candidates.sort(sortCandidates).slice(0, resolveLimit(options.limit));
+  }
+
+  public findNearest(
+    point: NormalizedPoint,
+    options: SemanticQueryOptions = {},
+  ): SemanticCandidate[] {
+    const maximumDistance = options.maxDistance ?? Number.POSITIVE_INFINITY;
     const candidates: SemanticCandidate[] = [];
 
     for (const item of this.getAllByReadingOrder()) {
@@ -304,133 +364,70 @@ export class PageSemanticModel implements SemanticModelQuery {
         continue;
       }
 
-      const distance = distancePointToRect(point, item.bounds);
-      if (distance > minDistance) {
+      const fragments = getFragments(item);
+      const directHit = containsPointInRects(fragments, point);
+      const distance = distancePointToRects(point, fragments);
+      if (distance > maximumDistance) {
         continue;
       }
 
-      const hit = containsPoint(item.bounds, point);
-      const overlap = hit ? 1 : overlapRatio(item.bounds, { ...item.bounds, x: point.x, y: point.y, width: 0, height: 0 });
-
-      if (overlap < minOverlap) {
-        continue;
-      }
-
-      candidates.push({
-        id: item.id,
-        type: item.type,
-        pageId: item.pageId,
-        text: item.text,
-        bounds: item.bounds,
-        containsPoint: hit,
+      candidates.push(createCandidate(
+        item,
+        fragments,
+        directHit,
         distance,
-        overlapRatio: overlap,
-        readingOrder: item.readingOrder,
-        confidence: item.confidence,
-      });
+        directHit ? 1 : 0,
+        directHit ? 1 : 0,
+      ));
     }
 
-    candidates.sort((left, right) => {
-      if (left.containsPoint && right.containsPoint) {
-        const leftTypeRank = getContainingTypeRank(left.type);
-        const rightTypeRank = getContainingTypeRank(right.type);
-
-        if (leftTypeRank !== rightTypeRank) {
-          return leftTypeRank - rightTypeRank;
-        }
-      }
-
-      if (left.containsPoint !== right.containsPoint) {
-        return left.containsPoint ? -1 : 1;
-      }
-
-      if (!left.containsPoint && !right.containsPoint) {
-        const leftTypeRank = getContainingTypeRank(left.type);
-        const rightTypeRank = getContainingTypeRank(right.type);
-        if (leftTypeRank !== rightTypeRank) {
-          return leftTypeRank - rightTypeRank;
-        }
-      }
-
-      if (left.distance !== right.distance) {
-        return left.distance - right.distance;
-      }
-
-      if (left.overlapRatio !== right.overlapRatio) {
-        return right.overlapRatio - left.overlapRatio;
-      }
-
-      return left.readingOrder - right.readingOrder;
-    });
-
-    return candidates.slice(0, limit);
+    return candidates.sort(sortCandidates).slice(0, resolveLimit(options.limit));
   }
 
-  public findNearest(point: NormalizedPoint, options: { types?: readonly SemanticObjectType[]; limit?: number; maxDistance?: number; minimumOverlapRatio?: number } = {}): SemanticCandidate[] {
-    return this.findAtPoint(point, options);
-  }
-
-  public findInRect(rect: NormalizedRect, options: { types?: readonly SemanticObjectType[]; limit?: number; minimumOverlapRatio?: number } = {}): SemanticCandidate[] {
-    const limit = resolveLimit(options.limit);
-    const minOverlap = options.minimumOverlapRatio ?? 0;
-
+  public findInRect(
+    rect: NormalizedRect,
+    options: SemanticQueryOptions = {},
+  ): SemanticCandidate[] {
+    const minimumOverlap = options.minimumOverlapRatio ?? 0;
     const candidates: SemanticCandidate[] = [];
 
     for (const item of this.getAllByReadingOrder()) {
-      if (!matchesType(options.types, item.type)) {
+      if (
+        !matchesType(options.types, item.type)
+        || intersectionArea(rect, item.bounds) <= 0
+      ) {
         continue;
       }
 
-      const overlap = overlapRatio(rect, item.bounds);
-      if (overlap < minOverlap) {
+      const fragments = getFragments(item);
+      const fragmentOverlap = overlapRatioWithRects(rect, fragments);
+      if (fragmentOverlap <= 0 || fragmentOverlap < minimumOverlap) {
         continue;
       }
 
-      const center = {
-        x: item.bounds.x + item.bounds.width * 0.5,
-        y: item.bounds.y + item.bounds.height * 0.5,
-      };
-
-      candidates.push({
-        id: item.id,
-        type: item.type,
-        pageId: item.pageId,
-        text: item.text,
-        bounds: item.bounds,
-        containsPoint: containsPoint(item.bounds, center),
-        distance: distancePointToRect(center, item.bounds),
-        overlapRatio: overlap,
-        readingOrder: item.readingOrder,
-        confidence: item.confidence,
-      });
+      const envelopeOverlap = overlapRatio(rect, item.bounds);
+      candidates.push(createCandidate(
+        item,
+        fragments,
+        true,
+        0,
+        envelopeOverlap,
+        fragmentOverlap,
+      ));
     }
 
-    candidates.sort((left, right) => {
-      if (left.overlapRatio !== right.overlapRatio) {
-        return right.overlapRatio - left.overlapRatio;
-      }
-
-      return left.readingOrder - right.readingOrder;
-    });
-
-    return candidates.slice(0, limit);
+    return candidates
+      .sort((left, right) => {
+        if (left.fragmentOverlapRatio !== right.fragmentOverlapRatio) {
+          return right.fragmentOverlapRatio - left.fragmentOverlapRatio;
+        }
+        return sortCandidates(left, right);
+      })
+      .slice(0, resolveLimit(options.limit));
   }
 
   public toSerialized(): PageSemanticModelData {
-    return {
-      schemaVersion: this.data.schemaVersion,
-      extractorVersion: this.data.extractorVersion,
-      documentId: this.data.documentId,
-      pageId: this.data.pageId,
-      pageNumber: this.data.pageNumber,
-      words: cloneArrayOfObjects(this.data.words),
-      lines: cloneArrayOfObjects(this.data.lines),
-      sentences: cloneArrayOfObjects(this.data.sentences),
-      paragraphs: cloneArrayOfObjects(this.data.paragraphs),
-      createdAt: this.data.createdAt,
-      sourceItemCount: this.data.sourceItemCount,
-      processingDurationMs: this.data.processingDurationMs,
-    };
+    return cloneData(this.data);
   }
 }
 

@@ -1,12 +1,9 @@
 import type { NormalizedPoint, NormalizedRect } from "@ggulnote/shared-types";
+import type { LocalTextAxis, TextOrientation, TextQuad } from "@ggulnote/document-core";
 
-export type { NormalizedPoint, NormalizedRect };
+export type { LocalTextAxis, NormalizedPoint, NormalizedRect, TextOrientation, TextQuad };
 
-export const A4_PORTRAIT_POINTS = {
-  width: 595.28,
-  height: 841.89,
-} as const;
-
+export const A4_PORTRAIT_POINTS = { width: 595.28, height: 841.89 } as const;
 export type DocumentKind = "none" | "pdf" | "blank";
 
 export interface DocumentDescriptor {
@@ -34,7 +31,6 @@ export interface BlankDocumentDescriptor extends DocumentDescriptor {
 }
 
 export type LoadedDocumentDescriptor = PdfDocumentDescriptor | BlankDocumentDescriptor;
-
 export type TextDirection = "ltr" | "rtl" | "ttb";
 
 export interface PageTextItem {
@@ -45,6 +41,13 @@ export interface PageTextItem {
   fontSize?: number;
   direction?: TextDirection;
   sourceIndex: number;
+  hasEOL: boolean;
+  transform: [number, number, number, number, number, number];
+  pdfWidth: number;
+  pdfHeight: number;
+  orientation: TextOrientation;
+  axis: LocalTextAxis;
+  quad: TextQuad;
 }
 
 export interface PageTextContent {

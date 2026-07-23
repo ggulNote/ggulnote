@@ -1,5 +1,10 @@
 export type {
   BuildPageInput,
+  LayoutBlock,
+  LayoutBlockType,
+  LayoutColumn,
+  LayoutRegion,
+  LocalTextAxis,
   PageSemanticModelData,
   SerializedSemanticPage,
   PageTextItemInput,
@@ -8,15 +13,24 @@ export type {
   SemanticLine,
   SemanticModelQuery,
   SemanticModelQueryResult,
+  SemanticObject,
   SemanticObjectBase,
   SemanticObjectType,
   SemanticParagraph,
   SemanticSentence,
   SemanticWord,
   TextDirection,
+  TextOrientation,
+  TextQuad,
+  TextWritingMode,
+  WordSourceRange,
 } from "./types";
 
-export { buildPageSemanticModel, buildPageModel } from "./builder";
+export {
+  buildPageSemanticModel,
+  buildPageModel,
+  createTextItemSignature,
+} from "./builder";
 export { PageSemanticModel } from "./page-semantic-model";
 export {
   createSentenceSegmenter,
@@ -25,20 +39,30 @@ export {
   type SentenceSegmenter,
 } from "./segmentation";
 export {
+  area,
+  boundsFromPoints,
   clampRect,
   clampToUnit,
   containsPoint,
+  containsPointInRects,
   distancePointToRect,
+  distancePointToRects,
+  horizontalOverlapRatio,
   intersectionArea,
   isFiniteRect,
+  isValidBounds,
   overlapRatio,
+  overlapRatioWithRects,
   sortByReadingPoint,
   unionBounds,
+  verticalOverlapRatio,
   xCenter,
   yCenter,
 } from "./geometry";
 export {
   LINE_BASELINE_TOLERANCE_RATIO,
+  LINE_GAP_HEIGHT_RATIO,
+  ORIENTATION_ANGLE_TOLERANCE,
   PARAGRAPH_GAP_MULTIPLIER,
   SEMANTIC_EXTRACTOR_VERSION,
   SEMANTIC_SCHEMA_VERSION,

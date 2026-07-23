@@ -5,15 +5,7 @@ const clampUnit = (value: number): number => {
     return 0;
   }
 
-  if (value < 0) {
-    return 0;
-  }
-
-  if (value > 1) {
-    return 1;
-  }
-
-  return value;
+  return Math.min(1, Math.max(0, value));
 };
 
 export const clampToUnit = (value: number): number => clampUnit(value);
@@ -39,45 +31,71 @@ export const isFiniteRect = (rect: NormalizedRect): boolean => {
     && Number.isFinite(rect.height);
 };
 
+export const isValidBounds = (rect: NormalizedRect): boolean => {
+  return isFiniteRect(rect)
+    && rect.width > 0
+    && rect.height > 0
+    && rect.x + rect.width > 0
+    && rect.y + rect.height > 0
+    && rect.x < 1
+    && rect.y < 1;
+};
+
 export const area = (rect: NormalizedRect): number => {
   return Math.max(0, rect.width) * Math.max(0, rect.height);
 };
 
 export const unionBounds = (bounds: readonly NormalizedRect[]): NormalizedRect | null => {
   const normalized = bounds
-    .filter((rect) => isFiniteRect(rect))
-    .filter((rect) => rect.width > 0 && rect.height > 0)
-    .map(clampRect);
+    .filter((rect) => isValidBounds(rect))
+    .map(clampRect)
+    .filter((rect) => rect.width > 0 && rect.height > 0);
 
   if (normalized.length === 0) {
     return null;
   }
 
-  let left = normalized[0].x;
-  let top = normalized[0].y;
-  let right = normalized[0].x + normalized[0].width;
-  let bottom = normalized[0].y + normalized[0].height;
-
-  for (const rect of normalized) {
-    left = Math.min(left, rect.x);
-    top = Math.min(top, rect.y);
-    right = Math.max(right, rect.x + rect.width);
-    bottom = Math.max(bottom, rect.y + rect.height);
-  }
+  const minX = Math.min(...normalized.map((rect) => rect.x));
+  const minY = Math.min(...normalized.map((rect) => rect.y));
+  const maxX = Math.max(...normalized.map((rect) => rect.x + rect.width));
+  const maxY = Math.max(...normalized.map((rect) => rect.y + rect.height));
 
   return {
-    x: left,
-    y: top,
-    width: Math.max(0, right - left),
-    height: Math.max(0, bottom - top),
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
   };
+};
+
+export const boundsFromPoints = (points: readonly NormalizedPoint[]): NormalizedRect | null => {
+  const valid = points.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  if (valid.length === 0) {
+    return null;
+  }
+
+  const minX = Math.min(...valid.map((point) => point.x));
+  const minY = Math.min(...valid.map((point) => point.y));
+  const maxX = Math.max(...valid.map((point) => point.x));
+  const maxY = Math.max(...valid.map((point) => point.y));
+
+  return clampRect({
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  });
 };
 
 export const intersectionArea = (left: NormalizedRect, right: NormalizedRect): number => {
   const normalizedLeft = clampRect(left);
   const normalizedRight = clampRect(right);
-
-  if (normalizedLeft.width <= 0 || normalizedLeft.height <= 0 || normalizedRight.width <= 0 || normalizedRight.height <= 0) {
+  if (
+    normalizedLeft.width <= 0
+    || normalizedLeft.height <= 0
+    || normalizedRight.width <= 0
+    || normalizedRight.height <= 0
+  ) {
     return 0;
   }
 
@@ -86,10 +104,7 @@ export const intersectionArea = (left: NormalizedRect, right: NormalizedRect): n
   const x2 = Math.min(normalizedLeft.x + normalizedLeft.width, normalizedRight.x + normalizedRight.width);
   const y2 = Math.min(normalizedLeft.y + normalizedLeft.height, normalizedRight.y + normalizedRight.height);
 
-  const width = Math.max(0, x2 - x1);
-  const height = Math.max(0, y2 - y1);
-
-  return width * height;
+  return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
 };
 
 export const overlapRatio = (left: NormalizedRect, right: NormalizedRect): number => {
@@ -99,31 +114,25 @@ export const overlapRatio = (left: NormalizedRect, right: NormalizedRect): numbe
   }
 
   const union = area(left) + area(right) - intersection;
-  if (union <= 0) {
-    return 0;
-  }
-
-  return intersection / union;
+  return union > 0 ? intersection / union : 0;
 };
 
 export const containsPoint = (rect: NormalizedRect, point: NormalizedPoint): boolean => {
   const normalizedRect = clampRect(rect);
-  return (
-    point.x >= normalizedRect.x
+  return point.x >= normalizedRect.x
     && point.x <= normalizedRect.x + normalizedRect.width
     && point.y >= normalizedRect.y
-    && point.y <= normalizedRect.y + normalizedRect.height
-  );
+    && point.y <= normalizedRect.y + normalizedRect.height;
 };
 
 export const distancePointToRect = (point: NormalizedPoint, rect: NormalizedRect): number => {
   const normalizedRect = clampRect(rect);
-
-  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  if (normalizedRect.width <= 0 || normalizedRect.height <= 0) {
+  if (
+    !Number.isFinite(point.x)
+    || !Number.isFinite(point.y)
+    || normalizedRect.width <= 0
+    || normalizedRect.height <= 0
+  ) {
     return Number.POSITIVE_INFINITY;
   }
 
@@ -131,21 +140,45 @@ export const distancePointToRect = (point: NormalizedPoint, rect: NormalizedRect
     return 0;
   }
 
-  let dx = 0;
-  if (point.x < normalizedRect.x) {
-    dx = normalizedRect.x - point.x;
-  } else if (point.x > normalizedRect.x + normalizedRect.width) {
-    dx = point.x - (normalizedRect.x + normalizedRect.width);
-  }
-
-  let dy = 0;
-  if (point.y < normalizedRect.y) {
-    dy = normalizedRect.y - point.y;
-  } else if (point.y > normalizedRect.y + normalizedRect.height) {
-    dy = point.y - (normalizedRect.y + normalizedRect.height);
-  }
+  const dx = point.x < normalizedRect.x
+    ? normalizedRect.x - point.x
+    : point.x > normalizedRect.x + normalizedRect.width
+      ? point.x - (normalizedRect.x + normalizedRect.width)
+      : 0;
+  const dy = point.y < normalizedRect.y
+    ? normalizedRect.y - point.y
+    : point.y > normalizedRect.y + normalizedRect.height
+      ? point.y - (normalizedRect.y + normalizedRect.height)
+      : 0;
 
   return Math.hypot(dx, dy);
+};
+
+export const distancePointToRects = (
+  point: NormalizedPoint,
+  rects: readonly NormalizedRect[],
+): number => {
+  if (rects.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.min(...rects.map((rect) => distancePointToRect(point, rect)));
+};
+
+export const containsPointInRects = (
+  rects: readonly NormalizedRect[],
+  point: NormalizedPoint,
+): boolean => rects.some((rect) => containsPoint(rect, point));
+
+export const overlapRatioWithRects = (
+  rect: NormalizedRect,
+  fragments: readonly NormalizedRect[],
+): number => {
+  if (fragments.length === 0) {
+    return 0;
+  }
+
+  return Math.max(...fragments.map((fragment) => overlapRatio(rect, fragment)));
 };
 
 export const yCenter = (rect: NormalizedRect): number => rect.y + rect.height * 0.5;
@@ -154,20 +187,20 @@ export const xCenter = (rect: NormalizedRect): number => rect.x + rect.width * 0
 export const verticalOverlapRatio = (left: NormalizedRect, right: NormalizedRect): number => {
   const top = Math.max(left.y, right.y);
   const bottom = Math.min(left.y + left.height, right.y + right.height);
+  const minimumHeight = Math.min(left.height, right.height);
 
-  if (bottom <= top) {
-    return 0;
-  }
-
-  const overlap = bottom - top;
-  const minHeight = Math.min(left.height, right.height);
-  if (minHeight <= 0) {
-    return 0;
-  }
-
-  return overlap / minHeight;
+  return bottom > top && minimumHeight > 0 ? (bottom - top) / minimumHeight : 0;
 };
 
-export const sortByReadingPoint = (left: { readingOrder: number }, right: { readingOrder: number }) => {
-  return left.readingOrder - right.readingOrder;
+export const horizontalOverlapRatio = (left: NormalizedRect, right: NormalizedRect): number => {
+  const start = Math.max(left.x, right.x);
+  const end = Math.min(left.x + left.width, right.x + right.width);
+  const minimumWidth = Math.min(left.width, right.width);
+
+  return end > start && minimumWidth > 0 ? (end - start) / minimumWidth : 0;
 };
+
+export const sortByReadingPoint = (
+  left: { readingOrder: number },
+  right: { readingOrder: number },
+): number => left.readingOrder - right.readingOrder;
