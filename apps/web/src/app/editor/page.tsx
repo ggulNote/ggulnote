@@ -1,5 +1,5 @@
-import { DocumentWorkspace } from "@/features/document/components/document-workspace";
+import EditorPageClient from "./editor-page-client";
 
 export default function EditorPage() {
-  return <DocumentWorkspace />;
+  return <EditorPageClient />;
 }

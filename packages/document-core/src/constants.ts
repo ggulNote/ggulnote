@@ -1,0 +1,11 @@
+export const SEMANTIC_SCHEMA_VERSION = 1;
+export const SEMANTIC_EXTRACTOR_VERSION = "2";
+
+export const LINE_BASELINE_TOLERANCE_RATIO = 0.55;
+export const PARAGRAPH_GAP_MULTIPLIER = 1.65;
+
+export const DEFAULT_FONT_SIZE_PX = 11;
+export const DEFAULT_MAX_CACHE_QUERY = 10;
+export const DEFAULT_MIN_FONT_SIZE = 0.0001;
+export const TOKEN_TO_RECT_EPSILON = 0.0001;
+export const MAX_SEMANTIC_CANDIDATES = 10;

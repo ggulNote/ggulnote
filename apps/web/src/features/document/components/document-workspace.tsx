@@ -17,11 +17,16 @@ import {
   normalizedPointToCss,
   normalizedRectToCss,
 } from "../coordinates/coordinate-transformer";
-import type { PdfDocumentDescriptor } from "../model/document-types";
+import type { PdfDocumentDescriptor, PageTextItem } from "../model/document-types";
 import { useDocumentSession } from "../hooks/use-document-session";
 import { useFitWidth } from "../hooks/use-fit-width";
 import { usePageRender } from "../hooks/use-page-render";
-import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState } from "../local-persistence";
+import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "../local-persistence";
+import {
+  buildPageSemanticModel,
+  PageSemanticModel,
+  type SemanticCandidate,
+} from "@ggulnote/document-core";
 import { DocumentDebugPanel } from "./document-debug-panel";
 import { DocumentSidebar } from "./document-sidebar";
 import { DocumentStage } from "./document-stage";
@@ -188,6 +193,69 @@ function isDragDistanceEnough(
   return Math.hypot(dx, dy) >= DRAG_CREATE_THRESHOLD_PX;
 }
 
+const SEMANTIC_QUERY_MAX_RESULTS = 10;
+
+const SEMANTIC_LAYER_STYLES: Array<{
+  key: "text" | "word" | "line" | "sentence" | "paragraph" | "candidate";
+  label: string;
+  color: string;
+}> = [
+  { key: "text", label: "Text", color: "rgba(59, 130, 246, 0.95)" },
+  { key: "word", label: "Word", color: "rgba(16, 185, 129, 0.95)" },
+  { key: "line", label: "Line", color: "rgba(249, 115, 22, 0.95)" },
+  { key: "sentence", label: "Sentence", color: "rgba(168, 85, 247, 0.95)" },
+  { key: "paragraph", label: "Paragraph", color: "rgba(14, 116, 144, 0.95)" },
+  { key: "candidate", label: "Candidate", color: "rgba(251, 146, 60, 1)" },
+];
+
+type SemanticDebugLayerState = {
+  textItems: boolean;
+  words: boolean;
+  lines: boolean;
+  sentences: boolean;
+  paragraphs: boolean;
+  candidates: boolean;
+};
+
+const initialSemanticDebugLayer: SemanticDebugLayerState = {
+  textItems: false,
+  words: false,
+  lines: false,
+  sentences: false,
+  paragraphs: false,
+  candidates: true,
+};
+
+function shortenText(value: string, maxLength = 80): string {
+  const normalized = value.trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
+function clampSemanticCoord(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(1, Math.max(0, value));
+}
+
+function clampSemanticRect(value: NormalizedRect): NormalizedRect {
+  const x1 = clampSemanticCoord(value.x);
+  const y1 = clampSemanticCoord(value.y);
+  const x2 = clampSemanticCoord(value.x + value.width);
+  const y2 = clampSemanticCoord(value.y + value.height);
+
+  return {
+    x: x1,
+    y: y1,
+    width: Math.max(0, x2 - x1),
+    height: Math.max(0, y2 - y1),
+  };
+}
 export function DocumentWorkspace(): React.ReactElement {
   const {
     state,
@@ -327,10 +395,345 @@ export function DocumentWorkspace(): React.ReactElement {
   }, [state.currentPage, state.zoom, state.zoomMode]);
 
   const hasRestoredDocumentRef = useRef(false);
+  const pageSemanticModelRef = useRef<PageSemanticModel | null>(null);
+  const semanticBuildTokenRef = useRef(0);
+  const semanticBuildPageKeyRef = useRef<string | null>(null);
+  const semanticBuildSignatureRef = useRef<string>("");
   const activePageId = state.document ? `${state.document.id}-page-${state.currentPage}` : null;
   const hydratedPagesRef = useRef(new Set<string>());
   const hydrationRequestRef = useRef(0);
   const isWorkspaceMountedRef = useRef(true);
+  const textItemsOnPageRef = useRef<PageTextItem[]>([]);
+
+  const [semanticCandidates, setSemanticCandidates] = useState<SemanticCandidate[]>([]);
+  const [semanticDebugTextItems, setSemanticDebugTextItems] = useState<PageTextItem[]>([]);
+  const [semanticDebugModel, setSemanticDebugModel] = useState<PageSemanticModel | null>(null);
+  const [semanticDebugLayer, setSemanticDebugLayer] = useState<SemanticDebugLayerState>(initialSemanticDebugLayer);
+
+  const clearSemanticQuery = useCallback(() => {
+    setSemanticCandidates([]);
+    dispatch({ type: "SEMANTIC_CLEAR_QUERY" });
+  }, [dispatch]);
+
+  const runSemanticPointQuery = useCallback(
+    (point: NormalizedPoint | null, pageId: string | null) => {
+      if (!point || pageId === null || !isWorkspaceMountedRef.current) {
+        clearSemanticQuery();
+        return;
+      }
+
+      const model = semanticDebugModel;
+      if (!model) {
+        clearSemanticQuery();
+        return;
+      }
+
+      const searchRadius = 0.012;
+      const candidates = (() => {
+        const atPointCandidates = model.findAtPoint(point, {
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          limit: SEMANTIC_QUERY_MAX_RESULTS,
+        });
+
+        if (atPointCandidates.length > 0) {
+          return atPointCandidates;
+        }
+
+        const nearestCandidates = model.findNearest(point, {
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          limit: SEMANTIC_QUERY_MAX_RESULTS,
+          maxDistance: searchRadius * 5,
+        });
+
+        if (nearestCandidates.length > 0) {
+          return nearestCandidates;
+        }
+
+        return model.findInRect(
+          {
+            x: Math.max(0, point.x - searchRadius),
+            y: Math.max(0, point.y - searchRadius),
+            width: searchRadius * 2,
+            height: searchRadius * 2,
+          },
+          {
+            types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+            limit: SEMANTIC_QUERY_MAX_RESULTS,
+            minimumOverlapRatio: 0,
+          },
+        );
+      })();
+
+      setSemanticCandidates(candidates);
+
+      if (candidates.length === 0) {
+        dispatch({
+          type: "SEMANTIC_CLEAR_QUERY",
+        });
+        return;
+      }
+
+      const nearest = candidates[0];
+      dispatch({
+        type: "SEMANTIC_QUERY_UPDATED",
+        selectedType: nearest.type,
+        selectedId: nearest.id,
+        selectedText: nearest.text,
+        selectedBounds: nearest.bounds,
+        candidateCount: candidates.length,
+        nearestDistance: Number.isFinite(nearest.distance) ? nearest.distance : null,
+      });
+    },
+    [clearSemanticQuery, dispatch, semanticDebugModel],
+  );
+
+  const dispatchSemanticStatus = useCallback(
+    ({
+      status,
+      cacheStatus,
+      sourceItemCount,
+      wordCount,
+      lineCount,
+      sentenceCount,
+      paragraphCount,
+      columnCount,
+      processingDurationMs,
+      extractorVersion,
+      schemaVersion,
+    }: {
+      status: "idle" | "processing" | "ready" | "empty" | "error";
+      cacheStatus: "idle" | "hit" | "miss" | "stale" | "error" | "disabled";
+      sourceItemCount: number;
+      wordCount: number;
+      lineCount: number;
+      sentenceCount: number;
+      paragraphCount: number;
+      columnCount: number;
+      processingDurationMs: number;
+      extractorVersion: string;
+      schemaVersion: number;
+    }) => {
+      dispatch({
+        type: "SEMANTIC_STATUS_UPDATED",
+        status,
+        cacheStatus,
+        sourceItemCount,
+        wordCount,
+        lineCount,
+        sentenceCount,
+        paragraphCount,
+        columnCount,
+        processingDurationMs,
+        extractorVersion,
+        schemaVersion,
+      });
+    },
+    [dispatch],
+  );
+
+  const dispatchSemanticEmpty = useCallback((message: string) => {
+    semanticBuildPageKeyRef.current = null;
+    semanticBuildSignatureRef.current = "";
+    dispatchSemanticStatus({
+      status: "empty",
+      cacheStatus: "disabled",
+      sourceItemCount: 0,
+      wordCount: 0,
+      lineCount: 0,
+      sentenceCount: 0,
+      paragraphCount: 0,
+      columnCount: 0,
+      processingDurationMs: 0,
+      extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+      schemaVersion: SEMANTIC_SCHEMA_VERSION,
+    });
+    setSemanticDebugTextItems([]);
+    setSemanticDebugModel(null);
+    clearSemanticQuery();
+    pageSemanticModelRef.current = null;
+    textItemsOnPageRef.current = [];
+  }, [clearSemanticQuery, dispatchSemanticStatus]);
+
+  const getSemanticTextSignature = useCallback((textItems: PageTextItem[]): string => {
+    let hash = 2166136261;
+    const updateHash = (value: string): void => {
+      for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+    };
+
+    for (const item of textItems) {
+      updateHash(item.id);
+      updateHash(item.text);
+      updateHash(String(item.sourceIndex));
+      updateHash(item.bounds.x.toFixed(6));
+      updateHash(item.bounds.y.toFixed(6));
+      updateHash(item.bounds.width.toFixed(6));
+      updateHash(item.bounds.height.toFixed(6));
+    }
+
+    return `${textItems.length}:${(hash >>> 0).toString(16)}`;
+  }, []);
+
+  const hydrateSemanticModel = useCallback(
+    async (
+      documentId: string,
+      pageId: string,
+      pageNumber: number,
+      textItems: PageTextItem[],
+      requestToken: number,
+    ) => {
+      if (!isWorkspaceMountedRef.current || requestToken !== semanticBuildTokenRef.current) {
+        return;
+      }
+
+      const signature = getSemanticTextSignature(textItems);
+      if (
+        pageId === semanticBuildPageKeyRef.current
+        && signature === semanticBuildSignatureRef.current
+        && pageSemanticModelRef.current !== null
+      ) {
+        return;
+      }
+
+      textItemsOnPageRef.current = textItems;
+      setSemanticDebugTextItems(textItems);
+      setSemanticDebugModel(null);
+
+      if (textItems.length === 0) {
+        dispatchSemanticEmpty("텍스트 아이템이 없어 Semantic Layer를 생성하지 않습니다.");
+        return;
+      }
+
+      dispatchSemanticStatus({
+        status: "processing",
+        cacheStatus: "idle",
+        sourceItemCount: textItems.length,
+        wordCount: 0,
+        lineCount: 0,
+        sentenceCount: 0,
+        paragraphCount: 0,
+        columnCount: 0,
+        processingDurationMs: 0,
+        extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+        schemaVersion: SEMANTIC_SCHEMA_VERSION,
+      });
+
+      let cacheStatus: "hit" | "miss" | "stale" | "error" = "miss";
+      let model: PageSemanticModel | null = null;
+
+      try {
+        const cachedRecord = await localPersistence.getSemanticPage(documentId, pageId, {
+          extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+          semanticSchemaVersion: SEMANTIC_SCHEMA_VERSION,
+        });
+        if (requestToken !== semanticBuildTokenRef.current || !isWorkspaceMountedRef.current) {
+          return;
+        }
+
+        if (cachedRecord && cachedRecord.sourceItemCount === textItems.length) {
+          model = PageSemanticModel.fromSerialized(cachedRecord.model);
+          cacheStatus = "hit";
+        } else if (cachedRecord) {
+          cacheStatus = "stale";
+        }
+      } catch {
+        cacheStatus = "miss";
+      }
+
+      if (!model) {
+        try {
+          const builtModel = buildPageSemanticModel({
+            documentId,
+            pageId,
+            pageNumber,
+            textItems,
+            extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+            schemaVersion: SEMANTIC_SCHEMA_VERSION,
+          });
+
+          if (requestToken !== semanticBuildTokenRef.current || !isWorkspaceMountedRef.current) {
+            return;
+          }
+
+          model = builtModel;
+
+          try {
+            await localPersistence.saveSemanticPage({
+              documentId,
+              pageId,
+              pageNumber,
+              model: builtModel.toSerialized(),
+              extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+              semanticSchemaVersion: SEMANTIC_SCHEMA_VERSION,
+            });
+          } catch {
+            cacheStatus = "error";
+          }
+        } catch {
+          dispatchSemanticStatus({
+            status: "error",
+            cacheStatus: "error",
+            sourceItemCount: textItems.length,
+            wordCount: 0,
+            lineCount: 0,
+            sentenceCount: 0,
+            paragraphCount: 0,
+            columnCount: 0,
+            processingDurationMs: 0,
+            extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+            schemaVersion: SEMANTIC_SCHEMA_VERSION,
+          });
+          return;
+        }
+      }
+
+      if (!model || requestToken !== semanticBuildTokenRef.current || !isWorkspaceMountedRef.current) {
+        return;
+      }
+
+      const summary = model.getSummary();
+      const serialized = model.toSerialized();
+
+      pageSemanticModelRef.current = model;
+      semanticBuildPageKeyRef.current = pageId;
+      semanticBuildSignatureRef.current = signature;
+      if (summary.sourceItemCount === 0 || summary.wordCount + summary.lineCount + summary.sentenceCount + summary.paragraphCount === 0) {
+        dispatchSemanticStatus({
+          status: "empty",
+          cacheStatus: "disabled",
+          sourceItemCount: 0,
+          wordCount: 0,
+          lineCount: 0,
+          sentenceCount: 0,
+          paragraphCount: 0,
+          columnCount: 0,
+          processingDurationMs: 0,
+          extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
+          schemaVersion: SEMANTIC_SCHEMA_VERSION,
+        });
+        clearSemanticQuery();
+        return;
+      }
+
+      setSemanticDebugModel(model);
+      dispatchSemanticStatus({
+        status: "ready",
+        cacheStatus,
+        sourceItemCount: summary.sourceItemCount,
+        wordCount: summary.wordCount,
+        lineCount: summary.lineCount,
+        sentenceCount: summary.sentenceCount,
+        paragraphCount: summary.paragraphCount,
+        columnCount: summary.columnCount,
+        processingDurationMs: summary.processingDurationMs,
+        extractorVersion: serialized.extractorVersion,
+        schemaVersion: serialized.schemaVersion,
+      });
+    },
+    [clearSemanticQuery, dispatchSemanticEmpty, dispatchSemanticStatus, getSemanticTextSignature, localPersistence],
+  );
 
   useEffect(() => {
     isWorkspaceMountedRef.current = true;
@@ -339,6 +742,32 @@ export function DocumentWorkspace(): React.ReactElement {
     };
   }, []);
 
+  useEffect(() => {
+    pageSemanticModelRef.current = null;
+    semanticBuildPageKeyRef.current = null;
+    semanticBuildSignatureRef.current = "";
+    textItemsOnPageRef.current = [];
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    clearSemanticQuery();
+  }, [activePageId, clearSemanticQuery]);
+
+  useEffect(() => {
+    if (state.status !== "ready" || !state.document || state.document.kind !== "blank" || !activePageId) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    dispatchSemanticEmpty("백지 페이지는 Semantic Cache를 사용하지 않습니다.");
+  }, [
+    activePageId,
+    dispatchSemanticEmpty,
+    state.document?.kind,
+    state.document?.id,
+    state.document?.name,
+    state.status,
+    state.totalPages,
+    state.document,
+  ]);
 
   useEffect(() => {
     if (hasRestoredDocumentRef.current || state.status !== "empty") {
@@ -393,16 +822,15 @@ export function DocumentWorkspace(): React.ReactElement {
     setZoomMode,
     state.status,
   ]);
-
   useEffect(() => {
-    const coordinator = persistenceCoordinator;
     if (state.document && state.status === "ready") {
-      coordinator.start(state.document.id);
+      persistenceCoordinator.start(state.document.id);
       return;
     }
 
-    coordinator.stop();
+    persistenceCoordinator.stop();
   }, [persistenceCoordinator, state.document, state.status]);
+
 
 
   useEffect(() => {
@@ -638,11 +1066,18 @@ export function DocumentWorkspace(): React.ReactElement {
     void loadPage();
   }, [dispatch, getPage, isPdfReady, state.currentPage, state.status]);
 
-  usePageRender({
-    canvas,
-    page: pageProxy,
-    zoom: state.zoom,
-    onRendered: ({ width, height, renderedWidth, renderedHeight }) => {
+  const handlePageRendered = useCallback(
+    ({
+      width,
+      height,
+      renderedWidth,
+      renderedHeight,
+    }: {
+      width: number;
+      height: number;
+      renderedWidth: number;
+      renderedHeight: number;
+    }) => {
       if (!pageProxy || !state.document) {
         return;
       }
@@ -660,15 +1095,215 @@ export function DocumentWorkspace(): React.ReactElement {
         renderedHeight,
       });
 
-      void requestPageText(pageProxy, state.currentPage, {
+      const semanticRequestToken = ++semanticBuildTokenRef.current;
+      const semanticRequestDocumentId = state.document.id;
+      const semanticRequestPageId = `${state.document.id}-page-${state.currentPage}`;
+      const semanticRequestPageNumber = state.currentPage;
+
+      void requestPageText(pageProxy, semanticRequestPageNumber, {
         width,
         height,
+      }).then((textContent) => {
+        if (!textContent) {
+          dispatchSemanticEmpty("텍스트 추출 실패로 Semantic Layer를 건너뜁니다.");
+          return;
+        }
+
+        if (
+          semanticRequestToken !== semanticBuildTokenRef.current ||
+          !isWorkspaceMountedRef.current ||
+          !semanticRequestDocumentId
+        ) {
+          return;
+        }
+
+        void hydrateSemanticModel(
+          semanticRequestDocumentId,
+          semanticRequestPageId,
+          semanticRequestPageNumber,
+          textContent.items,
+          semanticRequestToken,
+        );
       });
     },
-    onError: (message) => {
+    [
+      dispatch,
+      dispatchSemanticEmpty,
+      hydrateSemanticModel,
+      pageProxy,
+      requestPageText,
+      state.currentPage,
+      state.document,
+    ],
+  );
+
+  const handlePageRenderError = useCallback(
+    (message: string) => {
       dispatch({ type: "LOAD_FAILED", message });
     },
+    [dispatch],
+  );
+
+  usePageRender({
+    canvas,
+    page: pageProxy,
+    zoom: state.zoom,
+    onRendered: handlePageRendered,
+    onError: handlePageRenderError,
   });
+
+  const getLayerStyle = (
+    key: "text" | "word" | "line" | "sentence" | "paragraph" | "candidate",
+  ) => {
+    const style = SEMANTIC_LAYER_STYLES.find((entry) => entry.key === key);
+    return style ?? { key, label: key, color: "rgba(0, 0, 0, 0.5)" };
+  };
+
+  const semanticDebugLayerNodes = (() => {
+    if (state.status !== "ready" || stageSize.width <= 0 || stageSize.height <= 0) {
+      return null;
+    }
+
+    type DebugLayerItem = {
+      key: "text" | "word" | "line" | "sentence" | "paragraph" | "candidate";
+      id: string;
+      label: string;
+      rect: NormalizedRect;
+      suffix?: string;
+    };
+
+    const objects: DebugLayerItem[] = [];
+
+    if (semanticDebugLayer.textItems) {
+      objects.push(
+        ...semanticDebugTextItems.map((item) => ({
+          key: "text" as const,
+          id: item.id,
+          label: `TEXT #${item.sourceIndex}`,
+          rect: clampSemanticRect(item.bounds),
+          suffix: item.text,
+        })),
+      );
+    }
+
+      const model = semanticDebugModel;
+    if (model) {
+      const semanticObjects = model.getAllByReadingOrder();
+
+      if (semanticDebugLayer.words) {
+        objects.push(
+          ...semanticObjects
+            .filter((item) => item.type === "WORD")
+            .map((item) => ({
+              key: "word" as const,
+              id: item.id,
+              label: `WORD #${item.readingOrder}`,
+              rect: clampSemanticRect(item.bounds),
+              suffix: item.text,
+            })),
+        );
+      }
+
+      if (semanticDebugLayer.lines) {
+        objects.push(
+          ...semanticObjects
+            .filter((item) => item.type === "LINE")
+            .map((item) => ({
+              key: "line" as const,
+              id: item.id,
+              label: `LINE #${item.readingOrder}`,
+              rect: clampSemanticRect(item.bounds),
+              suffix: item.text,
+            })),
+        );
+      }
+
+      if (semanticDebugLayer.sentences) {
+        objects.push(
+          ...semanticObjects
+            .filter((item) => item.type === "SENTENCE")
+            .map((item) => ({
+              key: "sentence" as const,
+              id: item.id,
+              label: `SENTENCE #${item.readingOrder}`,
+              rect: clampSemanticRect(item.bounds),
+              suffix: item.text,
+            })),
+        );
+      }
+
+      if (semanticDebugLayer.paragraphs) {
+        objects.push(
+          ...semanticObjects
+            .filter((item) => item.type === "PARAGRAPH")
+            .map((item) => ({
+              key: "paragraph" as const,
+              id: item.id,
+              label: `PARAGRAPH #${item.readingOrder}`,
+              rect: clampSemanticRect(item.bounds),
+              suffix: item.text,
+            })),
+        );
+      }
+    }
+
+    if (semanticDebugLayer.candidates) {
+      objects.push(
+        ...semanticCandidates.map((candidate) => ({
+          key: "candidate" as const,
+          id: `${candidate.type.toLowerCase()}-${candidate.id}`,
+          label: `${candidate.type} #${candidate.readingOrder} (${candidate.distance.toFixed(4)})`,
+          rect: clampSemanticRect(candidate.bounds),
+          suffix: candidate.text,
+        })),
+      );
+    }
+
+    if (objects.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="pointer-events-none absolute inset-0">
+        {objects.map((item) => {
+          const style = getLayerStyle(item.key);
+          const cssRect = normalizedRectToCss(item.rect, stageSize);
+          if (cssRect.width <= 0 || cssRect.height <= 0) {
+            return null;
+          }
+
+          const layerBorderWidth = 2;
+
+          const renderedWidth = Math.max(cssRect.width, 1);
+          const renderedHeight = Math.max(cssRect.height, 1);
+
+          return (
+            <div
+              key={item.id}
+              className="absolute"
+              style={{
+                left: `${cssRect.left}px`,
+                top: `${cssRect.top}px`,
+                width: `${renderedWidth}px`,
+                height: `${renderedHeight}px`,
+                border: `${layerBorderWidth}px solid ${style.color}`,
+                backgroundColor: item.key === "candidate" ? `${style.color}80` : `${style.color}22`,
+                opacity: 0.95,
+                boxSizing: "border-box",
+              }}
+            >
+              <span
+                className="absolute -left-[2px] -top-[19px] rounded bg-black/70 px-1 text-[10px] font-medium"
+                style={{ color: style.color }}
+              >
+                {`${style.label}: ${item.label}`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  })();
 
   const clampSize = useCallback(
     (point: NormalizedPoint): NormalizedPoint => ({
@@ -884,18 +1519,20 @@ export function DocumentWorkspace(): React.ReactElement {
     (event: React.PointerEvent<HTMLElement>) => {
       if (state.status !== "ready") {
         activeDragRef.current = null;
+        clearSemanticQuery();
         return;
       }
 
       const point = getSnapshotPoint(event, stageElementRef);
-      if (!activePageId) {
+      const clampedPoint = point ? clampSize(point) : null;
+      if (!activePageId || !clampedPoint || !state.document) {
         activeDragRef.current = null;
+        clearSemanticQuery();
         return;
       }
 
       const draft = activeDragRef.current;
-      const clampedPoint = point ? clampSize(point) : null;
-      const end = draft && "start" in draft && draft.start ? clampedPoint ?? draft.start : { x: 0, y: 0 };
+      const end = draft && "start" in draft && draft.start ? clampedPoint : { x: 0, y: 0 };
 
       if (draft?.type === "move") {
         editorEngine.commitDrag();
@@ -1016,9 +1653,16 @@ export function DocumentWorkspace(): React.ReactElement {
         activeDragRef.current = null;
         renderSchedule();
       }
+
+      if (state.document.kind === "pdf") {
+        runSemanticPointQuery(clampedPoint, activePageId);
+      } else {
+        clearSemanticQuery();
+      }
     },
     [
       activePageId,
+      clearSemanticQuery,
       clampSize,
       createAnnotation,
       editorEngine,
@@ -1026,10 +1670,12 @@ export function DocumentWorkspace(): React.ReactElement {
       highlightOpacity,
       lineStrokeWidth,
       renderSchedule,
+      runSemanticPointQuery,
       shapeFillColor,
       shapeFilled,
       shapeStrokeWidth,
       stageSize,
+      state.document,
       state.status,
       strokeColor,
       tableStrokeWidth,
@@ -1424,6 +2070,7 @@ export function DocumentWorkspace(): React.ReactElement {
             onPointerLeave={handlePointerLeave}
           />
           {dragPreview}
+          {semanticDebugLayerNodes}
         </DocumentStage>
 
         <div className="space-y-4">
@@ -1535,10 +2182,16 @@ export function DocumentWorkspace(): React.ReactElement {
             redoStackSize={redoStackSize}
           />
 
-          <DocumentDebugPanel state={state} documentName={documentName} pointer={state.pointer} />
+          <DocumentDebugPanel
+            state={state}
+            documentName={documentName}
+            pointer={state.pointer}
+            semanticDebugLayer={semanticDebugLayer}
+            semanticCandidates={semanticCandidates}
+            onSemanticDebugLayerChange={setSemanticDebugLayer}
+          />
         </div>
       </div>
     </main>
   );
 }
-

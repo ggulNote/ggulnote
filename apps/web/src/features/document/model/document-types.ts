@@ -35,12 +35,16 @@ export interface BlankDocumentDescriptor extends DocumentDescriptor {
 
 export type LoadedDocumentDescriptor = PdfDocumentDescriptor | BlankDocumentDescriptor;
 
+export type TextDirection = "ltr" | "rtl" | "ttb";
+
 export interface PageTextItem {
   id: string;
   text: string;
   bounds: NormalizedRect;
   fontName?: string;
-  direction?: string;
+  fontSize?: number;
+  direction?: TextDirection;
+  sourceIndex: number;
 }
 
 export interface PageTextContent {

@@ -6,7 +6,7 @@ import {
   MIN_ZOOM,
   documentSessionReducer,
   getInitialDocumentSessionState,
-} from "../model/document-reducer";
+} from "../model/document-state";
 import { usePdfDocument } from "./use-pdf-document";
 import { ensurePdfJsInitialized } from "../adapters/pdfjs/pdfjs-loader";
 import { validatePdfFile } from "../validation/validate-pdf-file";
@@ -145,11 +145,11 @@ export function useDocumentSession() {
   }, []);
 
   const requestPageText = useCallback(
-    async (page: PDFPageProxy, pageNumber: number, pageSize: { width: number; height: number }) => {
+    async (page: PDFPageProxy, pageNumber: number, pageSize: { width: number; height: number }): Promise<PageTextContent | null> => {
       const cached = textCacheRef.current.get(pageNumber);
       if (cached) {
         dispatch({ type: "TEXT_EXTRACTED", count: cached.items.length });
-        return;
+        return cached;
       }
 
       dispatch({ type: "TEXT_LOADING", loading: true });
@@ -157,8 +157,10 @@ export function useDocumentSession() {
         const content = await extractPageTextContent(page, pageNumber, pageSize);
         textCacheRef.current.set(pageNumber, content);
         dispatch({ type: "TEXT_EXTRACTED", count: content.items.length });
+        return content;
       } catch {
         dispatch({ type: "TEXT_EXTRACTION_FAILED" });
+        return null;
       }
     },
     [],
