@@ -273,3 +273,128 @@ Semantic Query 후보는 실제 fragment geometry와 `regionId`, `blockId`, `col
 - 브랜치: `feat/semantic-layer`
 - 변경 사항은 commit하지 않은 working tree 상태다.
 - commit, push, Pull Request는 수행하지 않았다.
+
+# 다중 페이지 PDF Text Item canonical 좌표 수정
+
+## 재현 및 진단 범위
+
+- 사용자에게서 보고된 PDF A/PDF B의 2페이지 이후 오버레이 이상을 기준으로 추출, 렌더, 상태, 캐시 경로를 조사했다.
+- 저장소에는 해당 두 PDF 원본과 변경 전 대표 데이터가 없어 실제 페이지 1~3의 Raw/PDF.js Text Layer/Normalized Overlay 육안 비교는 수행하지 못했다.
+- 대신 synthetic PDF.js Text Item fixture로 canonical viewport, scale 불변성, page rotation, rotated item, ascent/descent, page isolation, stale request 폐기를 검증했다.
+- 디버그 UI에는 PDF.js Text Layer, Raw PDF.js Text Item, Normalized Text Item을 독립 토글하고 선택한 Raw Item의 원본/계산 정보를 확인할 수 있는 경로를 추가했다.
+
+## 실제 Root Cause
+
+확인된 원인은 다음과 같다.
+
+- 기존 추출기는 PDF Text Item의 raw transform 위치를 page size로 직접 정규화했다. canonical viewport transform, page viewBox, page rotation, font ascent/descent가 동일한 immutable context에서 적용되지 않았다.
+- 페이지 전환 시 이전 `PDFPageProxy`의 비동기 렌더/추출 결과가 현재 page number 상태와 결합될 수 있었다. 이 경우 늦게 끝난 이전 페이지 결과가 현재 페이지 key 아래에 들어갈 수 있었다.
+- Text Item ID가 문서/페이지 범위를 충분히 포함하지 않아 서로 다른 페이지 또는 문서의 동일 `sourceIndex`를 안전하게 구분하지 못했다.
+- Semantic Cache record의 document/page identity와 serialized model identity를 복원 전에 교차 검증하지 않았다.
+
+조사 결과 직접 원인으로 확인되지 않은 항목은 다음과 같다.
+
+- `textContent.styles`를 전역 mutable 상태로 공유하는 코드는 없었다. 기존에도 `getTextContent()` 결과에서 지역적으로 읽었고, 이번 변경에서 viewport/items와 함께 immutable extraction result로 명시했다.
+- Overlay는 이미 페이지 `DocumentStage` 내부의 absolute layer를 사용하고 있어 문서 전체 container 기준 배치가 직접 원인은 아니었다.
+- 첫 페이지 viewport 객체를 명시적으로 모든 페이지에 재사용하는 코드는 없었다. 문제는 이전 page proxy 결과와 현재 page metadata가 비동기 경계에서 결합될 수 있었던 점이었다.
+
+## 좌표 계산 변경
+
+- `pdfPage.getViewport({ scale: 1, rotation: pdfPage.rotate })`로 페이지별 canonical viewport를 생성한다.
+- `Util.transform(canonicalViewport.transform, item.transform)`과 같은 행렬 조합을 순수 TypeScript adapter 계산으로 적용한다.
+- `fontHeight = hypot(tx[2], tx[3])`, `angle = atan2(tx[1], tx[0])`를 사용한다.
+- style의 `ascent`/`descent`를 사용해 PDF.js Text Layer 방식에 맞춘 baseline top을 계산하고, 정보가 없을 때만 결정적인 fallback을 사용한다.
+- Text Item width는 `item.width * canonicalViewport.scale`을 local advance로 사용하고 회전된 네 꼭짓점의 axis-aligned envelope를 normalized bounds로 저장한다.
+- normalized geometry는 canonical viewport width/height로 정확히 한 번 정규화한다. zoom, `devicePixelRatio`, Canvas backing size는 사용하지 않는다.
+- whitespace-only 및 invalid/zero-size bounds는 시각 Text Item에서 제외하되 진단 summary에 집계한다.
+
+## 페이지 격리
+
+- 추출 결과에 `documentId`, `pageId`, `pageNumber`, `requestId`, canonical viewport snapshot을 함께 저장한다.
+- 현재 화면 반영 전 request identity와 active page identity를 모두 확인해 stale result를 폐기한다.
+- page proxy 자체의 page number와 요청한 page number가 일치할 때만 렌더/추출한다.
+- ID와 React key는 document/page/source 범위를 포함한다.
+- 현재 페이지 overlay는 replace 방식으로 갱신하며 이전 페이지 배열을 append하지 않는다.
+- cache 조회 시 record와 serialized model의 document/page identity 및 extractor version을 검증한다.
+
+## 주요 생성 및 수정 파일
+
+- `apps/web/src/features/document/text/extract-page-text.ts`: canonical extraction context, PDF.js 방식 geometry, raw diagnostics, page-scoped ID.
+- `apps/web/src/features/document/components/document-workspace.tsx`: page/request 격리, stale result 폐기, Raw/Normalized/PDF.js Text Layer 디버그 연결.
+- `apps/web/src/features/document/components/document-debug-panel.tsx`: 비교 레이어 토글과 선택 Raw Item 상세 정보.
+- `apps/web/src/features/document/components/pdf-text-layer-debug.tsx`: PDF.js Text Layer 비교 렌더러.
+- `apps/web/src/features/document/types/document.ts`: 추출 결과, canonical viewport, raw item/summary 타입.
+- `apps/web/src/features/document/hooks/use-document-session.ts`: page-scoped extraction result 전달.
+- `apps/web/src/features/document/persistence/semantic-page-repository.ts`: cache identity/version 검증.
+- `packages/document-core/src/constants.ts`: extractor/model version 증가.
+- `packages/document-core/src/page-semantic-model.ts`: serialized page identity 검증.
+- `apps/web/tests/extract-page-text.test.ts`: geometry와 page isolation fixture.
+- `apps/web/tests/semantic-page-repository.test.ts`: cache mismatch/version 테스트.
+
+## 테스트
+
+추가하거나 보강한 테스트는 다음을 포함한다.
+
+- scale 1/2에서 동일 normalized bounds.
+- 서로 다른 페이지 크기의 독립 정규화.
+- page rotation 0/90 및 rotated Text Item envelope.
+- ascent/descent 기반 top 계산.
+- NaN, Infinity, zero-size, whitespace 제외.
+- 동일 sourceIndex의 페이지/문서별 ID 격리.
+- page-scoped styles.
+- stale request 및 빠른 페이지 전환 결과 폐기.
+- cache documentId/pageId/model identity/version mismatch 복원 거부.
+
+실행 결과:
+
+- `pnpm --filter @ggulnote/document-core typecheck`: 성공.
+- `pnpm --filter @ggulnote/document-core build`: 성공.
+- `pnpm --filter @ggulnote/document-core test`: 성공, 16 tests.
+- `pnpm --filter @ggulnote/web lint`: 성공.
+- `pnpm --filter @ggulnote/web typecheck`: 성공.
+- `pnpm --filter @ggulnote/web test`: 성공, 52 tests.
+- `pnpm --filter @ggulnote/web build`: 성공.
+- `pnpm lint`: 성공.
+- `pnpm typecheck`: 성공.
+- `pnpm test`: 성공, workspace 합계 93 tests.
+- `pnpm build`: 성공.
+- `git diff --check`: 성공.
+
+검증 환경에서는 Node.js `20.19.4`가 workspace 권장 버전 `>=22`보다 낮다는 경고와 jsdom의 Canvas 미구현 경고가 있었지만 명령 실패는 아니었다. 최초 sandbox 실행에서는 `EPERM`/하위 프로세스 spawn 제한이 발생했으며, 동일 명령을 승인된 실행 환경에서 다시 수행해 코드 실패와 환경 실패를 구분했다.
+
+## 캐시
+
+- 이전 extractor/model version: `3`.
+- 새 extractor/model version: `4`.
+- IndexedDB Version 2 및 `semanticPages` store 구조는 유지한다.
+- version 또는 document/page/model identity가 맞지 않는 record는 cache miss로 처리해 canonical geometry로 재추출한다.
+- cache 실패가 Viewer나 Canvas Editor를 중단하지 않는 soft failure 정책을 유지한다.
+
+## 변경 전후 대표 데이터
+
+실제 PDF 원본이 없어 아래 값은 회귀 테스트에 사용한 synthetic fixture 기준이다.
+
+- Page 1 horizontal item: `str="Scale invariant text"`, `sourceIndex=0`, transform `[10,0,0,10,60,700]`, item width `240`, item height `10`, viewport `600x800`, angle `0`, normalized bounds는 scale 1과 scale 2에서 동일하다.
+- Page 2 independent viewport fixture: 동일 sourceIndex를 사용해도 document/page 범위가 ID에 포함되고 해당 페이지 canonical viewport width/height로 별도 정규화된다.
+- page rotation 90 fixture: canonical viewport transform이 적용된 quad envelope와 angle이 검증된다.
+
+실제 PDF A/B의 변경 전후 수치는 원본을 실행 환경에서 선택해 Raw Item 상세 패널로 수집해야 한다.
+
+## 수동 확인이 필요한 항목
+
+- PDF A와 PDF B 각각 페이지 1, 2, 3의 PDF.js Text Layer/Raw/Normalized 레이어 일치.
+- `1 -> 2 -> 3 -> 1` 빠른 전환에서 stale overlay 미표시.
+- zoom 50%, 100%, 200%에서 normalized bounds 유지.
+- 새로고침 후 version 4 cache 재사용 전후 bounds 일치.
+- bullet, code block, heading, horizontal rule, 한글 문장, 페이지 번호 위치.
+- 기존 Annotation 생성, 선택, 드래그, 삭제, undo/redo 및 문서 복구.
+
+위 수동 항목은 이번 실행에서 실제 PDF와 브라우저 조작을 수행하지 못했으므로 성공으로 보고하지 않는다.
+
+## 남은 제한 사항
+
+- PDF.js 원본 Text Item이 그림 내부 glyph, 비가시 문자열, 작은 fragment로 제공되는 경우 Raw Overlay도 동일한 특성을 보인다.
+- 브라우저 Text Layer는 실제 font measurement를 사용할 수 있지만 extractor는 style ascent/descent가 없을 때 결정적인 fallback을 사용하므로 일부 특수 font에서 작은 세로 오차가 남을 수 있다.
+- PDF.js Text Layer 비교 토글은 진단용으로 추가 호출을 수행하므로 기본 비활성 상태다.
+- Word, Line, Sentence, Paragraph, LayoutBlock, Column 정확도 개선은 이번 범위에서 수행하지 않았다. 이들은 수정된 page-scoped canonical Text Item을 입력으로 사용한다.
+- YOLO 및 ONNX 통합은 시작하지 않았다.

@@ -1,35 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { validatePdfFile, MAX_LOCAL_PDF_BYTES } from "@/features/document/validation/validate-pdf-file";
 
-describe("PDF ÆÄÀÏ À¯È¿¼º °Ë»ç", () => {
-  it("PDF ÆÄÀÏÀ» Çã¿ëÇÑ´Ù", () => {
+describe("PDF ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¿ï¿½ï¿½ ï¿½Ë»ï¿½", () => {
+  it("PDF ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½", () => {
     const file = new File(["test"], "sample.pdf", { type: "application/pdf" });
     const result = validatePdfFile(file);
 
     expect(result.ok).toBe(true);
   });
 
-  it("PDF°¡ ¾Æ´Ñ ÆÄÀÏÀ» °ÅºÎÇÑ´Ù", () => {
+  it("PDFï¿½ï¿½ ï¿½Æ´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Åºï¿½ï¿½Ñ´ï¿½", () => {
     const file = new File(["test"], "sample.txt", { type: "text/plain" });
     const result = validatePdfFile(file);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toContain("PDF ÆÄÀÏ");
+      expect(result.message).toContain("PDF íŒŒì¼");
     }
   });
 
-  it("ºó ÆÄÀÏÀ» °ÅºÎÇÑ´Ù", () => {
+  it("ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Åºï¿½ï¿½Ñ´ï¿½", () => {
     const file = new File([""] , "sample.pdf", { type: "application/pdf" });
     const result = validatePdfFile(file);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toContain("ºñ¾î");
+      expect(result.message).toContain("ë¹„ì–´");
     }
   });
 
-  it("50MB ÃÊ°ú ÆÄÀÏÀ» °ÅºÎÇÑ´Ù", () => {
+  it("50MB ï¿½Ê°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Åºï¿½ï¿½Ñ´ï¿½", () => {
     const bytes = new Uint8Array(MAX_LOCAL_PDF_BYTES + 1);
     const file = new File([bytes], "big.pdf", { type: "application/pdf" });
     const result = validatePdfFile(file);

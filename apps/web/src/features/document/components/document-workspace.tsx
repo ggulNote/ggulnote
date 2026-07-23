@@ -17,7 +17,12 @@ import {
   normalizedPointToCss,
   normalizedRectToCss,
 } from "../coordinates/coordinate-transformer";
-import type { PdfDocumentDescriptor, PageTextItem } from "../model/document-types";
+import type {
+  PageTextContent,
+  PageTextItem,
+  PdfDocumentDescriptor,
+  RawPdfTextItemDebug,
+} from "../model/document-types";
 import { useDocumentSession } from "../hooks/use-document-session";
 import { useFitWidth } from "../hooks/use-fit-width";
 import { usePageRender } from "../hooks/use-page-render";
@@ -32,6 +37,8 @@ import { DocumentDebugPanel } from "./document-debug-panel";
 import { DocumentSidebar } from "./document-sidebar";
 import { DocumentStage } from "./document-stage";
 import { DocumentToolbar } from "./document-toolbar";
+import { PdfTextLayerDebug } from "./pdf-text-layer-debug";
+import { isPageTextResultForPage } from "../text/page-text-request";
 
 const ZOOM_STEP = 25;
 const DRAG_CREATE_THRESHOLD_PX = 4;
@@ -67,6 +74,13 @@ const DEFAULT_SHAPE_BOUNDS: Omit<NormalizedRect, "x" | "y"> = {
 type FitDimensions = {
   width: number;
   height: number;
+};
+
+type LoadedPdfPage = {
+  documentId: string;
+  pageId: string;
+  pageNumber: number;
+  page: import("pdfjs-dist/types/src/display/api").PDFPageProxy;
 };
 
 type DragDraft =
@@ -197,6 +211,7 @@ function isDragDistanceEnough(
 const SEMANTIC_QUERY_MAX_RESULTS = 10;
 
 type SemanticLayerStyleKey =
+  | "rawText"
   | "text"
   | "word"
   | "line"
@@ -215,6 +230,7 @@ const SEMANTIC_LAYER_STYLES: Array<{
   label: string;
   color: string;
 }> = [
+  { key: "rawText", label: "Raw PDF.js Text", color: "rgba(220, 38, 38, 0.95)" },
   { key: "text", label: "Text", color: "rgba(59, 130, 246, 0.95)" },
   { key: "word", label: "Word", color: "rgba(16, 185, 129, 0.95)" },
   { key: "line", label: "Line", color: "rgba(249, 115, 22, 0.95)" },
@@ -230,6 +246,8 @@ const SEMANTIC_LAYER_STYLES: Array<{
 ];
 
 type SemanticDebugLayerState = {
+  pdfTextLayer: boolean;
+  rawTextItems: boolean;
   textItems: boolean;
   words: boolean;
   lines: boolean;
@@ -246,6 +264,8 @@ type SemanticDebugLayerState = {
 };
 
 const initialSemanticDebugLayer: SemanticDebugLayerState = {
+  pdfTextLayer: false,
+  rawTextItems: false,
   textItems: false,
   words: false,
   lines: false,
@@ -270,25 +290,16 @@ function shortenText(value: string, maxLength = 80): string {
   return `${normalized.slice(0, maxLength)}...`;
 }
 
-function clampSemanticCoord(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-
-  return Math.min(1, Math.max(0, value));
+function preserveSemanticCoord(value: number): number {
+  return Number.isFinite(value) ? value : 0;
 }
 
 function clampSemanticRect(value: NormalizedRect): NormalizedRect {
-  const x1 = clampSemanticCoord(value.x);
-  const y1 = clampSemanticCoord(value.y);
-  const x2 = clampSemanticCoord(value.x + value.width);
-  const y2 = clampSemanticCoord(value.y + value.height);
-
   return {
-    x: x1,
-    y: y1,
-    width: Math.max(0, x2 - x1),
-    height: Math.max(0, y2 - y1),
+    x: preserveSemanticCoord(value.x),
+    y: preserveSemanticCoord(value.y),
+    width: Math.max(0, preserveSemanticCoord(value.width)),
+    height: Math.max(0, preserveSemanticCoord(value.height)),
   };
 }
 export function DocumentWorkspace(): React.ReactElement {
@@ -309,7 +320,7 @@ export function DocumentWorkspace(): React.ReactElement {
   } = useDocumentSession();
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
-  const [pageProxy, setPageProxy] = useState<import("pdfjs-dist/types/src/display/api").PDFPageProxy | null>(null);
+  const [pdfPageContext, setPdfPageContext] = useState<LoadedPdfPage | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [interactionMode, setInteractionMode] = useState<EditorInteractionMode>(DEFAULT_INTERACTION_MODE);
   const [textMemo, setTextMemo] = useState("memo");
@@ -438,12 +449,35 @@ export function DocumentWorkspace(): React.ReactElement {
   const hydratedPagesRef = useRef(new Set<string>());
   const hydrationRequestRef = useRef(0);
   const isWorkspaceMountedRef = useRef(true);
-  const textItemsOnPageRef = useRef<PageTextItem[]>([]);
+
 
   const [semanticCandidates, setSemanticCandidates] = useState<SemanticCandidate[]>([]);
-  const [semanticDebugTextItems, setSemanticDebugTextItems] = useState<PageTextItem[]>([]);
+  const [pageTextDebug, setPageTextDebug] = useState<PageTextContent | null>(null);
   const [semanticDebugModel, setSemanticDebugModel] = useState<PageSemanticModel | null>(null);
   const [semanticDebugLayer, setSemanticDebugLayer] = useState<SemanticDebugLayerState>(initialSemanticDebugLayer);
+  const visiblePageText = isPageTextResultForPage(
+    pageTextDebug,
+    state.document?.id ?? null,
+    activePageId,
+  ) ? pageTextDebug : null;
+  const semanticDebugTextItems = visiblePageText?.items ?? [];
+  const selectedRawTextItem = useMemo<RawPdfTextItemDebug | null>(() => {
+    if (!state.pointer || !visiblePageText) return null;
+    return visiblePageText.rawItems
+      .filter((item) => {
+        const bounds = item.computed.normalizedBounds;
+        return state.pointer
+          && state.pointer.x >= bounds.x
+          && state.pointer.x <= bounds.x + bounds.width
+          && state.pointer.y >= bounds.y
+          && state.pointer.y <= bounds.y + bounds.height;
+      })
+      .sort((left, right) => {
+        const leftArea = left.computed.width * left.computed.height;
+        const rightArea = right.computed.width * right.computed.height;
+        return leftArea - rightArea || left.sourceIndex - right.sourceIndex;
+      })[0] ?? null;
+  }, [state.pointer, visiblePageText]);
 
   const clearSemanticQuery = useCallback(() => {
     setSemanticCandidates([]);
@@ -452,12 +486,12 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const runSemanticPointQuery = useCallback(
     (point: NormalizedPoint | null, pageId: string | null) => {
-      if (!point || pageId === null || !isWorkspaceMountedRef.current) {
+      if (!point || pageId === null || pageId !== activePageId || !isWorkspaceMountedRef.current) {
         clearSemanticQuery();
         return;
       }
 
-      const model = semanticDebugModel;
+      const model = visiblePageText ? semanticDebugModel : null;
       if (!model) {
         clearSemanticQuery();
         return;
@@ -519,7 +553,7 @@ export function DocumentWorkspace(): React.ReactElement {
         nearestDistance: Number.isFinite(nearest.distance) ? nearest.distance : null,
       });
     },
-    [clearSemanticQuery, dispatch, semanticDebugModel],
+    [activePageId, clearSemanticQuery, dispatch, semanticDebugModel, visiblePageText],
   );
 
   const dispatchSemanticStatus = useCallback(
@@ -582,11 +616,11 @@ export function DocumentWorkspace(): React.ReactElement {
       extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
       schemaVersion: SEMANTIC_SCHEMA_VERSION,
     });
-    setSemanticDebugTextItems([]);
+
     setSemanticDebugModel(null);
     clearSemanticQuery();
     pageSemanticModelRef.current = null;
-    textItemsOnPageRef.current = [];
+
   }, [clearSemanticQuery, dispatchSemanticStatus]);
 
   const getSemanticTextSignature = useCallback(
@@ -615,8 +649,8 @@ export function DocumentWorkspace(): React.ReactElement {
         return;
       }
 
-      textItemsOnPageRef.current = textItems;
-      setSemanticDebugTextItems(textItems);
+
+
       setSemanticDebugModel(null);
 
       if (textItems.length === 0) {
@@ -769,7 +803,7 @@ export function DocumentWorkspace(): React.ReactElement {
     pageSemanticModelRef.current = null;
     semanticBuildPageKeyRef.current = null;
     semanticBuildSignatureRef.current = "";
-    textItemsOnPageRef.current = [];
+
     // eslint-disable-next-line react-hooks/set-state-in-effect
     clearSemanticQuery();
   }, [activePageId, clearSemanticQuery]);
@@ -899,6 +933,12 @@ export function DocumentWorkspace(): React.ReactElement {
   const documentName = useMemo(() => state.document?.name ?? "-", [state.document?.name]);
   const isPdfReady = state.document?.kind === "pdf" && state.status === "ready";
   const hasDocument = Boolean(state.document);
+  const currentPdfPageContext = pdfPageContext
+    && pdfPageContext.documentId === state.document?.id
+    && pdfPageContext.pageId === activePageId
+    && pdfPageContext.pageNumber === state.currentPage
+    ? pdfPageContext
+    : null;
 
 
   const fitWidthTargetPageWidth = useMemo(() => {
@@ -1066,18 +1106,24 @@ export function DocumentWorkspace(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    if (!isPdfReady) {
-      return;
-    }
+    if (!isPdfReady || !state.document || !activePageId) return;
 
     const token = pageRequestTokenRef.current + 1;
     pageRequestTokenRef.current = token;
+    const requestedDocumentId = state.document.id;
+    const requestedPageId = activePageId;
+    const requestedPageNumber = state.currentPage;
 
     const loadPage = async () => {
       try {
-        const page = await getPage(state.currentPage);
-        if (pageRequestTokenRef.current === token && state.status === "ready") {
-          setPageProxy(page);
+        const page = await getPage(requestedPageNumber);
+        if (pageRequestTokenRef.current === token && isWorkspaceMountedRef.current) {
+          setPdfPageContext({
+            documentId: requestedDocumentId,
+            pageId: requestedPageId,
+            pageNumber: requestedPageNumber,
+            page,
+          });
         }
       } catch {
         if (pageRequestTokenRef.current === token) {
@@ -1087,7 +1133,7 @@ export function DocumentWorkspace(): React.ReactElement {
     };
 
     void loadPage();
-  }, [dispatch, getPage, isPdfReady, state.currentPage, state.status]);
+  }, [activePageId, dispatch, getPage, isPdfReady, state.currentPage, state.document]);
 
   const handlePageRendered = useCallback(
     ({
@@ -1095,51 +1141,56 @@ export function DocumentWorkspace(): React.ReactElement {
       height,
       renderedWidth,
       renderedHeight,
+      rotation,
     }: {
       width: number;
       height: number;
       renderedWidth: number;
       renderedHeight: number;
+      rotation: number;
     }) => {
-      if (!pageProxy || !state.document) {
+      if (!currentPdfPageContext || !state.document || currentPdfPageContext.pageId !== activePageId) {
         return;
       }
 
       dispatch({
         type: "PAGE_RENDERED",
         page: {
-          id: `${state.document.id}-page-${state.currentPage}`,
-          pageNumber: state.currentPage,
+          id: currentPdfPageContext.pageId,
+          pageNumber: currentPdfPageContext.pageNumber,
           width,
           height,
-          rotation: 0,
+          rotation,
         },
         renderedWidth,
         renderedHeight,
       });
 
       const semanticRequestToken = ++semanticBuildTokenRef.current;
-      const semanticRequestDocumentId = state.document.id;
-      const semanticRequestPageId = `${state.document.id}-page-${state.currentPage}`;
-      const semanticRequestPageNumber = state.currentPage;
+      const semanticRequestDocumentId = currentPdfPageContext.documentId;
+      const semanticRequestPageId = currentPdfPageContext.pageId;
+      const semanticRequestPageNumber = currentPdfPageContext.pageNumber;
 
-      void requestPageText(pageProxy, semanticRequestPageNumber, {
-        width,
-        height,
+      void requestPageText(currentPdfPageContext.page, {
+        documentId: semanticRequestDocumentId,
+        pageId: semanticRequestPageId,
+        pageNumber: semanticRequestPageNumber,
       }).then((textContent) => {
         if (!textContent) {
           dispatchSemanticEmpty("텍스트 추출 실패로 Semantic Layer를 건너뜁니다.");
           return;
         }
-
         if (
-          semanticRequestToken !== semanticBuildTokenRef.current ||
-          !isWorkspaceMountedRef.current ||
-          !semanticRequestDocumentId
+          semanticRequestToken !== semanticBuildTokenRef.current
+          || !isWorkspaceMountedRef.current
+          || textContent.documentId !== semanticRequestDocumentId
+          || textContent.pageId !== semanticRequestPageId
+          || textContent.pageNumber !== semanticRequestPageNumber
         ) {
           return;
         }
 
+        setPageTextDebug(textContent);
         void hydrateSemanticModel(
           semanticRequestDocumentId,
           semanticRequestPageId,
@@ -1150,12 +1201,12 @@ export function DocumentWorkspace(): React.ReactElement {
       });
     },
     [
+      activePageId,
+      currentPdfPageContext,
       dispatch,
       dispatchSemanticEmpty,
       hydrateSemanticModel,
-      pageProxy,
       requestPageText,
-      state.currentPage,
       state.document,
     ],
   );
@@ -1169,7 +1220,7 @@ export function DocumentWorkspace(): React.ReactElement {
 
   usePageRender({
     canvas,
-    page: pageProxy,
+    page: currentPdfPageContext?.page ?? null,
     zoom: state.zoom,
     onRendered: handlePageRendered,
     onError: handlePageRenderError,
@@ -1197,6 +1248,20 @@ export function DocumentWorkspace(): React.ReactElement {
 
     const objects: DebugLayerItem[] = [];
 
+    if (semanticDebugLayer.rawTextItems && visiblePageText) {
+      objects.push(
+        ...visiblePageText.rawItems
+          .filter((item) => item.str.trim().length > 0)
+          .map((item) => ({
+            key: "rawText" as const,
+            id: `raw-${item.sourceIndex}`,
+            label: `RAW #${item.sourceIndex}`,
+            rect: clampSemanticRect(item.computed.normalizedBounds),
+            suffix: item.str,
+          })),
+      );
+    }
+
     if (semanticDebugLayer.textItems) {
       objects.push(
         ...semanticDebugTextItems.map((item) => ({
@@ -1208,7 +1273,7 @@ export function DocumentWorkspace(): React.ReactElement {
         })),
       );
     }
-    const model = semanticDebugModel;
+    const model = visiblePageText ? semanticDebugModel : null;
     if (model) {
       const semanticObjects = model.getAllByReadingOrder();
 
@@ -1356,7 +1421,7 @@ export function DocumentWorkspace(): React.ReactElement {
 
           return (
             <div
-              key={item.id}
+              key={`${state.document?.id ?? "none"}:${activePageId ?? "none"}:${item.key}:${item.id}`}
               className="absolute"
               style={{
                 left: `${cssRect.left}px`,
@@ -2137,6 +2202,14 @@ export function DocumentWorkspace(): React.ReactElement {
           stageRef={stageRef}
           pointer={state.pointer}
         >
+          {semanticDebugLayer.pdfTextLayer && currentPdfPageContext ? (
+            <PdfTextLayerDebug
+              key={`${currentPdfPageContext.documentId}:${currentPdfPageContext.pageId}:pdf-text-layer`}
+              page={currentPdfPageContext.page}
+              pageKey={currentPdfPageContext.pageId}
+              zoom={state.zoom}
+            />
+          ) : null}
           <AnnotationCanvasLayer
             ref={annotationCanvasRef}
             hidden={!hasDocument || state.status !== "ready"}
@@ -2267,6 +2340,8 @@ export function DocumentWorkspace(): React.ReactElement {
             pointer={state.pointer}
             semanticDebugLayer={semanticDebugLayer}
             semanticCandidates={semanticCandidates}
+            pageTextDebug={visiblePageText}
+            selectedRawTextItem={selectedRawTextItem}
             onSemanticDebugLayerChange={setSemanticDebugLayer}
           />
         </div>

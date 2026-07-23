@@ -1,8 +1,14 @@
 import type { SemanticCandidate } from "@ggulnote/document-core";
-import type { NormalizedPoint } from "../model/document-types";
+import type {
+  NormalizedPoint,
+  PageTextContent,
+  RawPdfTextItemDebug,
+} from "../model/document-types";
 import type { DocumentSessionState } from "../model/document-state";
 
-type SemanticDebugLayerState = {
+export type SemanticDebugLayerState = {
+  pdfTextLayer: boolean;
+  rawTextItems: boolean;
   textItems: boolean;
   words: boolean;
   lines: boolean;
@@ -24,6 +30,8 @@ type DocumentDebugPanelProps = {
   pointer: NormalizedPoint | null;
   semanticDebugLayer: SemanticDebugLayerState;
   semanticCandidates: SemanticCandidate[];
+  pageTextDebug: PageTextContent | null;
+  selectedRawTextItem: RawPdfTextItemDebug | null;
   onSemanticDebugLayerChange: (next: SemanticDebugLayerState) => void;
 };
 
@@ -37,9 +45,12 @@ export function DocumentDebugPanel({
   pointer,
   semanticDebugLayer,
   semanticCandidates,
+  pageTextDebug,
+  selectedRawTextItem,
   onSemanticDebugLayerChange,
 }: DocumentDebugPanelProps): React.ReactElement {
   const selectedCandidate = semanticCandidates[0] ?? null;
+  const summary = pageTextDebug?.summary ?? null;
 
   return (
     <aside className="rounded-lg border border-slate-200 bg-white p-4" aria-label="문서 디버그 패널">
@@ -61,18 +72,16 @@ export function DocumentDebugPanel({
         <div><dt className="font-medium text-slate-600">현재 포인터 X</dt><dd>{pointer ? pointer.x.toFixed(4) : "-"}</dd></div>
         <div><dt className="font-medium text-slate-600">현재 포인터 Y</dt><dd>{pointer ? pointer.y.toFixed(4) : "-"}</dd></div>
         <div><dt className="font-medium text-slate-600">Text Item 개수</dt><dd>{state.textItemCount}</dd></div>
+        <div><dt className="font-medium text-slate-600">Text 요청 ID</dt><dd>{pageTextDebug?.requestId ?? "-"}</dd></div>
+        <div><dt className="font-medium text-slate-600">Text 결과 소스</dt><dd>{pageTextDebug?.source ?? "-"}</dd></div>
+        <div><dt className="font-medium text-slate-600">Canonical viewport</dt><dd>{pageTextDebug ? `${pageTextDebug.viewport.width.toFixed(2)} x ${pageTextDebug.viewport.height.toFixed(2)} / ${pageTextDebug.viewport.rotation}deg` : "-"}</dd></div>
+        <div><dt className="font-medium text-slate-600">Empty / Invalid / Rotated / Out</dt><dd>{summary ? `${summary.emptyItemCount} / ${summary.invalidBoundsCount} / ${summary.rotatedItemCount} / ${summary.outOfPageBoundsCount}` : "-"}</dd></div>
         <div><dt className="font-medium text-slate-600">Semantic 상태</dt><dd>{state.semanticStatus}</dd></div>
         <div><dt className="font-medium text-slate-600">Cache 상태</dt><dd>{state.semanticCacheStatus}</dd></div>
         <div><dt className="font-medium text-slate-600">Extractor / Schema</dt><dd>{state.semanticExtractorVersion} / {state.semanticSchemaVersion}</dd></div>
         <div><dt className="font-medium text-slate-600">처리 소스 개수</dt><dd>{state.semanticSourceItemCount}</dd></div>
-        <div>
-          <dt className="font-medium text-slate-600">Word / Line / Sentence / Paragraph</dt>
-          <dd>{state.semanticWordCount} / {state.semanticLineCount} / {state.semanticSentenceCount} / {state.semanticParagraphCount}</dd>
-        </div>
-        <div>
-          <dt className="font-medium text-slate-600">Region / Block / Column</dt>
-          <dd>{state.semanticRegionCount} / {state.semanticBlockCount} / {state.semanticColumnCount}</dd>
-        </div>
+        <div><dt className="font-medium text-slate-600">Word / Line / Sentence / Paragraph</dt><dd>{state.semanticWordCount} / {state.semanticLineCount} / {state.semanticSentenceCount} / {state.semanticParagraphCount}</dd></div>
+        <div><dt className="font-medium text-slate-600">Region / Block / Column</dt><dd>{state.semanticRegionCount} / {state.semanticBlockCount} / {state.semanticColumnCount}</dd></div>
         <div><dt className="font-medium text-slate-600">처리 시간(ms)</dt><dd>{state.semanticProcessingDurationMs}</dd></div>
         <div><dt className="font-medium text-slate-600">선택 Semantic</dt><dd>{state.semanticSelectedType}</dd></div>
         <div><dt className="font-medium text-slate-600">선택 ID</dt><dd>{state.semanticSelectedId}</dd></div>
@@ -87,7 +96,9 @@ export function DocumentDebugPanel({
       <div className="mt-4 space-y-2 border-t border-slate-200 pt-3 text-sm">
         <h3 className="font-medium text-slate-600">Semantic Debug Layer</h3>
         {([
-          { key: "textItems", label: "Text Item" },
+          { key: "pdfTextLayer", label: "PDF.js Text Layer" },
+          { key: "rawTextItems", label: "Raw PDF.js Text Item" },
+          { key: "textItems", label: "Normalized Text Item" },
           { key: "words", label: "Word" },
           { key: "lines", label: "Line" },
           { key: "layoutRegions", label: "LayoutRegion" },
@@ -105,12 +116,10 @@ export function DocumentDebugPanel({
             <input
               type="checkbox"
               checked={semanticDebugLayer[item.key]}
-              onChange={(event) => {
-                onSemanticDebugLayerChange({
-                  ...semanticDebugLayer,
-                  [item.key]: event.currentTarget.checked,
-                });
-              }}
+              onChange={(event) => onSemanticDebugLayerChange({
+                ...semanticDebugLayer,
+                [item.key]: event.currentTarget.checked,
+              })}
             />
             <span>{item.label}</span>
           </label>
@@ -118,18 +127,31 @@ export function DocumentDebugPanel({
       </div>
 
       <div className="mt-4 border-t border-slate-200 pt-3 text-sm">
+        <h3 className="font-medium text-slate-600">Raw Text Item hover</h3>
+        {selectedRawTextItem ? (
+          <dl className="mt-2 space-y-1 text-xs">
+            <div><dt className="font-medium">ID 범위</dt><dd className="break-all">{selectedRawTextItem.documentId} / {selectedRawTextItem.pageId} / {selectedRawTextItem.sourceIndex}</dd></div>
+            <div><dt className="font-medium">텍스트</dt><dd>{shortenText(selectedRawTextItem.str, 50)}</dd></div>
+            <div><dt className="font-medium">transform</dt><dd className="break-all">{selectedRawTextItem.transform.join(", ")}</dd></div>
+            <div><dt className="font-medium">PDF width / height</dt><dd>{selectedRawTextItem.width.toFixed(3)} / {selectedRawTextItem.height.toFixed(3)}</dd></div>
+            <div><dt className="font-medium">font / dir / EOL</dt><dd>{selectedRawTextItem.fontName || "-"} / {selectedRawTextItem.dir || "-"} / {String(selectedRawTextItem.hasEOL)}</dd></div>
+            <div><dt className="font-medium">ascent / descent</dt><dd>{selectedRawTextItem.style.ascent ?? "-"} / {selectedRawTextItem.style.descent ?? "-"}</dd></div>
+            <div><dt className="font-medium">angle</dt><dd>{selectedRawTextItem.computed.angle.toFixed(5)}</dd></div>
+            <div><dt className="font-medium">pixel bounds</dt><dd>{selectedRawTextItem.computed.x.toFixed(2)}, {selectedRawTextItem.computed.y.toFixed(2)}, {selectedRawTextItem.computed.width.toFixed(2)}, {selectedRawTextItem.computed.height.toFixed(2)}</dd></div>
+            <div><dt className="font-medium">normalized bounds</dt><dd>{Object.values(selectedRawTextItem.computed.normalizedBounds).map((value) => value.toFixed(5)).join(", ")}</dd></div>
+          </dl>
+        ) : <p className="text-slate-600">Raw Text Item 위에 포인터를 올리세요.</p>}
+      </div>
+
+      <div className="mt-4 border-t border-slate-200 pt-3 text-sm">
         <h3 className="font-medium text-slate-600">후보</h3>
-        {semanticCandidates.length === 0 ? (
-          <p className="text-slate-600">후보 없음</p>
-        ) : (
+        {semanticCandidates.length === 0 ? <p className="text-slate-600">후보 없음</p> : (
           <ul className="mt-2 space-y-1">
             {semanticCandidates.slice(0, 5).map((candidate, index) => (
               <li key={candidate.type + "-" + candidate.id + "-" + String(index)} className="rounded border border-slate-100 p-2">
                 <div className="font-medium">{candidate.type} #{candidate.readingOrder}</div>
                 <div>{shortenText(candidate.text)}</div>
-                <div className="text-xs text-slate-500">
-                  {candidate.directHit ? "direct" : "nearest"} / 거리 {candidate.distance.toFixed(4)} / fragments {candidate.fragments.length}
-                </div>
+                <div className="text-xs text-slate-500">{candidate.directHit ? "direct" : "nearest"} / 거리 {candidate.distance.toFixed(4)} / fragments {candidate.fragments.length}</div>
                 <div className="break-all text-xs text-slate-500">block {candidate.blockId} / column {candidate.columnId}</div>
               </li>
             ))}
