@@ -649,7 +649,7 @@ describe("semantic geometry and layout", () => {
     const serialized = model.toSerialized();
     const restored = PageSemanticModel.fromSerialized(serialized);
 
-    expect(serialized.extractorVersion).toBe("7");
+    expect(serialized.extractorVersion).toBe("8");
     expect(restored.toSerialized()).toEqual(serialized);
     expect(restored.getLayoutBlocks()[0]?.id).toBe(serialized.layoutBlocks[0]?.id);
     expect(restored.getAllByReadingOrder().find((item) => item.type === "SENTENCE"))
@@ -661,7 +661,7 @@ describe("semantic geometry and layout", () => {
 
     expect(() => PageSemanticModel.fromSerialized({
       ...serialized,
-      extractorVersion: "6",
+      extractorVersion: "7",
     })).toThrow("Unsupported or invalid semantic model cache");
   });
 

@@ -31,6 +31,7 @@ export interface SemanticGeometry {
 }
 
 export type SemanticObjectType = "WORD" | "LINE" | "SENTENCE" | "PARAGRAPH";
+export type SemanticCandidateType = SemanticObjectType | "LAYOUT_REGION";
 export type LayoutBlockType =
   | "heading"
   | "body"
@@ -101,6 +102,62 @@ export interface SemanticParagraph extends SemanticObjectBase, SemanticGeometry 
 
 export type SemanticObject = SemanticWord | SemanticLine | SemanticSentence | SemanticParagraph;
 
+export type LayoutRegionType =
+  | "text"
+  | "title"
+  | "section-header"
+  | "list-item"
+  | "caption"
+  | "footnote"
+  | "page-header"
+  | "page-footer"
+  | "table"
+  | "picture"
+  | "formula"
+  | "unknown";
+
+export type PageSemanticSource = "yolo-region" | "legacy-semantic-fallback";
+export type RegionTextSource = "pdf-text" | "ocr";
+export type LayoutRegionSource = "yolo" | "legacy";
+export type LayoutRegionRelationType = "caption" | "section-header";
+
+export interface DetectedLayoutRegionInput {
+  id: string;
+  label: string;
+  classId?: number;
+  layoutType?: LayoutRegionType;
+  bounds: NormalizedRect;
+  confidence: number;
+  modelId?: string;
+}
+
+export interface LayoutSourceDetection {
+  detectionId: string;
+  modelId?: string;
+  classId?: number;
+  label: string;
+  bounds: NormalizedRect;
+}
+
+export interface RegionTextContent {
+  text: string;
+  paragraphIds: string[];
+  lineIds: string[];
+  wordIds: string[];
+  source: RegionTextSource;
+}
+
+export interface RegionMediaContent {
+  cropBounds: NormalizedRect;
+  embeddedWordIds: string[];
+}
+
+export interface LayoutRegionRelation {
+  type: LayoutRegionRelationType;
+  targetRegionId: string;
+  distance: number;
+}
+
 export interface LayoutRegion {
   id: string;
   pageId: PageId;
@@ -109,6 +166,14 @@ export interface LayoutRegion {
   blockIds: string[];
   columnIds: string[];
   readingOrder: number;
+  layoutType: LayoutRegionType;
+  confidence: number;
+  source: LayoutRegionSource;
+  sourceDetection?: LayoutSourceDetection;
+  textContent?: RegionTextContent;
+  mediaContent?: RegionMediaContent;
+  relatedRegionIds: string[];
+  relations: LayoutRegionRelation[];
 }
 
 export interface LayoutColumn {
@@ -137,7 +202,8 @@ export interface LayoutBlock {
 
 export interface SemanticCandidate {
   id: string;
-  type: SemanticObjectType;
+  type: SemanticCandidateType;
+  layoutType?: LayoutRegionType;
   pageId: PageId;
   text: string;
   bounds: NormalizedRect;
@@ -155,7 +221,8 @@ export interface SemanticCandidate {
 }
 
 export interface SemanticQueryOptions {
-  types?: readonly SemanticObjectType[];
+  types?: readonly SemanticCandidateType[];
+  layoutTypes?: readonly LayoutRegionType[];
   limit?: number;
   maxDistance?: number;
   minimumOverlapRatio?: number;
@@ -183,6 +250,11 @@ export interface BuildPageInput {
   pageId: PageId;
   pageNumber: number;
   textItems: PageTextItemInput[];
+  layoutDetections?: DetectedLayoutRegionInput[];
+  layoutModelId?: string;
+  layoutStrategy?: PageSemanticSource;
+  minimumLayoutConfidence?: number;
+  minimumWordAssignmentRatio?: number;
   extractorVersion?: string;
   schemaVersion?: number;
 }
@@ -194,7 +266,10 @@ export interface PageSemanticModelData {
   pageId: PageId;
   pageNumber: number;
   sourceSignature: string;
+  semanticSource: PageSemanticSource;
+  readingOrder: string[];
   words: SemanticWord[];
+  unassignedWords: SemanticWord[];
   lines: SemanticLine[];
   layoutRegions: LayoutRegion[];
   layoutBlocks: LayoutBlock[];
@@ -218,6 +293,14 @@ export interface SemanticModelQueryResult {
   columnCount: number;
   sourceItemCount: number;
   processingDurationMs: number;
+  unassignedWordCount: number;
+  semanticSource: PageSemanticSource;
+}
+
+export interface SemanticTextPath {
+  region: LayoutRegion | null;
+  line: SemanticLine | null;
+  word: SemanticWord | null;
 }
 
 export interface SemanticModelQuery {
@@ -225,11 +308,17 @@ export interface SemanticModelQuery {
   getLine(id: string): SemanticLine | null;
   getSentence(id: string): SemanticSentence | null;
   getParagraph(id: string): SemanticParagraph | null;
+  getLayoutRegion(id: string): LayoutRegion | null;
   getLayoutRegions(): readonly LayoutRegion[];
+  getRegionReadingOrder(): readonly string[];
+  getUnassignedWords(): readonly SemanticWord[];
+  getSemanticSource(): PageSemanticSource;
   getLayoutBlocks(): readonly LayoutBlock[];
   getColumns(): readonly LayoutColumn[];
   getAllByReadingOrder(): SemanticObject[];
   getSummary(): SemanticModelQueryResult;
+  findRegionAtPoint(point: NormalizedPoint): LayoutRegion | null;
+  findTextPathAtPoint(point: NormalizedPoint): SemanticTextPath;
   findAtPoint(point: NormalizedPoint, options?: SemanticQueryOptions): SemanticCandidate[];
   findNearest(point: NormalizedPoint, options?: SemanticQueryOptions): SemanticCandidate[];
   findInRect(rect: NormalizedRect, options?: SemanticQueryOptions): SemanticCandidate[];

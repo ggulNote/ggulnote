@@ -3,7 +3,7 @@ import { A4_PORTRAIT_POINTS } from "./document-types";
 
 export type SemanticPageStatus = "idle" | "processing" | "ready" | "empty" | "error";
 export type SemanticCacheStatus = "idle" | "hit" | "miss" | "stale" | "error" | "disabled";
-export type SemanticCandidateType = "WORD" | "LINE" | "SENTENCE" | "PARAGRAPH" | "NONE";
+export type SemanticCandidateType = "WORD" | "LINE" | "SENTENCE" | "PARAGRAPH" | "LAYOUT_REGION" | "NONE";
 
 type PersistenceSaveStatus = "idle" | "saving" | "saved" | "error";
 

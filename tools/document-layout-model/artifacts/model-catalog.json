@@ -1,0 +1,155 @@
+{
+  "defaultModelId": "yolo11m-doc-layout",
+  "models": [
+    {
+      "id": "yolo11n-doc-layout",
+      "family": "yolo11",
+      "variant": "nano",
+      "enabled": true,
+      "modelUrl": "/models/document-layout/yolo11n_doc_layout.onnx",
+      "manifestUrl": "/models/document-layout/yolo11n-manifest.json",
+      "inputSize": 1280,
+      "fileSizeBytes": 11116824,
+      "inputShape": [
+        1,
+        3,
+        1280,
+        1280
+      ],
+      "outputShapes": [
+        [
+          1,
+          15,
+          33600
+        ]
+      ],
+      "outputFormat": "raw-cxcywh-class-scores",
+      "requiresNms": true
+    },
+    {
+      "id": "yolo11s-doc-layout",
+      "family": "yolo11",
+      "variant": "small",
+      "enabled": true,
+      "modelUrl": "/models/document-layout/yolo11s_doc_layout.onnx",
+      "manifestUrl": "/models/document-layout/yolo11s-manifest.json",
+      "inputSize": 1280,
+      "fileSizeBytes": 38448202,
+      "inputShape": [
+        1,
+        3,
+        1280,
+        1280
+      ],
+      "outputShapes": [
+        [
+          1,
+          15,
+          33600
+        ]
+      ],
+      "outputFormat": "raw-cxcywh-class-scores",
+      "requiresNms": true
+    },
+    {
+      "id": "yolo11m-doc-layout",
+      "family": "yolo11",
+      "variant": "medium",
+      "enabled": true,
+      "modelUrl": "/models/document-layout/yolo11m_doc_layout.onnx",
+      "manifestUrl": "/models/document-layout/yolo11m-manifest.json",
+      "inputSize": 1280,
+      "fileSizeBytes": 80964254,
+      "inputShape": [
+        1,
+        3,
+        1280,
+        1280
+      ],
+      "outputShapes": [
+        [
+          1,
+          15,
+          33600
+        ]
+      ],
+      "outputFormat": "raw-cxcywh-class-scores",
+      "requiresNms": true
+    },
+    {
+      "id": "yolo26n-doc-layout",
+      "family": "yolo26",
+      "variant": "nano",
+      "enabled": true,
+      "modelUrl": "/models/document-layout/yolo26n_doc_layout.onnx",
+      "manifestUrl": "/models/document-layout/yolo26n-manifest.json",
+      "inputSize": 1280,
+      "fileSizeBytes": 10317455,
+      "inputShape": [
+        1,
+        3,
+        1280,
+        1280
+      ],
+      "outputShapes": [
+        [
+          1,
+          300,
+          6
+        ]
+      ],
+      "outputFormat": "end-to-end-xyxy",
+      "requiresNms": false
+    },
+    {
+      "id": "yolo26s-doc-layout",
+      "family": "yolo26",
+      "variant": "small",
+      "enabled": true,
+      "modelUrl": "/models/document-layout/yolo26s_doc_layout.onnx",
+      "manifestUrl": "/models/document-layout/yolo26s-manifest.json",
+      "inputSize": 1280,
+      "fileSizeBytes": 38687620,
+      "inputShape": [
+        1,
+        3,
+        1280,
+        1280
+      ],
+      "outputShapes": [
+        [
+          1,
+          300,
+          6
+        ]
+      ],
+      "outputFormat": "end-to-end-xyxy",
+      "requiresNms": false
+    },
+    {
+      "id": "yolo26m-doc-layout",
+      "family": "yolo26",
+      "variant": "medium",
+      "enabled": true,
+      "modelUrl": "/models/document-layout/yolo26m_doc_layout.onnx",
+      "manifestUrl": "/models/document-layout/yolo26m-manifest.json",
+      "inputSize": 1280,
+      "fileSizeBytes": 82253731,
+      "inputShape": [
+        1,
+        3,
+        1280,
+        1280
+      ],
+      "outputShapes": [
+        [
+          1,
+          300,
+          6
+        ]
+      ],
+      "outputFormat": "end-to-end-xyxy",
+      "requiresNms": false
+    }
+  ]
+}

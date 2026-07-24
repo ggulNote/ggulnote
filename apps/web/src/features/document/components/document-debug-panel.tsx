@@ -11,6 +11,8 @@ export type SemanticDebugLayerState = {
   rawTextItems: boolean;
   textItems: boolean;
   words: boolean;
+  regionWords: boolean;
+  unassignedWords: boolean;
   lines: boolean;
   layoutRegions: boolean;
   layoutBlocks: boolean;
@@ -20,6 +22,7 @@ export type SemanticDebugLayerState = {
   paragraphs: boolean;
   paragraphFragments: boolean;
   readingOrder: boolean;
+  regionRelations: boolean;
   candidates: boolean;
   boxOnly: boolean;
 };
@@ -32,6 +35,7 @@ type DocumentDebugPanelProps = {
   semanticCandidates: SemanticCandidate[];
   pageTextDebug: PageTextContent | null;
   selectedRawTextItem: RawPdfTextItemDebug | null;
+  semanticSource: string;
   onSemanticDebugLayerChange: (next: SemanticDebugLayerState) => void;
 };
 
@@ -47,6 +51,7 @@ export function DocumentDebugPanel({
   semanticCandidates,
   pageTextDebug,
   selectedRawTextItem,
+  semanticSource,
   onSemanticDebugLayerChange,
 }: DocumentDebugPanelProps): React.ReactElement {
   const selectedCandidate = semanticCandidates[0] ?? null;
@@ -79,6 +84,7 @@ export function DocumentDebugPanel({
         <div><dt className="font-medium text-slate-600">Semantic 상태</dt><dd>{state.semanticStatus}</dd></div>
         <div><dt className="font-medium text-slate-600">Cache 상태</dt><dd>{state.semanticCacheStatus}</dd></div>
         <div><dt className="font-medium text-slate-600">Extractor / Schema</dt><dd>{state.semanticExtractorVersion} / {state.semanticSchemaVersion}</dd></div>
+        <div><dt className="font-medium text-slate-600">Semantic source</dt><dd>{semanticSource}</dd></div>
         <div><dt className="font-medium text-slate-600">처리 소스 개수</dt><dd>{state.semanticSourceItemCount}</dd></div>
         <div><dt className="font-medium text-slate-600">Word / Line / Sentence / Paragraph</dt><dd>{state.semanticWordCount} / {state.semanticLineCount} / {state.semanticSentenceCount} / {state.semanticParagraphCount}</dd></div>
         <div><dt className="font-medium text-slate-600">Region / Block / Column</dt><dd>{state.semanticRegionCount} / {state.semanticBlockCount} / {state.semanticColumnCount}</dd></div>
@@ -100,6 +106,8 @@ export function DocumentDebugPanel({
           { key: "rawTextItems", label: "Raw PDF.js Text Item" },
           { key: "textItems", label: "Normalized Text Item" },
           { key: "words", label: "Word" },
+          { key: "regionWords", label: "Region assigned Word" },
+          { key: "unassignedWords", label: "Unassigned Word" },
           { key: "lines", label: "Line" },
           { key: "layoutRegions", label: "LayoutRegion" },
           { key: "layoutBlocks", label: "LayoutBlock" },
@@ -108,7 +116,8 @@ export function DocumentDebugPanel({
           { key: "sentenceFragments", label: "Sentence fragments" },
           { key: "paragraphs", label: "Paragraph bounds" },
           { key: "paragraphFragments", label: "Paragraph fragments" },
-          { key: "readingOrder", label: "Reading Order" },
+          { key: "readingOrder", label: "Region Reading Order" },
+          { key: "regionRelations", label: "Caption / Section relations" },
           { key: "candidates", label: "Candidate" },
           { key: "boxOnly", label: "바운딩 박스만 보기" },
         ] as const).map((item) => (
@@ -149,10 +158,18 @@ export function DocumentDebugPanel({
           <ul className="mt-2 space-y-1">
             {semanticCandidates.slice(0, 5).map((candidate, index) => (
               <li key={candidate.type + "-" + candidate.id + "-" + String(index)} className="rounded border border-slate-100 p-2">
-                <div className="font-medium">{candidate.type} #{candidate.readingOrder}</div>
+                <div className="font-medium">
+                  {candidate.type}
+                  {candidate.layoutType ? ` · ${candidate.layoutType}` : ""}
+                  {" "}#{candidate.readingOrder}
+                </div>
                 <div>{shortenText(candidate.text)}</div>
                 <div className="text-xs text-slate-500">{candidate.directHit ? "direct" : "nearest"} / 거리 {candidate.distance.toFixed(4)} / fragments {candidate.fragments.length}</div>
-                <div className="break-all text-xs text-slate-500">block {candidate.blockId} / column {candidate.columnId}</div>
+                <div className="break-all text-xs text-slate-500">
+                  region {candidate.regionId}
+                  {candidate.blockId ? ` / block ${candidate.blockId}` : ""}
+                  {candidate.columnId ? ` / column ${candidate.columnId}` : ""}
+                </div>
               </li>
             ))}
           </ul>

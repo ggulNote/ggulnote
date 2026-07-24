@@ -29,8 +29,9 @@ import { usePageRender } from "../hooks/use-page-render";
 import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "../local-persistence";
 import {
   buildPageSemanticModel,
-  createTextItemSignature,
+  createSemanticSourceSignature,
   PageSemanticModel,
+  type DetectedLayoutRegionInput,
   type SemanticCandidate,
 } from "@ggulnote/document-core";
 import { DocumentDebugPanel } from "./document-debug-panel";
@@ -39,9 +40,24 @@ import { DocumentStage } from "./document-stage";
 import { DocumentToolbar } from "./document-toolbar";
 import { PdfTextLayerDebug } from "./pdf-text-layer-debug";
 import { isPageTextResultForPage } from "../text/page-text-request";
+import {
+  isCurrentLayoutResult,
+  loadLayoutModelCatalog,
+  replaceLayoutWorkerClient,
+  renderPdfPageForLayoutDetection,
+  type LayoutDetectionViewState,
+  type LayoutModelCatalog,
+  type LayoutWorkerClientContract,
+} from "../layout-detection";
+import { LayoutDetectionDebugPanel } from "./layout-detection-debug-panel";
 
 const ZOOM_STEP = 25;
 const DRAG_CREATE_THRESHOLD_PX = 4;
+const LAYOUT_MODEL_STORAGE_KEY = "ggulnote:layout-detection:model-id";
+const INITIAL_LAYOUT_DETECTION_STATE: LayoutDetectionViewState = {
+  status: "idle",
+  result: null,
+};
 
 const DEFAULT_STROKE_COLOR = "#1f2937";
 const DEFAULT_FILL_COLOR = "rgba(250, 204, 21, 0.25)";
@@ -214,6 +230,8 @@ type SemanticLayerStyleKey =
   | "rawText"
   | "text"
   | "word"
+  | "regionWord"
+  | "unassignedWord"
   | "line"
   | "region"
   | "block"
@@ -223,6 +241,7 @@ type SemanticLayerStyleKey =
   | "paragraph"
   | "paragraphFragment"
   | "readingOrder"
+  | "regionRelation"
   | "candidate";
 
 const SEMANTIC_LAYER_STYLES: Array<{
@@ -233,6 +252,8 @@ const SEMANTIC_LAYER_STYLES: Array<{
   { key: "rawText", label: "Raw PDF.js Text", color: "rgba(220, 38, 38, 0.95)" },
   { key: "text", label: "Text", color: "rgba(59, 130, 246, 0.95)" },
   { key: "word", label: "Word", color: "rgba(16, 185, 129, 0.95)" },
+  { key: "regionWord", label: "Region Word", color: "rgba(5, 150, 105, 0.95)" },
+  { key: "unassignedWord", label: "Unassigned Word", color: "rgba(220, 38, 38, 0.95)" },
   { key: "line", label: "Line", color: "rgba(249, 115, 22, 0.95)" },
   { key: "region", label: "Region", color: "rgba(236, 72, 153, 0.95)" },
   { key: "block", label: "Block", color: "rgba(234, 179, 8, 0.95)" },
@@ -242,6 +263,7 @@ const SEMANTIC_LAYER_STYLES: Array<{
   { key: "paragraph", label: "Paragraph", color: "rgba(14, 116, 144, 0.95)" },
   { key: "paragraphFragment", label: "Paragraph fragment", color: "rgba(34, 211, 238, 0.95)" },
   { key: "readingOrder", label: "Reading order", color: "rgba(244, 63, 94, 0.95)" },
+  { key: "regionRelation", label: "Region relation", color: "rgba(217, 70, 239, 0.95)" },
   { key: "candidate", label: "Candidate", color: "rgba(251, 146, 60, 1)" },
 ];
 
@@ -250,6 +272,8 @@ type SemanticDebugLayerState = {
   rawTextItems: boolean;
   textItems: boolean;
   words: boolean;
+  regionWords: boolean;
+  unassignedWords: boolean;
   lines: boolean;
   layoutRegions: boolean;
   layoutBlocks: boolean;
@@ -259,6 +283,7 @@ type SemanticDebugLayerState = {
   paragraphs: boolean;
   paragraphFragments: boolean;
   readingOrder: boolean;
+  regionRelations: boolean;
   candidates: boolean;
   boxOnly: boolean;
 };
@@ -268,6 +293,8 @@ const initialSemanticDebugLayer: SemanticDebugLayerState = {
   rawTextItems: false,
   textItems: false,
   words: false,
+  regionWords: false,
+  unassignedWords: false,
   lines: false,
   layoutRegions: false,
   layoutBlocks: false,
@@ -277,6 +304,7 @@ const initialSemanticDebugLayer: SemanticDebugLayerState = {
   paragraphs: false,
   paragraphFragments: false,
   readingOrder: false,
+  regionRelations: false,
   candidates: true,
   boxOnly: true,
 };
@@ -321,6 +349,10 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [pdfPageContext, setPdfPageContext] = useState<LoadedPdfPage | null>(null);
+  const [layoutDetectionState, setLayoutDetectionState] = useState<LayoutDetectionViewState>(INITIAL_LAYOUT_DETECTION_STATE);
+  const [layoutDetectionVisible, setLayoutDetectionVisible] = useState(true);
+  const [layoutModelCatalog, setLayoutModelCatalog] = useState<LayoutModelCatalog | null>(null);
+  const [selectedLayoutModelId, setSelectedLayoutModelId] = useState("");
   const [containerWidth, setContainerWidth] = useState(0);
   const [interactionMode, setInteractionMode] = useState<EditorInteractionMode>(DEFAULT_INTERACTION_MODE);
   const [textMemo, setTextMemo] = useState("memo");
@@ -348,6 +380,8 @@ export function DocumentWorkspace(): React.ReactElement {
   const renderFrameRef = useRef<number | null>(null);
 
   const pageRequestTokenRef = useRef(0);
+  const layoutInferenceTokenRef = useRef(0);
+  const layoutWorkerClientRef = useRef<LayoutWorkerClientContract | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const stageElementRef = useRef<HTMLDivElement | null>(null);
 
@@ -500,7 +534,7 @@ export function DocumentWorkspace(): React.ReactElement {
       const searchRadius = 0.012;
       const candidates = (() => {
         const atPointCandidates = model.findAtPoint(point, {
-          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH", "LAYOUT_REGION"],
           limit: SEMANTIC_QUERY_MAX_RESULTS,
         });
 
@@ -509,7 +543,7 @@ export function DocumentWorkspace(): React.ReactElement {
         }
 
         const nearestCandidates = model.findNearest(point, {
-          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH", "LAYOUT_REGION"],
           limit: SEMANTIC_QUERY_MAX_RESULTS,
           maxDistance: searchRadius * 5,
         });
@@ -526,7 +560,7 @@ export function DocumentWorkspace(): React.ReactElement {
             height: searchRadius * 2,
           },
           {
-            types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+            types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH", "LAYOUT_REGION"],
             limit: SEMANTIC_QUERY_MAX_RESULTS,
             minimumOverlapRatio: 0,
           },
@@ -623,8 +657,9 @@ export function DocumentWorkspace(): React.ReactElement {
 
   }, [clearSemanticQuery, dispatchSemanticStatus]);
 
-  const getSemanticTextSignature = useCallback(
-    (textItems: PageTextItem[]): string => createTextItemSignature(textItems),
+  const getSemanticSourceSignature = useCallback(
+    (textItems: PageTextItem[], layoutDetections: DetectedLayoutRegionInput[], modelId: string): string =>
+      createSemanticSourceSignature(textItems, layoutDetections, modelId),
     [],
   );
 
@@ -634,13 +669,15 @@ export function DocumentWorkspace(): React.ReactElement {
       pageId: string,
       pageNumber: number,
       textItems: PageTextItem[],
+      layoutDetections: DetectedLayoutRegionInput[],
+      layoutModelId: string,
       requestToken: number,
     ) => {
       if (!isWorkspaceMountedRef.current || requestToken !== semanticBuildTokenRef.current) {
         return;
       }
 
-      const signature = getSemanticTextSignature(textItems);
+      const signature = getSemanticSourceSignature(textItems, layoutDetections, layoutModelId);
       if (
         pageId === semanticBuildPageKeyRef.current
         && signature === semanticBuildSignatureRef.current
@@ -706,6 +743,9 @@ export function DocumentWorkspace(): React.ReactElement {
             pageId,
             pageNumber,
             textItems,
+            layoutDetections,
+            layoutModelId,
+            layoutStrategy: "yolo-region",
             extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
             schemaVersion: SEMANTIC_SCHEMA_VERSION,
           });
@@ -789,7 +829,7 @@ export function DocumentWorkspace(): React.ReactElement {
         schemaVersion: serialized.schemaVersion,
       });
     },
-    [clearSemanticQuery, dispatchSemanticEmpty, dispatchSemanticStatus, getSemanticTextSignature, localPersistence],
+    [clearSemanticQuery, dispatchSemanticEmpty, dispatchSemanticStatus, getSemanticSourceSignature, localPersistence],
   );
 
   useEffect(() => {
@@ -941,6 +981,82 @@ export function DocumentWorkspace(): React.ReactElement {
     : null;
 
 
+  useEffect(() => {
+    layoutInferenceTokenRef.current += 1;
+  }, [activePageId, state.document?.id]);
+
+  useEffect(() => {
+    return () => {
+      layoutInferenceTokenRef.current += 1;
+      layoutWorkerClientRef.current?.dispose();
+      layoutWorkerClientRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadLayoutModelCatalog().then((catalog) => {
+      if (cancelled) return;
+      setLayoutModelCatalog(catalog);
+      const stored = window.localStorage.getItem(LAYOUT_MODEL_STORAGE_KEY);
+      const selected = stored !== null && catalog.models.some((model) => model.enabled && model.id === stored) ? stored : catalog.defaultModelId;
+      setSelectedLayoutModelId(selected);
+    }).catch((error: unknown) => {
+      if (cancelled) return;
+      setLayoutDetectionState({ status: "error", result: null, errorMessage: error instanceof Error ? error.message : "Could not load layout model catalog." });
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const runLayoutDetection = useCallback(async (modelId = selectedLayoutModelId) => {
+    if (state.status !== "ready" || state.document?.kind !== "pdf" || !activePageId || !currentPdfPageContext) return;
+    const model = layoutModelCatalog?.models.find((candidate) => candidate.enabled && candidate.id === modelId);
+    if (!model) {
+      setLayoutDetectionState({ pageId: activePageId, modelId, status: "error", result: null, errorMessage: "The selected layout model is unavailable." });
+      return;
+    }
+    const requestToken = layoutInferenceTokenRef.current + 1;
+    layoutInferenceTokenRef.current = requestToken;
+    setLayoutDetectionState({ pageId: activePageId, modelId, status: "rendering", result: null });
+    let bitmap: ImageBitmap | null = null;
+    try {
+      const rendered = await renderPdfPageForLayoutDetection(currentPdfPageContext.page, model.inputSize);
+      bitmap = rendered.bitmap;
+      if (requestToken !== layoutInferenceTokenRef.current) { bitmap.close(); return; }
+      if (typeof Worker === "undefined") { bitmap.close(); throw new Error("Web Worker is not available in this browser."); }
+      const client = replaceLayoutWorkerClient(layoutWorkerClientRef.current, model);
+      layoutWorkerClientRef.current = client;
+      setLayoutDetectionState({ pageId: activePageId, modelId, status: "initializing", result: null });
+      await client.initialize();
+      if (requestToken !== layoutInferenceTokenRef.current) { bitmap.close(); return; }
+      setLayoutDetectionState({ pageId: activePageId, modelId, status: "inferencing", result: null });
+      const result = await client.infer(activePageId, bitmap, rendered.renderMs);
+      bitmap = null;
+      if (requestToken !== layoutInferenceTokenRef.current || !isCurrentLayoutResult(result, activePageId, modelId)) return;
+      setLayoutDetectionState({ pageId: activePageId, modelId, status: "ready", result });
+    } catch (error: unknown) {
+      bitmap?.close();
+      if (requestToken !== layoutInferenceTokenRef.current) return;
+      setLayoutDetectionState({ pageId: activePageId, modelId, status: "error", result: null, errorMessage: error instanceof Error ? error.message : "Document layout inference failed." });
+    }
+  }, [activePageId, currentPdfPageContext, layoutModelCatalog, selectedLayoutModelId, state.document?.kind, state.status]);
+
+  useEffect(() => {
+    if (!selectedLayoutModelId || !layoutModelCatalog || !currentPdfPageContext) return;
+    const timer = window.setTimeout(() => {
+      void runLayoutDetection();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [currentPdfPageContext, layoutModelCatalog, runLayoutDetection, selectedLayoutModelId]);
+
+  const handleLayoutModelChange = useCallback((modelId: string) => {
+    if (modelId === selectedLayoutModelId) return;
+    layoutInferenceTokenRef.current += 1;
+    layoutWorkerClientRef.current?.dispose();
+    layoutWorkerClientRef.current = null;
+    setSelectedLayoutModelId(modelId);
+    window.localStorage.setItem(LAYOUT_MODEL_STORAGE_KEY, modelId);
+    setLayoutDetectionState({ pageId: activePageId ?? undefined, modelId, status: "idle", result: null });
+  }, [activePageId, selectedLayoutModelId]);
   const fitWidthTargetPageWidth = useMemo(() => {
     if (state.document?.kind === "blank") {
       return 595.28;
@@ -1191,13 +1307,6 @@ export function DocumentWorkspace(): React.ReactElement {
         }
 
         setPageTextDebug(textContent);
-        void hydrateSemanticModel(
-          semanticRequestDocumentId,
-          semanticRequestPageId,
-          semanticRequestPageNumber,
-          textContent.items,
-          semanticRequestToken,
-        );
       });
     },
     [
@@ -1205,7 +1314,6 @@ export function DocumentWorkspace(): React.ReactElement {
       currentPdfPageContext,
       dispatch,
       dispatchSemanticEmpty,
-      hydrateSemanticModel,
       requestPageText,
       state.document,
     ],
@@ -1225,6 +1333,38 @@ export function DocumentWorkspace(): React.ReactElement {
     onRendered: handlePageRendered,
     onError: handlePageRenderError,
   });
+
+  const activeLayoutDetectionState = layoutDetectionState.pageId === activePageId
+    && layoutDetectionState.modelId === selectedLayoutModelId
+    ? layoutDetectionState
+    : INITIAL_LAYOUT_DETECTION_STATE;
+
+  useEffect(() => {
+    if (!visiblePageText || !activePageId || state.document?.kind !== "pdf") return;
+    const layoutReady = activeLayoutDetectionState.status === "ready" && activeLayoutDetectionState.result !== null;
+    const layoutFailed = activeLayoutDetectionState.status === "error";
+    if (!layoutReady && !layoutFailed) return;
+    const requestToken = ++semanticBuildTokenRef.current;
+    const detections: DetectedLayoutRegionInput[] = layoutReady
+      ? activeLayoutDetectionState.result?.detections.map((detection) => ({ ...detection, modelId: selectedLayoutModelId })) ?? []
+      : [];
+    void hydrateSemanticModel(visiblePageText.documentId, visiblePageText.pageId, visiblePageText.pageNumber,
+      visiblePageText.items, detections, selectedLayoutModelId, requestToken);
+  }, [activeLayoutDetectionState, activePageId, hydrateSemanticModel, selectedLayoutModelId, state.document?.kind, visiblePageText]);
+
+  const layoutDetectionOverlayNodes = (() => {
+    const result = layoutDetectionState.result;
+    if (!layoutDetectionVisible || !result || result.pageId !== activePageId || result.modelId !== selectedLayoutModelId) return null;
+    return (
+      <div className="pointer-events-none absolute inset-0 z-30" aria-hidden="true">
+        {result.detections.map((detection) => (
+          <div key={`${result.pageId}:${detection.id}`} className="absolute border-2 border-cyan-500 bg-cyan-400/10" style={{ left: `${detection.bounds.x * 100}%`, top: `${detection.bounds.y * 100}%`, width: `${detection.bounds.width * 100}%`, height: `${detection.bounds.height * 100}%` }}>
+            <span className="absolute left-0 top-0 max-w-full -translate-y-full truncate bg-cyan-700 px-1 py-0.5 text-[10px] font-semibold leading-none text-white">{detection.label} {(detection.confidence * 100).toFixed(0)}%</span>
+          </div>
+        ))}
+      </div>
+    );
+  })();
 
   const getLayerStyle = (
     key: SemanticLayerStyleKey,
@@ -1289,6 +1429,18 @@ export function DocumentWorkspace(): React.ReactElement {
           })));
       }
 
+      if (semanticDebugLayer.regionWords) {
+        objects.push(...semanticObjects.filter((item) => item.type === "WORD" && item.regionId !== "unassigned").map((item) => ({
+          key: "regionWord" as const, id: item.id + "-region-word", label: "REGION WORD #" + String(item.readingOrder),
+          rect: clampSemanticRect(item.bounds), suffix: item.regionId + " / " + item.text,
+        })));
+      }
+      if (semanticDebugLayer.unassignedWords) {
+        objects.push(...model.getUnassignedWords().map((item) => ({
+          key: "unassignedWord" as const, id: item.id + "-unassigned", label: "UNASSIGNED #" + String(item.readingOrder),
+          rect: clampSemanticRect(item.bounds), suffix: item.text,
+        })));
+      }
       if (semanticDebugLayer.lines) {
         objects.push(...semanticObjects
           .filter((item) => item.type === "LINE")
@@ -1307,7 +1459,7 @@ export function DocumentWorkspace(): React.ReactElement {
           id: region.id,
           label: "REGION #" + String(region.readingOrder),
           rect: clampSemanticRect(region.bounds),
-          suffix: region.orientation.writingMode,
+          suffix: region.layoutType + " / " + region.source + " / " + (region.confidence * 100).toFixed(0) + "%",
         })));
       }
 
@@ -1377,14 +1529,17 @@ export function DocumentWorkspace(): React.ReactElement {
       }
 
       if (semanticDebugLayer.readingOrder) {
-        objects.push(...semanticObjects
-          .filter((item) => item.type === "LINE")
-          .map((item) => ({
-            key: "readingOrder" as const,
-            id: item.id + "-reading-order",
-            label: "#" + String(item.readingOrder),
-            rect: clampSemanticRect(item.bounds),
-          })));
+        objects.push(...model.getLayoutRegions().map((region) => ({
+          key: "readingOrder" as const, id: region.id + "-reading-order", label: "REGION #" + String(region.readingOrder),
+          rect: clampSemanticRect(region.bounds), suffix: region.layoutType,
+        })));
+      }
+      if (semanticDebugLayer.regionRelations) {
+        objects.push(...model.getLayoutRegions().filter((region) => region.relations.length > 0).map((region) => ({
+          key: "regionRelation" as const, id: region.id + "-relations", label: "REL #" + String(region.readingOrder),
+          rect: clampSemanticRect(region.bounds),
+          suffix: region.relations.map((relation) => relation.type + " -> " + relation.targetRegionId).join(", "),
+        })));
       }
     }
 
@@ -2223,6 +2378,7 @@ export function DocumentWorkspace(): React.ReactElement {
           />
           {dragPreview}
           {semanticDebugLayerNodes}
+          {layoutDetectionOverlayNodes}
         </DocumentStage>
 
         <div className="space-y-4">
@@ -2342,7 +2498,18 @@ export function DocumentWorkspace(): React.ReactElement {
             semanticCandidates={semanticCandidates}
             pageTextDebug={visiblePageText}
             selectedRawTextItem={selectedRawTextItem}
+            semanticSource={semanticDebugModel?.getSemanticSource() ?? "-"}
             onSemanticDebugLayerChange={setSemanticDebugLayer}
+          />
+          <LayoutDetectionDebugPanel
+            state={activeLayoutDetectionState}
+            catalog={layoutModelCatalog}
+            selectedModelId={selectedLayoutModelId}
+            visible={layoutDetectionVisible}
+            canRun={Boolean(currentPdfPageContext) && state.status === "ready"}
+            onModelChange={handleLayoutModelChange}
+            onVisibleChange={setLayoutDetectionVisible}
+            onRun={() => { void runLayoutDetection(); }}
           />
         </div>
       </div>
