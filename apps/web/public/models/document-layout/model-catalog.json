@@ -1,5 +1,5 @@
 {
-  "defaultModelId": "yolo26n-doc-layout",
+  "defaultModelId": "yolo11s-doc-layout",
   "models": [
     {
       "id": "yolo11n-doc-layout",
