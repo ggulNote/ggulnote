@@ -17,6 +17,11 @@ describe("DocumentDebugPanel", () => {
       layoutRegions: true,
       layoutBlocks: true,
       columns: true,
+      formFields: true,
+      formMarkers: true,
+      formLabels: true,
+      formValues: true,
+      tables: true,
       sentences: true,
       sentenceFragments: true,
       paragraphs: true,
@@ -58,6 +63,11 @@ describe("DocumentDebugPanel", () => {
           layoutRegions: false,
           layoutBlocks: false,
           columns: false,
+          formFields: false,
+          formMarkers: false,
+          formLabels: false,
+          formValues: false,
+          tables: false,
           sentences: false,
           sentenceFragments: false,
           paragraphs: false,
@@ -75,5 +85,7 @@ describe("DocumentDebugPanel", () => {
     expect(screen.getByRole("checkbox", { name: "PDF.js Text Layer" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Raw PDF.js Text Item" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Normalized Text Item" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "FormFieldRow" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Table Region" })).toBeInTheDocument();
   });
 });

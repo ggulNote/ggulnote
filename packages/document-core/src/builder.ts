@@ -19,10 +19,12 @@ import { PageSemanticModel } from "./page-semantic-model";
 import { createSentenceSegmenter, type SentenceSegment } from "./segmentation";
 import type {
   BuildPageInput,
+  FormFieldRow,
   LayoutBlock,
   LayoutBlockType,
   LayoutColumn,
   LayoutRegion,
+  LayoutRegionType,
   LocalTextAxis,
   PageSemanticModelData,
   PageTextItemInput,
@@ -30,6 +32,7 @@ import type {
   SemanticObjectType,
   SemanticParagraph,
   SemanticSentence,
+  SemanticTable,
   SemanticWord,
   TextDirection,
   TextOrientation,
@@ -53,6 +56,8 @@ const CODE_KEYWORD_PATTERN =
   /^\s*(?:import|export|const|let|var|function|class|interface|type|return|if|else|for|while)\b/u;
 const CODE_SYMBOL_PATTERN = /=>|[{};=\[\]]|::/u;
 const PATH_OR_MEMBER_PATTERN = /(?:[\p{L}\p{N}_@-]+[.\/\\])+\p{L}[\p{L}\p{N}_@-]*/u;
+const FORM_FIELD_MARKER_PATTERN = /^[□■☑☐✓✔○●◯◇◆▪▫※]\s*/u;
+const FORM_CONTINUATION_PATTERN = /^\s*(?:[-*•‣▪◦]|\d{1,3}[.)])(?:\s+|$)/u;
 
 type Bounds = PageTextItemInput["bounds"];
 
@@ -130,10 +135,16 @@ interface ColumnDraft {
 }
 
 interface RegionDraft {
+  type: LayoutRegionType;
   lines: LineDraft[];
+  lineFragments: LineDraft[];
   bounds: Bounds;
   orientation: TextOrientation;
   columns: ColumnDraft[];
+  blocks: BlockDraft[];
+  confidence: number;
+  rowCountEstimate?: number;
+  columnCountEstimate?: number;
 }
 
 interface LinePlacement {
@@ -144,6 +155,21 @@ interface LinePlacement {
   blockId: string;
   columnId: string;
   columnIndex: number;
+}
+
+interface VisualRowDraft {
+  lines: LineDraft[];
+  bounds: Bounds;
+  text: string;
+  averageFontSize: number;
+}
+
+interface RegionSegmentDraft {
+  type: LayoutRegionType;
+  lines: LineDraft[];
+  confidence: number;
+  rowCountEstimate?: number;
+  columnCountEstimate?: number;
 }
 
 interface ReconstructedParagraph {
@@ -757,6 +783,227 @@ const clusterHorizontalRows = (
   return rows;
 };
 
+const lineDraftText = (line: LineDraft): string =>
+  line.words.map((word) => word.normalizedText).join(" ").replace(/\s+/gu, " ").trim();
+
+const createVisualRows = (lines: LineDraft[]): VisualRowDraft[] =>
+  clusterHorizontalRows(lines).flatMap((row) => {
+    const bounds = unionBounds(row.map((line) => line.bounds));
+    if (!bounds) return [];
+    const ordered = [...row].sort((left, right) => left.bounds.x - right.bounds.x);
+    return [{
+      lines: ordered,
+      bounds,
+      text: ordered.map(lineDraftText).join(" ").replace(/\s+/gu, " ").trim(),
+      averageFontSize: median(ordered.map((line) => line.averageFontSize)),
+    }];
+  });
+
+const rowHasFormSyntax = (row: VisualRowDraft): boolean => {
+  const text = row.text.trim();
+  if (!text || row.lines.length > 5) return false;
+  if (FORM_FIELD_MARKER_PATTERN.test(text)) return true;
+
+  const colonIndex = text.indexOf(":");
+  return colonIndex > 0
+    && colonIndex < text.length - 1
+    && !URL_OR_EMAIL_PATTERN.test(text);
+};
+
+const supportedXModeCount = (
+  rows: readonly VisualRowDraft[],
+  typicalHeight: number,
+): number => {
+  const tolerance = Math.max(0.004, typicalHeight * 0.8);
+  const modes: Array<{ center: number; rowIndexes: Set<number> }> = [];
+
+  rows.forEach((row, rowIndex) => {
+    for (const line of row.lines) {
+      const position = line.bounds.x;
+      let mode = modes.find((candidate) => Math.abs(candidate.center - position) <= tolerance);
+      if (!mode) {
+        mode = { center: position, rowIndexes: new Set<number>() };
+        modes.push(mode);
+      }
+      const count = mode.rowIndexes.size;
+      mode.center = (mode.center * count + position) / (count + 1);
+      mode.rowIndexes.add(rowIndex);
+    }
+  });
+
+  const minimumSupport = Math.max(2, Math.ceil(rows.length * 0.6));
+  return modes.filter((mode) => mode.rowIndexes.size >= minimumSupport).length;
+};
+
+const findTableRowRuns = (
+  rows: readonly VisualRowDraft[],
+  typicalHeight: number,
+): Array<{
+  start: number;
+  end: number;
+  columnCountEstimate: number;
+  confidence: number;
+}> => {
+  const runs: Array<{
+    start: number;
+    end: number;
+    columnCountEstimate: number;
+    confidence: number;
+  }> = [];
+  let start: number | null = null;
+
+  const flush = (endExclusive: number): void => {
+    if (start === null) return;
+    const candidateRows = rows.slice(start, endExclusive);
+    const columnCountEstimate = supportedXModeCount(candidateRows, typicalHeight);
+    if (candidateRows.length >= 3 && columnCountEstimate >= 3) {
+      const denseRatio = candidateRows.filter((row) => row.lines.length >= 3).length
+        / candidateRows.length;
+      runs.push({
+        start,
+        end: endExclusive - 1,
+        columnCountEstimate,
+        confidence: Math.min(0.97, 0.72 + denseRatio * 0.15 + columnCountEstimate * 0.01),
+      });
+    }
+    start = null;
+  };
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (!row) continue;
+    const shortFragmentRatio = row.lines.filter((line) => lineDraftText(line).length <= 32).length
+      / Math.max(1, row.lines.length);
+    const tableLike = row.lines.length >= 3
+      && shortFragmentRatio >= 0.6
+      && !rowHasFormSyntax(row);
+    const previous = rows[index - 1];
+    const verticalGap = previous
+      ? row.bounds.y - (previous.bounds.y + previous.bounds.height)
+      : 0;
+
+    if (tableLike && (start === null || verticalGap <= typicalHeight * 3.5)) {
+      start ??= index;
+    } else {
+      flush(index);
+      if (tableLike) start = index;
+    }
+  }
+  flush(rows.length);
+  return runs;
+};
+
+const segmentPageRegions = (lines: LineDraft[]): RegionSegmentDraft[] => {
+  const rows = createVisualRows(lines);
+  if (rows.length === 0) return [];
+
+  const typicalHeight = Math.max(Number.EPSILON, median(rows.map((row) => row.bounds.height)));
+  const pageMedianFontSize = Math.max(
+    Number.EPSILON,
+    median(rows.map((row) => row.averageFontSize)),
+  );
+  const tableRuns = findTableRowRuns(rows, typicalHeight);
+  const tableByRow = new Map<number, (typeof tableRuns)[number]>();
+  for (const run of tableRuns) {
+    for (let index = run.start; index <= run.end; index += 1) tableByRow.set(index, run);
+  }
+
+  const formRows = new Set<number>();
+  const strongFormRows = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row, index }) => !tableByRow.has(index) && rowHasFormSyntax(row))
+    .map(({ index }) => index);
+  for (let cursor = 0; cursor < strongFormRows.length; cursor += 1) {
+    const first = strongFormRows[cursor];
+    if (first === undefined) continue;
+    let last = first;
+    while (
+      cursor + 1 < strongFormRows.length
+      && (strongFormRows[cursor + 1] ?? Number.POSITIVE_INFINITY) - last <= 2
+    ) {
+      cursor += 1;
+      last = strongFormRows[cursor] ?? last;
+    }
+    if (last === first && strongFormRows.length > 1) continue;
+    for (let index = first; index <= last; index += 1) {
+      if (!tableByRow.has(index)) formRows.add(index);
+    }
+    const continuation = rows[last + 1];
+    const previous = rows[last];
+    if (
+      continuation
+      && previous
+      && !tableByRow.has(last + 1)
+      && FORM_CONTINUATION_PATTERN.test(continuation.text)
+      && continuation.bounds.y - (previous.bounds.y + previous.bounds.height) <= typicalHeight * 3
+    ) {
+      formRows.add(last + 1);
+    }
+  }
+
+  const lastTableRow = tableRuns.length > 0
+    ? Math.max(...tableRuns.map((run) => run.end))
+    : -1;
+  const rowsAfterTable = lastTableRow >= 0 ? rows.length - lastTableRow - 1 : 0;
+  const classifications = rows.map((row, index): {
+    type: LayoutRegionType;
+    confidence: number;
+    rowCountEstimate?: number;
+    columnCountEstimate?: number;
+  } => {
+    const tableRun = tableByRow.get(index);
+    if (tableRun) {
+      return {
+        type: "table",
+        confidence: tableRun.confidence,
+        rowCountEstimate: tableRun.end - tableRun.start + 1,
+        columnCountEstimate: tableRun.columnCountEstimate,
+      };
+    }
+    if (formRows.has(index)) return { type: "form", confidence: 0.86 };
+    if (row.lines.length <= 2 && row.averageFontSize > pageMedianFontSize * 1.22) {
+      return { type: "heading", confidence: 0.84 };
+    }
+    if (lastTableRow >= 0 && index > lastTableRow && rowsAfterTable <= 6) {
+      return { type: "footer", confidence: 0.76 };
+    }
+    return { type: "prose", confidence: 0.72 };
+  });
+
+  const segments: RegionSegmentDraft[] = [];
+  let current: RegionSegmentDraft | null = null;
+  let previousRow: VisualRowDraft | null = null;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const classification = classifications[index];
+    if (!row || !classification) continue;
+    const gap = previousRow
+      ? row.bounds.y - (previousRow.bounds.y + previousRow.bounds.height)
+      : 0;
+    const boundary = !current
+      || current.type !== classification.type
+      || gap > typicalHeight * 5;
+    if (boundary) {
+      current = {
+        type: classification.type,
+        lines: [],
+        confidence: classification.confidence,
+        rowCountEstimate: classification.rowCountEstimate,
+        columnCountEstimate: classification.columnCountEstimate,
+      };
+      segments.push(current);
+    }
+    const target = current;
+    if (!target) continue;
+    target.lines.push(...row.lines);
+    target.confidence = Math.max(target.confidence, classification.confidence);
+    target.rowCountEstimate ??= classification.rowCountEstimate;
+    target.columnCountEstimate ??= classification.columnCountEstimate;
+    previousRow = row;
+  }
+  return segments;
+};
+
 const columnSeedInterval = (seed: ColumnSeed): { start: number; end: number; center: number } => {
   const start = median(seed.starts);
   const end = median(seed.ends);
@@ -1169,29 +1416,64 @@ const analyzeLayout = (lineDrafts: LineDraft[]): RegionDraft[] => {
   const rotated = lineDrafts.filter((line) => line.orientation.writingMode !== "horizontal");
   const regions: RegionDraft[] = [];
 
-  if (horizontal.length > 0) {
-    for (const lines of buildHorizontalBands(horizontal)) {
-      const bounds = unionBounds(lines.map((line) => line.bounds));
+  for (const segment of segmentPageRegions(horizontal)) {
+    const localBands = segment.type === "prose"
+      ? buildHorizontalBands(segment.lines)
+      : [segment.lines];
+    for (const lines of localBands) {
       const orientation = lines[0]?.orientation;
-      if (!bounds || !orientation) continue;
+      if (!orientation) continue;
 
-      const columnGroups = inferRegionColumns(lines);
-      const multiColumn = columnGroups.length > 1;
-      const finalLines = columnGroups.flatMap((group) => group.lines);
+      if (segment.type === "prose") {
+        const columnGroups = inferRegionColumns(lines);
+        const multiColumn = columnGroups.length > 1;
+        const finalLines = columnGroups.flatMap((group) => group.lines);
+        const finalBounds = unionBounds(finalLines.map((line) => line.bounds));
+        if (!finalBounds) continue;
+        regions.push({
+          type: "prose",
+          lines: finalLines,
+          lineFragments: [...lines],
+          bounds: finalBounds,
+          orientation: { ...orientation },
+          columns: columnGroups.map((group) => ({
+            lines: [...group.lines],
+            bounds: group.bounds,
+            blocks: splitColumnBlocks(group.lines, pageMedianFontSize, multiColumn),
+          })),
+          blocks: [],
+          confidence: segment.confidence,
+        });
+        continue;
+      }
+
+      const finalLines = buildLineDrafts(lines.flatMap((line) => line.words), "final");
       const finalBounds = unionBounds(finalLines.map((line) => line.bounds));
       if (!finalBounds) continue;
+      const blockType: LayoutBlockType = segment.type === "heading"
+        ? "heading"
+        : segment.type === "form"
+          ? "form"
+          : segment.type === "table"
+            ? "table"
+            : segment.type === "footer"
+              ? "footer"
+              : "metadata";
       regions.push({
+        type: segment.type,
         lines: finalLines,
+        lineFragments: [...lines],
         bounds: finalBounds,
         orientation: { ...orientation },
-        columns: columnGroups.map((group) => ({
-          lines: [...group.lines],
-          bounds: group.bounds,
-          blocks: splitColumnBlocks(group.lines, pageMedianFontSize, multiColumn),
-        })),
+        columns: [],
+        blocks: [{ lines: finalLines, bounds: finalBounds, type: blockType }],
+        confidence: segment.confidence,
+        rowCountEstimate: segment.rowCountEstimate,
+        columnCountEstimate: segment.columnCountEstimate,
       });
     }
   }
+
   const rotatedGroups = new Map<string, LineDraft[]>();
   for (const line of rotated) {
     const angleBucket = Math.round(normalizeAngle(line.orientation.angle) / ORIENTATION_ANGLE_TOLERANCE);
@@ -1202,22 +1484,19 @@ const analyzeLayout = (lineDrafts: LineDraft[]): RegionDraft[] => {
   }
 
   for (const lines of rotatedGroups.values()) {
-    const finalLines = buildLineDrafts(
-      lines.flatMap((line) => line.words),
-      "final",
-    );
+    const finalLines = buildLineDrafts(lines.flatMap((line) => line.words), "final");
     const bounds = unionBounds(finalLines.map((line) => line.bounds));
     const orientation = finalLines[0]?.orientation;
     if (!bounds || !orientation) continue;
     regions.push({
+      type: "metadata",
       lines: finalLines,
+      lineFragments: [...lines],
       bounds,
       orientation: { ...orientation },
-      columns: [{
-        lines: [...finalLines],
-        bounds,
-        blocks: splitColumnBlocks(finalLines, pageMedianFontSize, false),
-      }],
+      columns: [],
+      blocks: [{ lines: [...finalLines], bounds, type: "sidebar" }],
+      confidence: 0.9,
     });
   }
 
@@ -1229,7 +1508,6 @@ const analyzeLayout = (lineDrafts: LineDraft[]): RegionDraft[] => {
     return Math.abs(yDelta) > Number.EPSILON ? yDelta : left.bounds.x - right.bounds.x;
   });
 };
-
 const createSemanticId = (
   pageId: string,
   type: SemanticObjectType,
@@ -1286,6 +1564,45 @@ const materializeLayout = (
     const regionId = createLayoutId(pageId, "region", regionOrder, extractorVersion);
     const regionBlockIds: string[] = [];
     const regionColumnIds: string[] = [];
+    const regionLineIds: string[] = [];
+
+    const materializeBlock = (
+      block: BlockDraft,
+      columnId: string,
+      columnIndex: number,
+    ): string => {
+      const blockId = createLayoutId(pageId, "block", blockOrder, extractorVersion);
+      const blockLineIds: string[] = [];
+      regionBlockIds.push(blockId);
+      for (const line of block.lines) {
+        const lineId = createSemanticId(pageId, "LINE", lineOrder, extractorVersion);
+        placements.push({
+          line,
+          lineId,
+          readingOrder: lineOrder,
+          regionId,
+          blockId,
+          columnId,
+          columnIndex,
+        });
+        blockLineIds.push(lineId);
+        regionLineIds.push(lineId);
+        lineOrder += 1;
+      }
+      layoutBlocks.push({
+        id: blockId,
+        pageId,
+        regionId,
+        type: block.type,
+        orientation: { ...region.orientation },
+        bounds: { ...block.bounds },
+        lineIds: blockLineIds,
+        columnId,
+        readingOrder: blockOrder,
+      });
+      blockOrder += 1;
+      return blockId;
+    };
 
     for (const column of region.columns) {
       const columnId = createLayoutId(pageId, "column", columnOrder, extractorVersion);
@@ -1294,39 +1611,10 @@ const materializeLayout = (
       regionColumnIds.push(columnId);
 
       for (const block of column.blocks) {
-        const blockId = createLayoutId(pageId, "block", blockOrder, extractorVersion);
-        const blockLineIds: string[] = [];
-        regionBlockIds.push(blockId);
+        const blockId = materializeBlock(block, columnId, columnOrder);
         columnBlockIds.push(blockId);
-
-        for (const line of block.lines) {
-          const lineId = createSemanticId(pageId, "LINE", lineOrder, extractorVersion);
-          placements.push({
-            line,
-            lineId,
-            readingOrder: lineOrder,
-            regionId,
-            blockId,
-            columnId,
-            columnIndex: columnOrder,
-          });
-          blockLineIds.push(lineId);
-          columnLineIds.push(lineId);
-          lineOrder += 1;
-        }
-
-        layoutBlocks.push({
-          id: blockId,
-          pageId,
-          regionId,
-          type: block.type,
-          orientation: { ...region.orientation },
-          bounds: { ...block.bounds },
-          lineIds: blockLineIds,
-          columnId,
-          readingOrder: blockOrder,
-        });
-        blockOrder += 1;
+        const materializedBlock = layoutBlocks[layoutBlocks.length - 1];
+        if (materializedBlock) columnLineIds.push(...materializedBlock.lineIds);
       }
 
       columns.push({
@@ -1342,21 +1630,29 @@ const materializeLayout = (
       });
       columnOrder += 1;
     }
+    for (const block of region.blocks) materializeBlock(block, "", -1);
 
     layoutRegions.push({
       id: regionId,
       pageId,
+      type: region.type,
       bounds: { ...region.bounds },
       orientation: { ...region.orientation },
+      lineFragmentIds: region.lineFragments.map((_, index) =>
+        `${pageId}:fragment:${extractorVersion}:${regionOrder}:${index}`),
+      lineIds: regionLineIds,
       blockIds: regionBlockIds,
       columnIds: regionColumnIds,
       readingOrder: regionOrder,
+      confidence: region.confidence,
+      source: "geometry",
+      rowCountEstimate: region.rowCountEstimate,
+      columnCountEstimate: region.columnCountEstimate,
     });
   }
 
   return { placements, layoutRegions, layoutBlocks, columns };
 };
-
 const buildWordsAndLines = (
   placements: LinePlacement[],
   pageId: string,
@@ -1453,6 +1749,7 @@ const buildParagraphs = (
   let paragraphOrder = 0;
 
   for (const block of [...blocks].sort((left, right) => left.readingOrder - right.readingOrder)) {
+    if (block.type === "form" || block.type === "table") continue;
     const blockLines = block.lineIds
       .map((lineId) => lineMap.get(lineId))
       .filter((line): line is SemanticLine => line !== undefined)
@@ -1542,6 +1839,169 @@ const buildParagraphs = (
   return paragraphs;
 };
 
+const clusterSemanticLinesByVisualRow = (lines: SemanticLine[]): SemanticLine[][] => {
+  const rows: SemanticLine[][] = [];
+  for (const line of [...lines].sort((left, right) => {
+    const yDelta = yCenter(left.bounds) - yCenter(right.bounds);
+    return Math.abs(yDelta) > Number.EPSILON ? yDelta : left.bounds.x - right.bounds.x;
+  })) {
+    const current = rows[rows.length - 1];
+    if (!current) {
+      rows.push([line]);
+      continue;
+    }
+    const center = median(current.map((entry) => yCenter(entry.bounds)));
+    const height = Math.max(
+      line.bounds.height,
+      median(current.map((entry) => entry.bounds.height)),
+      Number.EPSILON,
+    );
+    if (Math.abs(yCenter(line.bounds) - center) <= height * LINE_BASELINE_TOLERANCE_RATIO) {
+      current.push(line);
+    } else {
+      rows.push([line]);
+    }
+  }
+  for (const row of rows) row.sort((left, right) => left.bounds.x - right.bounds.x);
+  return rows;
+};
+
+const buildFormFields = (
+  regions: LayoutRegion[],
+  lines: SemanticLine[],
+  words: SemanticWord[],
+  pageId: string,
+  extractorVersion: string,
+): FormFieldRow[] => {
+  const lineMap = new Map(lines.map((line) => [line.id, line]));
+  const wordMap = new Map(words.map((word) => [word.id, word]));
+  const fields: FormFieldRow[] = [];
+
+  for (const region of regions.filter((entry) => entry.type === "form")) {
+    const regionLines = region.lineIds
+      .map((lineId) => lineMap.get(lineId))
+      .filter((line): line is SemanticLine => line !== undefined);
+    for (const row of clusterSemanticLinesByVisualRow(regionLines)) {
+      const rowWords = row
+        .flatMap((line) => line.wordIds)
+        .map((wordId) => wordMap.get(wordId))
+        .filter((word): word is SemanticWord => word !== undefined)
+        .sort((left, right) => left.bounds.x - right.bounds.x);
+      if (rowWords.length === 0) continue;
+
+      const firstWord = rowWords[0];
+      const hasFieldMarker = firstWord
+        ? FORM_FIELD_MARKER_PATTERN.test(firstWord.normalizedText)
+        : false;
+      const colonIndex = rowWords.findIndex((word) =>
+        word.normalizedText === ":" || word.normalizedText.endsWith(":"));
+      const isContinuation = !hasFieldMarker && colonIndex < 0 && fields.length > 0;
+      const rowBounds = unionBounds(row.map((line) => line.bounds));
+      if (!rowBounds) continue;
+
+      if (isContinuation) {
+        const previous = fields[fields.length - 1];
+        if (!previous || previous.regionId !== region.id) continue;
+        const appendedWordIds = rowWords.map((word) => word.id);
+        previous.wordIds.push(...appendedWordIds);
+        previous.valueWordIds.push(...appendedWordIds);
+        previous.lineIds.push(...row.map((line) => line.id));
+        previous.fragments.push(...row.map((line) => ({ ...line.bounds })));
+        previous.bounds = unionBounds([previous.bounds, rowBounds]) ?? previous.bounds;
+        previous.text = `${previous.text} ${rowWords.map((word) => word.normalizedText).join(" ")}`.trim();
+        previous.normalizedText = previous.text;
+        previous.valueText = [
+          previous.valueText,
+          rowWords.map((word) => word.normalizedText).join(" "),
+        ].filter(Boolean).join(" ");
+        continue;
+      }
+
+      const markerWordIds = hasFieldMarker && firstWord ? [firstWord.id] : [];
+      const contentStart = markerWordIds.length;
+      const labelEnd = colonIndex >= contentStart ? colonIndex + 1 : rowWords.length;
+      const labelWords = rowWords.slice(contentStart, labelEnd);
+      const valueWords = colonIndex >= 0 ? rowWords.slice(colonIndex + 1) : [];
+      const markerText = markerWordIds
+        .map((id) => wordMap.get(id)?.normalizedText ?? "")
+        .join(" ")
+        .trim();
+      const labelText = labelWords
+        .map((word) => word.normalizedText)
+        .join(" ")
+        .replace(/:\s*$/u, "")
+        .trim();
+      const valueText = valueWords.map((word) => word.normalizedText).join(" ").trim();
+      const rowText = rowWords.map((word) => word.normalizedText).join(" ").trim();
+      const firstLine = row[0];
+      if (!firstLine) continue;
+      fields.push({
+        id: createSemanticId(pageId, "FORM_FIELD", fields.length, extractorVersion),
+        type: "FORM_FIELD",
+        pageId,
+        text: rowText,
+        normalizedText: rowText,
+        bounds: rowBounds,
+        fragments: row.map((line) => ({ ...line.bounds })),
+        readingOrder: fields.length,
+        confidence: 0.86,
+        orientation: { ...firstLine.orientation },
+        regionId: region.id,
+        blockId: firstLine.blockId,
+        columnId: "",
+        wordIds: rowWords.map((word) => word.id),
+        lineIds: row.map((line) => line.id),
+        markerWordIds,
+        labelWordIds: labelWords.map((word) => word.id),
+        valueWordIds: valueWords.map((word) => word.id),
+        markerText,
+        labelText,
+        valueText: valueText || undefined,
+      });
+    }
+  }
+  return fields;
+};
+
+const buildTables = (
+  regions: LayoutRegion[],
+  lines: SemanticLine[],
+  pageId: string,
+  extractorVersion: string,
+): SemanticTable[] => {
+  const lineMap = new Map(lines.map((line) => [line.id, line]));
+  return regions
+    .filter((region) => region.type === "table")
+    .flatMap((region, index): SemanticTable[] => {
+      const tableLines = region.lineIds
+        .map((lineId) => lineMap.get(lineId))
+        .filter((line): line is SemanticLine => line !== undefined);
+      const bounds = unionBounds(tableLines.map((line) => line.bounds));
+      const firstLine = tableLines[0];
+      if (!bounds || !firstLine) return [];
+      const wordIds = tableLines.flatMap((line) => line.wordIds);
+      const tableText = tableLines.map((line) => line.normalizedText).join("\n").trim();
+      return [{
+        id: createSemanticId(pageId, "TABLE", index, extractorVersion),
+        type: "TABLE",
+        pageId,
+        text: tableText,
+        normalizedText: tableText,
+        bounds,
+        fragments: tableLines.map((line) => ({ ...line.bounds })),
+        readingOrder: region.readingOrder,
+        confidence: region.confidence,
+        orientation: { ...region.orientation },
+        regionId: region.id,
+        blockId: firstLine.blockId,
+        columnId: "",
+        wordIds,
+        lineIds: tableLines.map((line) => line.id),
+        rowCountEstimate: region.rowCountEstimate,
+        columnCountEstimate: region.columnCountEstimate,
+      }];
+    });
+};
 const isHyphenatedLineBreak = (previous: SemanticWord, current: SemanticWord): boolean => {
   return previous.lineId !== current.lineId
     && previous.normalizedText.endsWith("-")
@@ -1915,6 +2375,8 @@ const emptyModelData = (
   columns: [],
   sentences: [],
   paragraphs: [],
+  formFields: [],
+  tables: [],
   createdAt: 0,
   sourceItemCount,
   processingDurationMs: 0,
@@ -1955,6 +2417,14 @@ export const buildPageSemanticModel = (input: BuildPageInput): PageSemanticModel
     extractorVersion,
   );
   const { words, lines } = buildWordsAndLines(placements, input.pageId, extractorVersion);
+  const formFields = buildFormFields(
+    layoutRegions,
+    lines,
+    words,
+    input.pageId,
+    extractorVersion,
+  );
+  const tables = buildTables(layoutRegions, lines, input.pageId, extractorVersion);
   const paragraphs = buildParagraphs(lines, layoutBlocks, input.pageId, extractorVersion);
   const sentences = buildSentences(
     paragraphs,
@@ -1979,6 +2449,8 @@ export const buildPageSemanticModel = (input: BuildPageInput): PageSemanticModel
     columns,
     sentences,
     paragraphs,
+    formFields,
+    tables,
     createdAt: 0,
     sourceItemCount: sourceItems.length,
     processingDurationMs: 0,

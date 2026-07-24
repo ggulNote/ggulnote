@@ -31,6 +31,7 @@ import {
   buildPageSemanticModel,
   createTextItemSignature,
   PageSemanticModel,
+  type FormFieldRow,
   type SemanticCandidate,
 } from "@ggulnote/document-core";
 import { DocumentDebugPanel } from "./document-debug-panel";
@@ -218,6 +219,11 @@ type SemanticLayerStyleKey =
   | "region"
   | "block"
   | "column"
+  | "formField"
+  | "formMarker"
+  | "formLabel"
+  | "formValue"
+  | "table"
   | "sentence"
   | "sentenceFragment"
   | "paragraph"
@@ -237,6 +243,11 @@ const SEMANTIC_LAYER_STYLES: Array<{
   { key: "region", label: "Region", color: "rgba(236, 72, 153, 0.95)" },
   { key: "block", label: "Block", color: "rgba(234, 179, 8, 0.95)" },
   { key: "column", label: "Column", color: "rgba(6, 182, 212, 0.95)" },
+  { key: "formField", label: "Form field", color: "rgba(217, 70, 239, 0.95)" },
+  { key: "formMarker", label: "Form marker", color: "rgba(190, 24, 93, 0.95)" },
+  { key: "formLabel", label: "Form label", color: "rgba(219, 39, 119, 0.95)" },
+  { key: "formValue", label: "Form value", color: "rgba(244, 114, 182, 0.95)" },
+  { key: "table", label: "Table", color: "rgba(101, 163, 13, 0.95)" },
   { key: "sentence", label: "Sentence", color: "rgba(168, 85, 247, 0.95)" },
   { key: "sentenceFragment", label: "Sentence fragment", color: "rgba(192, 132, 252, 0.95)" },
   { key: "paragraph", label: "Paragraph", color: "rgba(14, 116, 144, 0.95)" },
@@ -254,6 +265,11 @@ type SemanticDebugLayerState = {
   layoutRegions: boolean;
   layoutBlocks: boolean;
   columns: boolean;
+  formFields: boolean;
+  formMarkers: boolean;
+  formLabels: boolean;
+  formValues: boolean;
+  tables: boolean;
   sentences: boolean;
   sentenceFragments: boolean;
   paragraphs: boolean;
@@ -272,6 +288,11 @@ const initialSemanticDebugLayer: SemanticDebugLayerState = {
   layoutRegions: false,
   layoutBlocks: false,
   columns: false,
+  formFields: false,
+  formMarkers: false,
+  formLabels: false,
+  formValues: false,
+  tables: false,
   sentences: false,
   sentenceFragments: false,
   paragraphs: false,
@@ -500,7 +521,7 @@ export function DocumentWorkspace(): React.ReactElement {
       const searchRadius = 0.012;
       const candidates = (() => {
         const atPointCandidates = model.findAtPoint(point, {
-          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH", "FORM_FIELD", "TABLE", "REGION"],
           limit: SEMANTIC_QUERY_MAX_RESULTS,
         });
 
@@ -509,7 +530,7 @@ export function DocumentWorkspace(): React.ReactElement {
         }
 
         const nearestCandidates = model.findNearest(point, {
-          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+          types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH", "FORM_FIELD", "TABLE", "REGION"],
           limit: SEMANTIC_QUERY_MAX_RESULTS,
           maxDistance: searchRadius * 5,
         });
@@ -526,7 +547,7 @@ export function DocumentWorkspace(): React.ReactElement {
             height: searchRadius * 2,
           },
           {
-            types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH"],
+            types: ["WORD", "LINE", "SENTENCE", "PARAGRAPH", "FORM_FIELD", "TABLE", "REGION"],
             limit: SEMANTIC_QUERY_MAX_RESULTS,
             minimumOverlapRatio: 0,
           },
@@ -565,7 +586,11 @@ export function DocumentWorkspace(): React.ReactElement {
       lineCount,
       sentenceCount,
       paragraphCount,
+      regionCount,
+      blockCount,
       columnCount,
+      formFieldCount,
+      tableCount,
       processingDurationMs,
       extractorVersion,
       schemaVersion,
@@ -577,7 +602,11 @@ export function DocumentWorkspace(): React.ReactElement {
       lineCount: number;
       sentenceCount: number;
       paragraphCount: number;
+      regionCount?: number;
+      blockCount?: number;
       columnCount: number;
+      formFieldCount?: number;
+      tableCount?: number;
       processingDurationMs: number;
       extractorVersion: string;
       schemaVersion: number;
@@ -591,7 +620,11 @@ export function DocumentWorkspace(): React.ReactElement {
         lineCount,
         sentenceCount,
         paragraphCount,
+        regionCount: regionCount ?? 0,
+        blockCount: blockCount ?? 0,
         columnCount,
+        formFieldCount: formFieldCount ?? 0,
+        tableCount: tableCount ?? 0,
         processingDurationMs,
         extractorVersion,
         schemaVersion,
@@ -783,7 +816,11 @@ export function DocumentWorkspace(): React.ReactElement {
         lineCount: summary.lineCount,
         sentenceCount: summary.sentenceCount,
         paragraphCount: summary.paragraphCount,
+        regionCount: summary.regionCount,
+        blockCount: summary.blockCount,
         columnCount: summary.columnCount,
+        formFieldCount: summary.formFieldCount,
+        tableCount: summary.tableCount,
         processingDurationMs: summary.processingDurationMs,
         extractorVersion: serialized.extractorVersion,
         schemaVersion: serialized.schemaVersion,
@@ -1307,7 +1344,7 @@ export function DocumentWorkspace(): React.ReactElement {
           id: region.id,
           label: "REGION #" + String(region.readingOrder),
           rect: clampSemanticRect(region.bounds),
-          suffix: region.orientation.writingMode,
+          suffix: `${region.type} / ${region.source} / ${region.confidence.toFixed(2)}`,
         })));
       }
 
@@ -1330,6 +1367,47 @@ export function DocumentWorkspace(): React.ReactElement {
         })));
       }
 
+      if (semanticDebugLayer.formFields) {
+        objects.push(...model.getFormFields().map((field) => ({
+          key: "formField" as const,
+          id: field.id,
+          label: "FORM FIELD #" + String(field.readingOrder),
+          rect: clampSemanticRect(field.bounds),
+          suffix: `${field.labelText}: ${field.valueText ?? ""}`,
+        })));
+      }
+
+      const pushFormWordBounds = (
+        enabled: boolean,
+        key: "formMarker" | "formLabel" | "formValue",
+        selectIds: (field: FormFieldRow) => readonly string[],
+      ): void => {
+        if (!enabled) return;
+        objects.push(...model.getFormFields().flatMap((field) =>
+          selectIds(field).flatMap((wordId, index) => {
+            const word = model.getWord(wordId);
+            return word ? [{
+              key,
+              id: `${field.id}:${key}:${index}`,
+              label: `${key.toUpperCase()} #${field.readingOrder}`,
+              rect: clampSemanticRect(word.bounds),
+              suffix: word.text,
+            }] : [];
+          })));
+      };
+      pushFormWordBounds(semanticDebugLayer.formMarkers, "formMarker", (field) => field.markerWordIds);
+      pushFormWordBounds(semanticDebugLayer.formLabels, "formLabel", (field) => field.labelWordIds);
+      pushFormWordBounds(semanticDebugLayer.formValues, "formValue", (field) => field.valueWordIds);
+
+      if (semanticDebugLayer.tables) {
+        objects.push(...model.getTables().map((table) => ({
+          key: "table" as const,
+          id: table.id,
+          label: "TABLE #" + String(table.readingOrder),
+          rect: clampSemanticRect(table.bounds),
+          suffix: `${table.rowCountEstimate ?? "?"} x ${table.columnCountEstimate ?? "?"}`,
+        })));
+      }
       if (semanticDebugLayer.sentences) {
         objects.push(...semanticObjects
           .filter((item) => item.type === "SENTENCE")

@@ -3,7 +3,15 @@ import { A4_PORTRAIT_POINTS } from "./document-types";
 
 export type SemanticPageStatus = "idle" | "processing" | "ready" | "empty" | "error";
 export type SemanticCacheStatus = "idle" | "hit" | "miss" | "stale" | "error" | "disabled";
-export type SemanticCandidateType = "WORD" | "LINE" | "SENTENCE" | "PARAGRAPH" | "NONE";
+export type SemanticCandidateType =
+  | "WORD"
+  | "LINE"
+  | "SENTENCE"
+  | "PARAGRAPH"
+  | "FORM_FIELD"
+  | "TABLE"
+  | "REGION"
+  | "NONE";
 
 type PersistenceSaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -44,6 +52,8 @@ export type DocumentSessionAction =
       regionCount?: number;
       blockCount?: number;
       columnCount: number;
+      formFieldCount?: number;
+      tableCount?: number;
       processingDurationMs: number;
       extractorVersion: string;
       schemaVersion: number;
@@ -91,6 +101,8 @@ export interface DocumentSessionState {
   semanticRegionCount: number;
   semanticBlockCount: number;
   semanticColumnCount: number;
+  semanticFormFieldCount: number;
+  semanticTableCount: number;
   semanticProcessingDurationMs: number;
   semanticSelectedType: SemanticCandidateType;
   semanticSelectedId: string;
@@ -135,6 +147,8 @@ const resetSemanticState = (): Pick<
   | "semanticRegionCount"
   | "semanticBlockCount"
   | "semanticColumnCount"
+  | "semanticFormFieldCount"
+  | "semanticTableCount"
   | "semanticProcessingDurationMs"
   | "semanticSelectedType"
   | "semanticSelectedId"
@@ -155,6 +169,8 @@ const resetSemanticState = (): Pick<
   semanticRegionCount: 0,
   semanticBlockCount: 0,
   semanticColumnCount: 0,
+  semanticFormFieldCount: 0,
+  semanticTableCount: 0,
   semanticProcessingDurationMs: 0,
   semanticSelectedType: "NONE",
   semanticSelectedId: "-",
@@ -338,6 +354,8 @@ export function documentSessionReducer(
         semanticRegionCount: action.regionCount ?? 0,
         semanticBlockCount: action.blockCount ?? 0,
         semanticColumnCount: action.columnCount,
+        semanticFormFieldCount: action.formFieldCount ?? 0,
+        semanticTableCount: action.tableCount ?? 0,
         semanticProcessingDurationMs: action.processingDurationMs,
         semanticExtractorVersion: action.extractorVersion,
         semanticSchemaVersion: action.schemaVersion,

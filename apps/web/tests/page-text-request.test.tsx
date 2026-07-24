@@ -45,8 +45,9 @@ describe("page-scoped Text Item requests", () => {
     expect(isPageTextResultForPage(result, "doc-b", "doc-b-page-2")).toBe(false);
   });
 
-  it("invalidates previous semantic caches with extractor version 6", () => {
-    expect(SEMANTIC_EXTRACTOR_VERSION).toBe("7");
+  it("invalidates previous semantic caches with extractor version 7", () => {
+    expect(SEMANTIC_EXTRACTOR_VERSION).toBe("8");
+    expect(SEMANTIC_SCHEMA_VERSION).toBe(3);
   });
 
   it("rejects cache records whose model document or page identity differs", () => {

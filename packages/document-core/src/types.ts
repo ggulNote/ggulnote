@@ -30,13 +30,32 @@ export interface SemanticGeometry {
   fragments: NormalizedRect[];
 }
 
-export type SemanticObjectType = "WORD" | "LINE" | "SENTENCE" | "PARAGRAPH";
+export type LayoutRegionType =
+  | "heading"
+  | "prose"
+  | "form"
+  | "table"
+  | "footer"
+  | "metadata"
+  | "unknown";
+export type RegionEvidenceSource = "geometry" | "pdf-vector" | "vision";
+export type SemanticObjectType =
+  | "WORD"
+  | "LINE"
+  | "SENTENCE"
+  | "PARAGRAPH"
+  | "FORM_FIELD"
+  | "TABLE";
+export type SemanticQueryObjectType = SemanticObjectType | "REGION";
 export type LayoutBlockType =
   | "heading"
   | "body"
   | "sidebar"
   | "caption"
   | "list"
+  | "form"
+  | "table"
+  | "footer"
   | "metadata"
   | "unknown";
 
@@ -99,16 +118,49 @@ export interface SemanticParagraph extends SemanticObjectBase, SemanticGeometry 
   averageFontSize?: number;
 }
 
-export type SemanticObject = SemanticWord | SemanticLine | SemanticSentence | SemanticParagraph;
+export interface FormFieldRow extends SemanticObjectBase, SemanticGeometry {
+  type: "FORM_FIELD";
+  wordIds: string[];
+  lineIds: string[];
+  markerWordIds: string[];
+  labelWordIds: string[];
+  valueWordIds: string[];
+  markerText: string;
+  labelText: string;
+  valueText?: string;
+}
+
+export interface SemanticTable extends SemanticObjectBase, SemanticGeometry {
+  type: "TABLE";
+  wordIds: string[];
+  lineIds: string[];
+  rowCountEstimate?: number;
+  columnCountEstimate?: number;
+}
+
+export type SemanticObject =
+  | SemanticWord
+  | SemanticLine
+  | SemanticSentence
+  | SemanticParagraph
+  | FormFieldRow
+  | SemanticTable;
 
 export interface LayoutRegion {
   id: string;
   pageId: PageId;
+  type: LayoutRegionType;
   bounds: NormalizedRect;
   orientation: TextOrientation;
+  lineFragmentIds: string[];
+  lineIds: string[];
   blockIds: string[];
   columnIds: string[];
   readingOrder: number;
+  confidence: number;
+  source: RegionEvidenceSource;
+  rowCountEstimate?: number;
+  columnCountEstimate?: number;
 }
 
 export interface LayoutColumn {
@@ -137,7 +189,7 @@ export interface LayoutBlock {
 
 export interface SemanticCandidate {
   id: string;
-  type: SemanticObjectType;
+  type: SemanticQueryObjectType;
   pageId: PageId;
   text: string;
   bounds: NormalizedRect;
@@ -152,10 +204,12 @@ export interface SemanticCandidate {
   regionId: string;
   blockId: string;
   columnId: string;
+  regionType?: LayoutRegionType;
+  source?: RegionEvidenceSource;
 }
 
 export interface SemanticQueryOptions {
-  types?: readonly SemanticObjectType[];
+  types?: readonly SemanticQueryObjectType[];
   limit?: number;
   maxDistance?: number;
   minimumOverlapRatio?: number;
@@ -201,6 +255,8 @@ export interface PageSemanticModelData {
   columns: LayoutColumn[];
   sentences: SemanticSentence[];
   paragraphs: SemanticParagraph[];
+  formFields: FormFieldRow[];
+  tables: SemanticTable[];
   createdAt: number;
   sourceItemCount: number;
   processingDurationMs: number;
@@ -216,6 +272,8 @@ export interface SemanticModelQueryResult {
   regionCount: number;
   blockCount: number;
   columnCount: number;
+  formFieldCount: number;
+  tableCount: number;
   sourceItemCount: number;
   processingDurationMs: number;
 }
@@ -225,6 +283,11 @@ export interface SemanticModelQuery {
   getLine(id: string): SemanticLine | null;
   getSentence(id: string): SemanticSentence | null;
   getParagraph(id: string): SemanticParagraph | null;
+  getFormField(id: string): FormFieldRow | null;
+  getTable(id: string): SemanticTable | null;
+  getLayoutRegion(id: string): LayoutRegion | null;
+  getFormFields(): readonly FormFieldRow[];
+  getTables(): readonly SemanticTable[];
   getLayoutRegions(): readonly LayoutRegion[];
   getLayoutBlocks(): readonly LayoutBlock[];
   getColumns(): readonly LayoutColumn[];

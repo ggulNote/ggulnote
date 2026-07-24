@@ -15,6 +15,11 @@ export type SemanticDebugLayerState = {
   layoutRegions: boolean;
   layoutBlocks: boolean;
   columns: boolean;
+  formFields: boolean;
+  formMarkers: boolean;
+  formLabels: boolean;
+  formValues: boolean;
+  tables: boolean;
   sentences: boolean;
   sentenceFragments: boolean;
   paragraphs: boolean;
@@ -82,6 +87,7 @@ export function DocumentDebugPanel({
         <div><dt className="font-medium text-slate-600">처리 소스 개수</dt><dd>{state.semanticSourceItemCount}</dd></div>
         <div><dt className="font-medium text-slate-600">Word / Line / Sentence / Paragraph</dt><dd>{state.semanticWordCount} / {state.semanticLineCount} / {state.semanticSentenceCount} / {state.semanticParagraphCount}</dd></div>
         <div><dt className="font-medium text-slate-600">Region / Block / Column</dt><dd>{state.semanticRegionCount} / {state.semanticBlockCount} / {state.semanticColumnCount}</dd></div>
+        <div><dt className="font-medium text-slate-600">FormField / Table</dt><dd>{state.semanticFormFieldCount} / {state.semanticTableCount}</dd></div>
         <div><dt className="font-medium text-slate-600">처리 시간(ms)</dt><dd>{state.semanticProcessingDurationMs}</dd></div>
         <div><dt className="font-medium text-slate-600">선택 Semantic</dt><dd>{state.semanticSelectedType}</dd></div>
         <div><dt className="font-medium text-slate-600">선택 ID</dt><dd>{state.semanticSelectedId}</dd></div>
@@ -104,6 +110,11 @@ export function DocumentDebugPanel({
           { key: "layoutRegions", label: "LayoutRegion" },
           { key: "layoutBlocks", label: "LayoutBlock" },
           { key: "columns", label: "Column" },
+          { key: "formFields", label: "FormFieldRow" },
+          { key: "formMarkers", label: "Form Marker" },
+          { key: "formLabels", label: "Form Label" },
+          { key: "formValues", label: "Form Value" },
+          { key: "tables", label: "Table Region" },
           { key: "sentences", label: "Sentence bounds" },
           { key: "sentenceFragments", label: "Sentence fragments" },
           { key: "paragraphs", label: "Paragraph bounds" },

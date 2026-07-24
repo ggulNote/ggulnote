@@ -4,9 +4,11 @@ import {
   buildPageSemanticModel,
   unionBounds,
   type PageTextItemInput,
+  type FormFieldRow,
   type SemanticLine,
   type SemanticParagraph,
   type SemanticSentence,
+  type SemanticTable,
   type SemanticWord,
 } from "../src";
 
@@ -57,13 +59,117 @@ const build = (textItems: PageTextItemInput[]) => buildPageSemanticModel({
   textItems,
 });
 
-const objectsOfType = <T extends SemanticWord | SemanticLine | SemanticSentence | SemanticParagraph>(
+const objectsOfType = <T extends
+SemanticWord | SemanticLine | SemanticSentence | SemanticParagraph | FormFieldRow | SemanticTable>(
   model: ReturnType<typeof build>,
   type: T["type"],
 ): T[] => model.getAllByReadingOrder()
   .filter((item): item is T => item.type === type);
 
 describe("semantic geometry and layout", () => {
+  it("isolates heading, form, table, and footer regions before column inference", () => {
+    const items: PageTextItemInput[] = [];
+    let sourceIndex = 0;
+    const add = (
+      id: string,
+      text: string,
+      x: number,
+      y: number,
+      width: number,
+      fontSize = 12,
+    ): void => {
+      items.push(horizontalItem(id, text, x, y, width, 0.02, sourceIndex++, fontSize));
+    };
+
+    add("title", "Participation Confirmation", 0.2, 0.035, 0.6, 22);
+    for (const [row, label, value] of [
+      ["agency", "Agency", "Example Organization"],
+      ["course", "Course", "Example AI Course"],
+      ["period", "Period", ""],
+    ] as const) {
+      const y = 0.12 + (row === "agency" ? 0 : row === "course" ? 0.04 : 0.08);
+      add(`${row}-marker`, "□", 0.08, y, 0.025);
+      add(`${row}-label`, label, 0.12, y, 0.12);
+      if (value) {
+        add(`${row}-colon`, ":", 0.25, y, 0.015);
+        add(`${row}-value`, value, 0.34, y, 0.35);
+      }
+    }
+    add("period-continuation", "- 2026-06-22 ~ 2026-09-04", 0.34, 0.24, 0.35);
+
+    const tableXs = [0.08, 0.23, 0.4, 0.58, 0.74];
+    for (let row = 0; row < 6; row += 1) {
+      const y = 0.37 + row * 0.04;
+      tableXs.forEach((x, column) => {
+        add(
+          `table-${row}-${column}`,
+          row === 0 ? ["Day", "Date", "In", "Out", "Status"][column] ?? "" : `${row}-${column}`,
+          x,
+          y,
+          0.09,
+        );
+      });
+    }
+    add("footer-date", "2026-07-20", 0.1, 0.75, 0.16);
+    add("footer-org", "Organization: Example Organization", 0.1, 0.79, 0.4);
+
+    const model = build(items);
+    const regions = model.getLayoutRegions();
+    const formRegion = regions.find((region) => region.type === "form");
+    const tableRegion = regions.find((region) => region.type === "table");
+    const footerRegion = regions.find((region) => region.type === "footer");
+    const fields = objectsOfType<FormFieldRow>(model, "FORM_FIELD");
+    const tables = objectsOfType<SemanticTable>(model, "TABLE");
+
+    expect(regions.some((region) => region.type === "heading")).toBe(true);
+    expect(formRegion).toBeDefined();
+    expect(tableRegion).toBeDefined();
+    expect(footerRegion).toBeDefined();
+    expect(formRegion?.columnIds).toEqual([]);
+    expect(tableRegion?.columnIds).toEqual([]);
+    expect(fields).toHaveLength(3);
+    expect(fields.find((field) => field.labelText === "Agency")).toMatchObject({
+      valueText: "Example Organization",
+    });
+    expect(fields.find((field) => field.labelText === "Period")).toMatchObject({
+      valueText: "- 2026-06-22 ~ 2026-09-04",
+      lineIds: expect.arrayContaining([expect.any(String), expect.any(String)]),
+    });
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toMatchObject({ rowCountEstimate: 6, columnCountEstimate: 5 });
+    const tableLineIds = new Set(tables[0]?.lineIds ?? []);
+    expect(fields.flatMap((field) => field.lineIds).some((lineId) => tableLineIds.has(lineId))).toBe(false);
+
+    const formCandidates = model.findAtPoint(
+      { x: 0.4, y: 0.13 },
+      { types: ["WORD", "FORM_FIELD", "REGION"] },
+    );
+    const tableCandidates = model.findAtPoint(
+      { x: 0.245, y: 0.415 },
+      { types: ["WORD", "TABLE", "REGION"] },
+    );
+    expect(formCandidates.some((candidate) => candidate.type === "FORM_FIELD")).toBe(true);
+    expect(formCandidates.some((candidate) => candidate.type === "TABLE")).toBe(false);
+    expect(tableCandidates.some((candidate) => candidate.type === "TABLE")).toBe(true);
+  });
+
+  it("does not classify regular two-column prose or a short label stack as a table", () => {
+    const twoColumnItems: PageTextItemInput[] = [];
+    for (let row = 0; row < 8; row += 1) {
+      const y = 0.1 + row * 0.04;
+      twoColumnItems.push(
+        horizontalItem(`prose-left-${row}`, `Left prose sentence ${row}.`, 0.1, y, 0.34, 0.02, row * 2),
+        horizontalItem(`prose-right-${row}`, `Right prose sentence ${row}.`, 0.56, y, 0.34, 0.02, row * 2 + 1),
+      );
+    }
+    const proseModel = build(twoColumnItems);
+    const labelModel = build(["Editor status", "Document ID", "Can undo"].map((label, index) =>
+      horizontalItem(`short-${index}`, label, 0.1, 0.1 + index * 0.04, 0.25, 0.02, index)));
+
+    expect(proseModel.getTables()).toEqual([]);
+    expect(proseModel.getColumns()).toHaveLength(2);
+    expect(labelModel.getTables()).toEqual([]);
+  });
   it("prevents transitive baseline chain merging from growing a multi-row line", () => {
     const model = build([
       horizontalItem("chain-a", "alpha", 0.1, 0.1, 0.2, 0.02, 0),
@@ -649,7 +755,8 @@ describe("semantic geometry and layout", () => {
     const serialized = model.toSerialized();
     const restored = PageSemanticModel.fromSerialized(serialized);
 
-    expect(serialized.extractorVersion).toBe("7");
+    expect(serialized.extractorVersion).toBe("8");
+    expect(serialized.schemaVersion).toBe(3);
     expect(restored.toSerialized()).toEqual(serialized);
     expect(restored.getLayoutBlocks()[0]?.id).toBe(serialized.layoutBlocks[0]?.id);
     expect(restored.getAllByReadingOrder().find((item) => item.type === "SENTENCE"))
@@ -661,7 +768,7 @@ describe("semantic geometry and layout", () => {
 
     expect(() => PageSemanticModel.fromSerialized({
       ...serialized,
-      extractorVersion: "6",
+      extractorVersion: "7",
     })).toThrow("Unsupported or invalid semantic model cache");
   });
 
