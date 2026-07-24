@@ -1,0 +1,50 @@
+{
+  "modelId": "yolo11m-doc-layout",
+  "version": "1",
+  "family": "yolo11",
+  "variant": "medium",
+  "inputSize": 1280,
+  "inputLayout": "NCHW",
+  "labels": [
+    "Caption",
+    "Footnote",
+    "Formula",
+    "List-item",
+    "Page-footer",
+    "Page-header",
+    "Picture",
+    "Section-header",
+    "Table",
+    "Text",
+    "Title"
+  ],
+  "input": {
+    "name": "images",
+    "shape": [
+      1,
+      3,
+      1280,
+      1280
+    ],
+    "dtype": "float32"
+  },
+  "outputs": [
+    {
+      "name": "output0",
+      "shape": [
+        1,
+        15,
+        33600
+      ],
+      "dtype": "float32"
+    }
+  ],
+  "outputFormat": "raw-cxcywh-class-scores",
+  "requiresNms": true,
+  "postprocess": {
+    "boxFormat": "cxcywh",
+    "confidenceThreshold": 0.25,
+    "iouThreshold": 0.45,
+    "maxDetections": 300
+  }
+}

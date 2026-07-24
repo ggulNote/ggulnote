@@ -13,6 +13,8 @@ describe("DocumentDebugPanel", () => {
       rawTextItems: true,
       textItems: true,
       words: true,
+      regionWords: true,
+      unassignedWords: true,
       lines: true,
       layoutRegions: true,
       layoutBlocks: true,
@@ -22,6 +24,7 @@ describe("DocumentDebugPanel", () => {
       paragraphs: true,
       paragraphFragments: true,
       readingOrder: true,
+      regionRelations: true,
       candidates: true,
       boxOnly: false,
     };
@@ -35,6 +38,7 @@ describe("DocumentDebugPanel", () => {
         semanticCandidates={[]}
         pageTextDebug={null}
         selectedRawTextItem={null}
+        semanticSource="-"
         onSemanticDebugLayerChange={onSemanticDebugLayerChange}
       />,
     );
@@ -54,6 +58,8 @@ describe("DocumentDebugPanel", () => {
           rawTextItems: false,
           textItems: false,
           words: false,
+          regionWords: false,
+          unassignedWords: false,
           lines: false,
           layoutRegions: false,
           layoutBlocks: false,
@@ -63,12 +69,14 @@ describe("DocumentDebugPanel", () => {
           paragraphs: false,
           paragraphFragments: false,
           readingOrder: false,
+          regionRelations: false,
           candidates: false,
           boxOnly: true,
         }}
         semanticCandidates={[]}
         pageTextDebug={null}
         selectedRawTextItem={null}
+        semanticSource="-"
         onSemanticDebugLayerChange={() => undefined}
       />,
     );

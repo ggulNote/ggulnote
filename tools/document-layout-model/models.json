@@ -1,0 +1,83 @@
+{
+  "defaultModelId": "yolo26n-doc-layout",
+  "models": [
+    {
+      "id": "yolo11n-doc-layout",
+      "repositoryId": "Armaggheddon/yolo11-document-layout",
+      "checkpointFilename": "yolo11n_doc_layout.pt",
+      "onnxFilename": "yolo11n_doc_layout.onnx",
+      "manifestFilename": "yolo11n-manifest.json",
+      "family": "yolo11",
+      "variant": "nano",
+      "enabled": true,
+      "inputSize": 1280,
+      "confidenceThreshold": 0.25,
+      "iouThreshold": 0.45
+    },
+    {
+      "id": "yolo11s-doc-layout",
+      "repositoryId": "Armaggheddon/yolo11-document-layout",
+      "checkpointFilename": "yolo11s_doc_layout.pt",
+      "onnxFilename": "yolo11s_doc_layout.onnx",
+      "manifestFilename": "yolo11s-manifest.json",
+      "family": "yolo11",
+      "variant": "small",
+      "enabled": true,
+      "inputSize": 1280,
+      "confidenceThreshold": 0.25,
+      "iouThreshold": 0.45
+    },
+    {
+      "id": "yolo11m-doc-layout",
+      "repositoryId": "Armaggheddon/yolo11-document-layout",
+      "checkpointFilename": "yolo11m_doc_layout.pt",
+      "onnxFilename": "yolo11m_doc_layout.onnx",
+      "manifestFilename": "yolo11m-manifest.json",
+      "family": "yolo11",
+      "variant": "medium",
+      "enabled": true,
+      "inputSize": 1280,
+      "confidenceThreshold": 0.25,
+      "iouThreshold": 0.45
+    },
+    {
+      "id": "yolo26n-doc-layout",
+      "repositoryId": "Armaggheddon/yolo26-document-layout",
+      "checkpointFilename": "yolo26n_doc_layout.pt",
+      "onnxFilename": "yolo26n_doc_layout.onnx",
+      "manifestFilename": "yolo26n-manifest.json",
+      "family": "yolo26",
+      "variant": "nano",
+      "enabled": true,
+      "inputSize": 1280,
+      "confidenceThreshold": 0.25,
+      "iouThreshold": 0.45
+    },
+    {
+      "id": "yolo26s-doc-layout",
+      "repositoryId": "Armaggheddon/yolo26-document-layout",
+      "checkpointFilename": "yolo26s_doc_layout.pt",
+      "onnxFilename": "yolo26s_doc_layout.onnx",
+      "manifestFilename": "yolo26s-manifest.json",
+      "family": "yolo26",
+      "variant": "small",
+      "enabled": true,
+      "inputSize": 1280,
+      "confidenceThreshold": 0.25,
+      "iouThreshold": 0.45
+    },
+    {
+      "id": "yolo26m-doc-layout",
+      "repositoryId": "Armaggheddon/yolo26-document-layout",
+      "checkpointFilename": "yolo26m_doc_layout.pt",
+      "onnxFilename": "yolo26m_doc_layout.onnx",
+      "manifestFilename": "yolo26m-manifest.json",
+      "family": "yolo26",
+      "variant": "medium",
+      "enabled": true,
+      "inputSize": 1280,
+      "confidenceThreshold": 0.25,
+      "iouThreshold": 0.45
+    }
+  ]
+}

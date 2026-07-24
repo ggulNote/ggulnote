@@ -7,9 +7,12 @@ import {
   SEMANTIC_SCHEMA_VERSION,
 } from "./constants";
 import {
+  area,
   boundsFromPoints,
   clampRect,
+  containsPoint,
   horizontalOverlapRatio,
+  intersectionArea,
   isValidBounds,
   unionBounds,
   xCenter,
@@ -19,12 +22,16 @@ import { PageSemanticModel } from "./page-semantic-model";
 import { createSentenceSegmenter, type SentenceSegment } from "./segmentation";
 import type {
   BuildPageInput,
+  DetectedLayoutRegionInput,
   LayoutBlock,
   LayoutBlockType,
   LayoutColumn,
   LayoutRegion,
+  LayoutRegionRelation,
+  LayoutRegionType,
   LocalTextAxis,
   PageSemanticModelData,
+  PageSemanticSource,
   PageTextItemInput,
   SemanticLine,
   SemanticObjectType,
@@ -1351,6 +1358,11 @@ const materializeLayout = (
       blockIds: regionBlockIds,
       columnIds: regionColumnIds,
       readingOrder: regionOrder,
+      layoutType: "text",
+      confidence: 0.7,
+      source: "legacy",
+      relatedRegionIds: [],
+      relations: [],
     });
   }
 
@@ -1895,12 +1907,322 @@ export const createTextItemSignature = (
   return String(textItems.length) + ":" + (hash >>> 0).toString(16);
 };
 
+const TEXT_REGION_TYPES = new Set<LayoutRegionType>([
+  "text", "title", "section-header", "list-item", "caption", "footnote",
+  "page-header", "page-footer", "unknown",
+]);
+const MEDIA_REGION_TYPES = new Set<LayoutRegionType>(["table", "picture", "formula"]);
+const DEFAULT_LAYOUT_CONFIDENCE = 0.2;
+const DEFAULT_WORD_ASSIGNMENT_RATIO = 0.35;
+const MAX_CAPTION_DISTANCE = 0.14;
+const MAX_SECTION_DISTANCE = 0.35;
+
+interface DetectedRegionDraft {
+  detection: DetectedLayoutRegionInput;
+  layoutType: LayoutRegionType;
+  bounds: Bounds;
+  words: SourceWordCandidate[];
+}
+
+const normalizeLayoutType = (detection: DetectedLayoutRegionInput): LayoutRegionType => {
+  if (detection.layoutType) return detection.layoutType;
+  const normalized = detection.label.trim().toLowerCase().replaceAll("_", "-").replaceAll(" ", "-");
+  const supported: LayoutRegionType[] = [
+    "text", "title", "section-header", "list-item", "caption", "footnote",
+    "page-header", "page-footer", "table", "picture", "formula",
+  ];
+  return supported.find((candidate) => candidate === normalized) ?? "unknown";
+};
+
+const layoutTypePriority = (type: LayoutRegionType): number => {
+  if (type === "title") return 110;
+  if (type === "section-header") return 105;
+  if (type === "caption") return 100;
+  if (type === "list-item") return 95;
+  if (type === "footnote" || type === "page-header" || type === "page-footer") return 90;
+  if (type === "formula") return 85;
+  if (type === "table") return 80;
+  if (type === "picture") return 75;
+  if (type === "text") return 70;
+  return 60;
+};
+
+const normalizeDetectedRegions = (input: BuildPageInput): DetectedRegionDraft[] => {
+  const minimumConfidence = input.minimumLayoutConfidence ?? DEFAULT_LAYOUT_CONFIDENCE;
+  return (input.layoutDetections ?? [])
+    .filter((detection) => Number.isFinite(detection.confidence)
+      && detection.confidence >= minimumConfidence && isValidBounds(detection.bounds))
+    .map((detection) => ({
+      detection: { ...detection, bounds: clampRect(detection.bounds) },
+      layoutType: normalizeLayoutType(detection),
+      bounds: clampRect(detection.bounds),
+      words: [],
+    }));
+};
+
+const regionHorizontalOverlap = (left: Bounds, right: Bounds): number => {
+  const start = Math.max(left.x, right.x);
+  const end = Math.min(left.x + left.width, right.x + right.width);
+  return Math.max(0, end - start) / Math.max(Number.EPSILON, Math.min(left.width, right.width));
+};
+
+const orderRegionsByColumns = (regions: DetectedRegionDraft[]): DetectedRegionDraft[] => {
+  const clusters: Array<{ bounds: Bounds; regions: DetectedRegionDraft[] }> = [];
+  for (const region of [...regions].sort((left, right) => left.bounds.x - right.bounds.x || left.bounds.y - right.bounds.y)) {
+    const candidate = clusters.map((cluster) => ({ cluster, overlap: regionHorizontalOverlap(cluster.bounds, region.bounds) }))
+      .filter((entry) => entry.overlap >= 0.18)
+      .sort((left, right) => right.overlap - left.overlap || left.cluster.bounds.x - right.cluster.bounds.x)[0];
+    if (!candidate) {
+      clusters.push({ bounds: { ...region.bounds }, regions: [region] });
+      continue;
+    }
+    candidate.cluster.regions.push(region);
+    candidate.cluster.bounds = unionBounds(candidate.cluster.regions.map((entry) => entry.bounds)) ?? candidate.cluster.bounds;
+  }
+  return clusters.sort((left, right) => left.bounds.x - right.bounds.x)
+    .flatMap((cluster) => cluster.regions.sort((left, right) => left.bounds.y - right.bounds.y || left.bounds.x - right.bounds.x));
+};
+
+const isFullWidthFlowRegion = (region: DetectedRegionDraft): boolean => {
+  if (region.layoutType === "page-header" || region.layoutType === "page-footer") return true;
+  return (region.layoutType === "title" || region.layoutType === "section-header") && region.bounds.width >= 0.55;
+};
+
+const orderDetectedRegions = (regions: DetectedRegionDraft[]): DetectedRegionDraft[] => {
+  const headers = regions.filter((region) => region.layoutType === "page-header").sort((left, right) => left.bounds.y - right.bounds.y);
+  const tails = regions.filter((region) => region.layoutType === "page-footer" || region.layoutType === "footnote")
+    .sort((left, right) => left.bounds.y - right.bounds.y || left.bounds.x - right.bounds.x);
+  const middle = regions.filter((region) => !headers.includes(region) && !tails.includes(region));
+  const separators = middle.filter(isFullWidthFlowRegion).sort((left, right) => left.bounds.y - right.bounds.y || left.bounds.x - right.bounds.x);
+  const content = middle.filter((region) => !separators.includes(region));
+  const bands = Array.from({ length: separators.length + 1 }, () => [] as DetectedRegionDraft[]);
+  for (const region of content) {
+    const bandIndex = separators.filter((separator) => yCenter(separator.bounds) < yCenter(region.bounds)).length;
+    bands[bandIndex]?.push(region);
+  }
+  const ordered: DetectedRegionDraft[] = [...headers];
+  for (let index = 0; index < bands.length; index += 1) {
+    ordered.push(...orderRegionsByColumns(bands[index] ?? []));
+    const separator = separators[index];
+    if (separator) ordered.push(separator);
+  }
+  return [...ordered, ...tails];
+};
+
+const assignWordsToDetectedRegions = (words: SourceWordCandidate[], regions: DetectedRegionDraft[]): SourceWordCandidate[] => {
+  const unassigned: SourceWordCandidate[] = [];
+  for (const word of words) {
+    const center = { x: xCenter(word.bounds), y: yCenter(word.bounds) };
+    const wordArea = Math.max(Number.EPSILON, area(word.bounds));
+    const selected = regions.map((region) => ({
+      region,
+      containsCenter: containsPoint(region.bounds, center),
+      overlap: intersectionArea(word.bounds, region.bounds) / wordArea,
+    })).filter((entry) => entry.containsCenter || entry.overlap >= 0.2)
+      .sort((left, right) => {
+        if (left.containsCenter !== right.containsCenter) return left.containsCenter ? -1 : 1;
+        const priority = layoutTypePriority(right.region.layoutType) - layoutTypePriority(left.region.layoutType);
+        if (priority !== 0) return priority;
+        if (left.overlap !== right.overlap) return right.overlap - left.overlap;
+        const areaDelta = area(left.region.bounds) - area(right.region.bounds);
+        if (Math.abs(areaDelta) > Number.EPSILON) return areaDelta;
+        if (left.region.detection.confidence !== right.region.detection.confidence) return right.region.detection.confidence - left.region.detection.confidence;
+        return left.region.detection.id.localeCompare(right.region.detection.id);
+      })[0];
+    if (!selected) unassigned.push(word);
+    else selected.region.words.push(word);
+  }
+  return unassigned;
+};
+
+const blockTypeForRegion = (type: LayoutRegionType): LayoutBlockType => {
+  if (type === "title" || type === "section-header") return "heading";
+  if (type === "caption") return "caption";
+  if (type === "list-item") return "list";
+  if (type === "footnote" || type === "page-header" || type === "page-footer") return "metadata";
+  return "body";
+};
+
+const regionDraftFromDetection = (region: DetectedRegionDraft): RegionDraft => {
+  if (!TEXT_REGION_TYPES.has(region.layoutType) || region.words.length === 0) {
+    return { lines: [], bounds: { ...region.bounds }, orientation: { angle: 0, writingMode: "horizontal" }, columns: [] };
+  }
+  const lines = buildLineDrafts(region.words, "final");
+  const orientation = lines[0]?.orientation ?? region.words[0]?.orientation ?? { angle: 0, writingMode: "horizontal" };
+  const contentBounds = unionBounds(lines.map((line) => line.bounds)) ?? region.bounds;
+  const block: BlockDraft = { lines, bounds: contentBounds, type: blockTypeForRegion(region.layoutType) };
+  return { lines, bounds: { ...region.bounds }, orientation: { ...orientation }, columns: [{ lines, bounds: contentBounds, blocks: [block] }] };
+};
+
+const createLooseWord = (
+  candidate: SourceWordCandidate,
+  pageId: string,
+  extractorVersion: string,
+  readingOrder: number,
+  regionId: string,
+): SemanticWord => ({
+  id: createSemanticId(pageId, "WORD", readingOrder, extractorVersion),
+  type: "WORD", pageId, text: candidate.text, normalizedText: candidate.normalizedText,
+  bounds: { ...candidate.bounds }, readingOrder, confidence: 0.82,
+  orientation: { ...candidate.orientation }, regionId, blockId: "", columnId: "",
+  sourceItemIds: [candidate.sourceRange.sourceTextItemId], sourceRanges: [{ ...candidate.sourceRange }],
+  lineId: "", direction: candidate.direction, fontName: candidate.fontName, fontSize: candidate.fontSize,
+  startsWithPunctuation: PUNCTUATION_ONLY_PATTERN.test(candidate.normalizedText) || /^[\p{P}\p{S}]/u.test(candidate.normalizedText),
+  endsWithPunctuation: /[\p{P}\p{S}]$/u.test(candidate.normalizedText), hasEOL: candidate.hasEOL,
+  axis: { ...candidate.axis },
+  quad: { points: candidate.quad.points.map((point) => ({ ...point })) as TextQuad["points"] },
+});
+
+const buildRegionParagraphs = (
+  lines: SemanticLine[], regions: LayoutRegion[], pageId: string, extractorVersion: string,
+): SemanticParagraph[] => {
+  const paragraphs: SemanticParagraph[] = [];
+  for (const region of [...regions].sort((left, right) => left.readingOrder - right.readingOrder)) {
+    if (!TEXT_REGION_TYPES.has(region.layoutType)) continue;
+    const regionLines = lines.filter((line) => line.regionId === region.id).sort((left, right) => left.readingOrder - right.readingOrder);
+    const first = regionLines[0];
+    const bounds = unionBounds(regionLines.map((line) => line.bounds));
+    if (!first || !bounds) continue;
+    const paragraphId = createSemanticId(pageId, "PARAGRAPH", paragraphs.length, extractorVersion);
+    const text = regionLines.map((line) => line.normalizedText).join(" ").trim();
+    const paragraph: SemanticParagraph = {
+      id: paragraphId, type: "PARAGRAPH", pageId, text, normalizedText: text, bounds,
+      fragments: regionLines.map((line) => ({ ...line.bounds })), readingOrder: paragraphs.length,
+      confidence: region.confidence, orientation: { ...first.orientation }, regionId: region.id,
+      blockId: first.blockId, columnId: first.columnId, lineIds: regionLines.map((line) => line.id),
+      sentenceIds: [], columnIndex: first.columnIndex,
+      averageFontSize: median(regionLines.map((line) => line.averageFontSize ?? 0).filter((value) => value > 0)),
+    };
+    for (const line of regionLines) line.paragraphId = paragraphId;
+    paragraphs.push(paragraph);
+  }
+  return paragraphs;
+};
+
+const verticalRegionDistance = (left: Bounds, right: Bounds): number => {
+  const leftBottom = left.y + left.height;
+  const rightBottom = right.y + right.height;
+  if (leftBottom < right.y) return right.y - leftBottom;
+  if (rightBottom < left.y) return left.y - rightBottom;
+  return 0;
+};
+
+const addRegionRelation = (relations: Map<string, LayoutRegionRelation[]>, sourceId: string, relation: LayoutRegionRelation): void => {
+  const entries = relations.get(sourceId) ?? [];
+  if (!entries.some((entry) => entry.type === relation.type && entry.targetRegionId === relation.targetRegionId)) entries.push(relation);
+  relations.set(sourceId, entries);
+};
+
+const connectRegionRelations = (regions: LayoutRegion[]): LayoutRegion[] => {
+  const relations = new Map<string, LayoutRegionRelation[]>();
+  const captions = regions.filter((region) => region.layoutType === "caption");
+  const media = regions.filter((region) => MEDIA_REGION_TYPES.has(region.layoutType));
+  for (const caption of captions) {
+    const selected = media.map((candidate) => ({
+      candidate, distance: verticalRegionDistance(caption.bounds, candidate.bounds),
+      overlap: regionHorizontalOverlap(caption.bounds, candidate.bounds),
+    })).filter((entry) => entry.distance <= MAX_CAPTION_DISTANCE && entry.overlap >= 0.15)
+      .sort((left, right) => left.distance - right.distance || right.overlap - left.overlap)[0];
+    if (!selected) continue;
+    addRegionRelation(relations, caption.id, { type: "caption", targetRegionId: selected.candidate.id, distance: selected.distance });
+    addRegionRelation(relations, selected.candidate.id, { type: "caption", targetRegionId: caption.id, distance: selected.distance });
+  }
+  const headings = regions.filter((region) => region.layoutType === "section-header");
+  const targets = regions.filter((region) => region.layoutType === "text" || region.layoutType === "list-item" || MEDIA_REGION_TYPES.has(region.layoutType));
+  for (const target of targets) {
+    const selected = headings.map((heading) => ({
+      heading, distance: target.bounds.y - (heading.bounds.y + heading.bounds.height),
+      overlap: regionHorizontalOverlap(heading.bounds, target.bounds),
+    })).filter((entry) => entry.distance >= -0.01 && entry.distance <= MAX_SECTION_DISTANCE
+      && (entry.overlap >= 0.12 || entry.heading.bounds.width >= 0.55))
+      .sort((left, right) => left.distance - right.distance || right.overlap - left.overlap)[0];
+    if (!selected) continue;
+    const distance = Math.max(0, selected.distance);
+    addRegionRelation(relations, target.id, { type: "section-header", targetRegionId: selected.heading.id, distance });
+    addRegionRelation(relations, selected.heading.id, { type: "section-header", targetRegionId: target.id, distance });
+  }
+  return regions.map((region) => {
+    const regionRelations = relations.get(region.id) ?? [];
+    return { ...region, relations: regionRelations, relatedRegionIds: Array.from(new Set(regionRelations.map((relation) => relation.targetRegionId))) };
+  });
+};
+
+const buildYoloRegionModelData = (
+  input: BuildPageInput, sourceItems: NormalizedTextItem[], sourceWords: SourceWordCandidate[],
+  extractorVersion: string, schemaVersion: number, sourceSignature: string,
+): PageSemanticModelData | null => {
+  const detectedRegions = orderDetectedRegions(normalizeDetectedRegions(input));
+  if (detectedRegions.length === 0) return null;
+  const unassignedCandidates = assignWordsToDetectedRegions(sourceWords, detectedRegions);
+  const assignedCount = sourceWords.length - unassignedCandidates.length;
+  const assignmentRatio = sourceWords.length === 0 ? 1 : assignedCount / sourceWords.length;
+  if (sourceWords.length > 0 && (assignedCount === 0
+    || assignmentRatio < (input.minimumWordAssignmentRatio ?? DEFAULT_WORD_ASSIGNMENT_RATIO))) return null;
+
+  const materialized = materializeLayout(detectedRegions.map(regionDraftFromDetection), input.pageId, extractorVersion);
+  const built = buildWordsAndLines(materialized.placements, input.pageId, extractorVersion);
+  const regionIdByDetectionId = new Map(detectedRegions.map((region, index) => [
+    region.detection.id, materialized.layoutRegions[index]?.id ?? "",
+  ]));
+  const mediaWords: SemanticWord[] = [];
+  let nextWordOrder = built.words.length;
+  for (const region of detectedRegions) {
+    if (!MEDIA_REGION_TYPES.has(region.layoutType)) continue;
+    const regionId = regionIdByDetectionId.get(region.detection.id) ?? "";
+    for (const candidate of region.words) {
+      mediaWords.push(createLooseWord(candidate, input.pageId, extractorVersion, nextWordOrder, regionId));
+      nextWordOrder += 1;
+    }
+  }
+  const unassignedWords = unassignedCandidates.map((candidate) => {
+    const word = createLooseWord(candidate, input.pageId, extractorVersion, nextWordOrder, "unassigned");
+    nextWordOrder += 1;
+    return word;
+  });
+  const words = [...built.words, ...mediaWords];
+  let layoutRegions = materialized.layoutRegions.map((region, index) => {
+    const detected = detectedRegions[index];
+    if (!detected) return region;
+    const regionWords = words.filter((word) => word.regionId === region.id);
+    const regionLines = built.lines.filter((line) => line.regionId === region.id);
+    return {
+      ...region, bounds: { ...detected.bounds }, layoutType: detected.layoutType,
+      confidence: detected.detection.confidence, source: "yolo" as const,
+      sourceDetection: { detectionId: detected.detection.id, modelId: detected.detection.modelId ?? input.layoutModelId,
+        classId: detected.detection.classId, label: detected.detection.label, bounds: { ...detected.bounds } },
+      textContent: TEXT_REGION_TYPES.has(detected.layoutType) ? {
+        text: regionLines.map((line) => line.normalizedText).join(" ").trim(), paragraphIds: [],
+        lineIds: regionLines.map((line) => line.id), wordIds: regionWords.map((word) => word.id), source: "pdf-text" as const,
+      } : undefined,
+      mediaContent: MEDIA_REGION_TYPES.has(detected.layoutType) ? {
+        cropBounds: { ...detected.bounds }, embeddedWordIds: regionWords.map((word) => word.id),
+      } : undefined,
+      relatedRegionIds: [], relations: [],
+    };
+  });
+  const paragraphs = buildRegionParagraphs(built.lines, layoutRegions, input.pageId, extractorVersion);
+  const sentences = buildSentences(paragraphs, built.lines, words, materialized.layoutBlocks, input.pageId, extractorVersion);
+  layoutRegions = layoutRegions.map((region) => region.textContent ? {
+    ...region, textContent: { ...region.textContent,
+      paragraphIds: paragraphs.filter((paragraph) => paragraph.regionId === region.id).map((paragraph) => paragraph.id) },
+  } : region);
+  layoutRegions = connectRegionRelations(layoutRegions);
+  return {
+    schemaVersion, extractorVersion, documentId: input.documentId, pageId: input.pageId, pageNumber: input.pageNumber,
+    sourceSignature, semanticSource: "yolo-region",
+    readingOrder: [...layoutRegions].sort((left, right) => left.readingOrder - right.readingOrder).map((region) => region.id),
+    words, unassignedWords, lines: built.lines, layoutRegions, layoutBlocks: materialized.layoutBlocks,
+    columns: materialized.columns, sentences, paragraphs, createdAt: 0, sourceItemCount: sourceItems.length, processingDurationMs: 0,
+  };
+};
+
 const emptyModelData = (
   input: BuildPageInput,
   extractorVersion: string,
   schemaVersion: number,
   sourceSignature: string,
   sourceItemCount: number,
+  semanticSource: PageSemanticSource = "legacy-semantic-fallback",
 ): PageSemanticModelData => ({
   schemaVersion,
   extractorVersion,
@@ -1908,7 +2230,10 @@ const emptyModelData = (
   pageId: input.pageId,
   pageNumber: input.pageNumber,
   sourceSignature,
+  semanticSource,
+  readingOrder: [],
   words: [],
+  unassignedWords: [],
   lines: [],
   layoutRegions: [],
   layoutBlocks: [],
@@ -1920,69 +2245,56 @@ const emptyModelData = (
   processingDurationMs: 0,
 });
 
+export const createSemanticSourceSignature = (
+  textItems: readonly PageTextItemInput[], layoutDetections: readonly DetectedLayoutRegionInput[] = [], layoutModelId = "",
+): string => {
+  const textSignature = createTextItemSignature(textItems);
+  let hash = 2166136261;
+  const update = (value: string): void => {
+    for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619); }
+  };
+  update(layoutModelId);
+  for (const detection of [...layoutDetections].sort((left, right) => left.id.localeCompare(right.id))) {
+    update(detection.id); update(detection.label); update(String(detection.classId ?? "")); update(detection.confidence.toFixed(6));
+    update(detection.bounds.x.toFixed(6)); update(detection.bounds.y.toFixed(6));
+    update(detection.bounds.width.toFixed(6)); update(detection.bounds.height.toFixed(6));
+  }
+  return textSignature + ":layout:" + layoutDetections.length + ":" + (hash >>> 0).toString(16);
+};
+
+const buildLegacyModelData = (
+  input: BuildPageInput, sourceItems: NormalizedTextItem[], sourceWords: SourceWordCandidate[],
+  extractorVersion: string, schemaVersion: number, sourceSignature: string,
+): PageSemanticModelData => {
+  if (sourceWords.length === 0) return emptyModelData(input, extractorVersion, schemaVersion, sourceSignature, sourceItems.length);
+  const regionDrafts = analyzeLayout(buildLineDrafts(sourceWords, "provisional"));
+  const { placements, layoutRegions, layoutBlocks, columns } = materializeLayout(regionDrafts, input.pageId, extractorVersion);
+  const { words, lines } = buildWordsAndLines(placements, input.pageId, extractorVersion);
+  const paragraphs = buildParagraphs(lines, layoutBlocks, input.pageId, extractorVersion);
+  const sentences = buildSentences(paragraphs, lines, words, layoutBlocks, input.pageId, extractorVersion);
+  const legacyRegions = layoutRegions.map((region) => ({ ...region, textContent: {
+    text: lines.filter((line) => line.regionId === region.id).map((line) => line.normalizedText).join(" ").trim(),
+    paragraphIds: paragraphs.filter((paragraph) => paragraph.regionId === region.id).map((paragraph) => paragraph.id),
+    lineIds: lines.filter((line) => line.regionId === region.id).map((line) => line.id),
+    wordIds: words.filter((word) => word.regionId === region.id).map((word) => word.id), source: "pdf-text" as const,
+  } }));
+  return { schemaVersion, extractorVersion, documentId: input.documentId, pageId: input.pageId, pageNumber: input.pageNumber,
+    sourceSignature, semanticSource: "legacy-semantic-fallback", readingOrder: legacyRegions.map((region) => region.id),
+    words, unassignedWords: [], lines, layoutRegions: legacyRegions, layoutBlocks, columns, sentences, paragraphs,
+    createdAt: 0, sourceItemCount: sourceItems.length, processingDurationMs: 0 };
+};
+
 export const buildPageSemanticModel = (input: BuildPageInput): PageSemanticModel => {
   const extractorVersion = input.extractorVersion ?? SEMANTIC_EXTRACTOR_VERSION;
   const schemaVersion = input.schemaVersion ?? SEMANTIC_SCHEMA_VERSION;
-  const sourceSignature = createTextItemSignature(input.textItems);
+  const sourceSignature = createSemanticSourceSignature(input.textItems, input.layoutDetections, input.layoutModelId);
   const sourceItems = normalizeItems(input.textItems);
-
-  if (sourceItems.length === 0) {
-    return new PageSemanticModel(emptyModelData(
-      input,
-      extractorVersion,
-      schemaVersion,
-      sourceSignature,
-      0,
-    ));
-  }
-
   const sourceWords = sourceItems.flatMap(splitToSourceWords);
-  if (sourceWords.length === 0) {
-    return new PageSemanticModel(emptyModelData(
-      input,
-      extractorVersion,
-      schemaVersion,
-      sourceSignature,
-      sourceItems.length,
-    ));
+  if (input.layoutStrategy !== "legacy-semantic-fallback") {
+    const yoloData = buildYoloRegionModelData(input, sourceItems, sourceWords, extractorVersion, schemaVersion, sourceSignature);
+    if (yoloData) return new PageSemanticModel(yoloData);
   }
-
-  const provisionalLineFragments = buildLineDrafts(sourceWords, "provisional");
-  const regionDrafts = analyzeLayout(provisionalLineFragments);
-  const { placements, layoutRegions, layoutBlocks, columns } = materializeLayout(
-    regionDrafts,
-    input.pageId,
-    extractorVersion,
-  );
-  const { words, lines } = buildWordsAndLines(placements, input.pageId, extractorVersion);
-  const paragraphs = buildParagraphs(lines, layoutBlocks, input.pageId, extractorVersion);
-  const sentences = buildSentences(
-    paragraphs,
-    lines,
-    words,
-    layoutBlocks,
-    input.pageId,
-    extractorVersion,
-  );
-
-  return new PageSemanticModel({
-    schemaVersion,
-    extractorVersion,
-    documentId: input.documentId,
-    pageId: input.pageId,
-    pageNumber: input.pageNumber,
-    sourceSignature,
-    words,
-    lines,
-    layoutRegions,
-    layoutBlocks,
-    columns,
-    sentences,
-    paragraphs,
-    createdAt: 0,
-    sourceItemCount: sourceItems.length,
-    processingDurationMs: 0,
-  });
+  return new PageSemanticModel(buildLegacyModelData(input, sourceItems, sourceWords, extractorVersion, schemaVersion, sourceSignature));
 };
 
 export const buildPageModel = buildPageSemanticModel;

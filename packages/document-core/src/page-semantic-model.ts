@@ -1,8 +1,10 @@
 import type { NormalizedPoint, NormalizedRect } from "@ggulnote/shared-types";
 import { SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "./constants";
 import {
+  area,
   containsPoint,
   containsPointInRects,
+  distancePointToRect,
   distancePointToRects,
   intersectionArea,
   overlapRatio,
@@ -15,6 +17,7 @@ import type {
   LayoutRegion,
   PageSemanticModelData,
   SemanticCandidate,
+  SemanticCandidateType,
   SemanticLine,
   SemanticModelQuery,
   SemanticModelQueryResult,
@@ -23,6 +26,7 @@ import type {
   SemanticParagraph,
   SemanticQueryOptions,
   SemanticSentence,
+  SemanticTextPath,
   SemanticWord,
 } from "./types";
 
@@ -69,6 +73,21 @@ const isLayoutRecord = (value: unknown): boolean => {
     && isFiniteNumber(value.readingOrder);
 };
 
+const isLayoutRegionRecord = (value: unknown): boolean => {
+  return isLayoutRecord(value)
+    && isRecord(value)
+    && typeof value.layoutType === "string"
+    && isFiniteNumber(value.confidence)
+    && (value.source === "yolo" || value.source === "legacy")
+    && Array.isArray(value.relatedRegionIds)
+    && value.relatedRegionIds.every((entry) => typeof entry === "string")
+    && Array.isArray(value.relations)
+    && value.relations.every((entry) => isRecord(entry)
+      && (entry.type === "caption" || entry.type === "section-header")
+      && typeof entry.targetRegionId === "string"
+      && isFiniteNumber(entry.distance));
+};
+
 const isModelData = (value: unknown): value is PageSemanticModelData => {
   if (!isRecord(value)) {
     return false;
@@ -80,8 +99,13 @@ const isModelData = (value: unknown): value is PageSemanticModelData => {
     && typeof value.pageId === "string"
     && isFiniteNumber(value.pageNumber)
     && typeof value.sourceSignature === "string"
+    && (value.semanticSource === "yolo-region" || value.semanticSource === "legacy-semantic-fallback")
+    && Array.isArray(value.readingOrder)
+    && value.readingOrder.every((entry) => typeof entry === "string")
     && Array.isArray(value.words)
     && value.words.every((entry) => isObjectRecord(entry, "WORD"))
+    && Array.isArray(value.unassignedWords)
+    && value.unassignedWords.every((entry) => isObjectRecord(entry, "WORD"))
     && Array.isArray(value.lines)
     && value.lines.every((entry) => isObjectRecord(entry, "LINE"))
     && Array.isArray(value.sentences)
@@ -97,7 +121,7 @@ const isModelData = (value: unknown): value is PageSemanticModelData => {
       && Array.isArray(entry.fragments)
       && entry.fragments.every(isRect))
     && Array.isArray(value.layoutRegions)
-    && value.layoutRegions.every(isLayoutRecord)
+    && value.layoutRegions.every(isLayoutRegionRecord)
     && Array.isArray(value.layoutBlocks)
     && value.layoutBlocks.every(isLayoutRecord)
     && Array.isArray(value.columns)
@@ -109,19 +133,23 @@ const isModelData = (value: unknown): value is PageSemanticModelData => {
 
 const cloneRect = (rect: NormalizedRect): NormalizedRect => ({ ...rect });
 
+const cloneWord = (word: SemanticWord): SemanticWord => ({
+  ...word,
+  bounds: cloneRect(word.bounds),
+  orientation: { ...word.orientation },
+  sourceItemIds: [...word.sourceItemIds],
+  sourceRanges: word.sourceRanges.map((range) => ({ ...range })),
+  axis: { ...word.axis },
+  quad: {
+    points: word.quad.points.map((point) => ({ ...point })) as SemanticWord["quad"]["points"],
+  },
+});
+
 const cloneData = (data: PageSemanticModelData): PageSemanticModelData => ({
   ...data,
-  words: data.words.map((word) => ({
-    ...word,
-    bounds: cloneRect(word.bounds),
-    orientation: { ...word.orientation },
-    sourceItemIds: [...word.sourceItemIds],
-    sourceRanges: word.sourceRanges.map((range) => ({ ...range })),
-    axis: { ...word.axis },
-    quad: {
-      points: word.quad.points.map((point) => ({ ...point })) as SemanticWord["quad"]["points"],
-    },
-  })),
+  readingOrder: [...data.readingOrder],
+  words: data.words.map(cloneWord),
+  unassignedWords: data.unassignedWords.map(cloneWord),
   lines: data.lines.map((line) => ({
     ...line,
     bounds: cloneRect(line.bounds),
@@ -136,6 +164,22 @@ const cloneData = (data: PageSemanticModelData): PageSemanticModelData => ({
     orientation: { ...region.orientation },
     blockIds: [...region.blockIds],
     columnIds: [...region.columnIds],
+    sourceDetection: region.sourceDetection ? {
+      ...region.sourceDetection,
+      bounds: cloneRect(region.sourceDetection.bounds),
+    } : undefined,
+    textContent: region.textContent ? {
+      ...region.textContent,
+      paragraphIds: [...region.textContent.paragraphIds],
+      lineIds: [...region.textContent.lineIds],
+      wordIds: [...region.textContent.wordIds],
+    } : undefined,
+    mediaContent: region.mediaContent ? {
+      cropBounds: cloneRect(region.mediaContent.cropBounds),
+      embeddedWordIds: [...region.mediaContent.embeddedWordIds],
+    } : undefined,
+    relatedRegionIds: [...region.relatedRegionIds],
+    relations: region.relations.map((relation) => ({ ...relation })),
   })),
   layoutBlocks: data.layoutBlocks.map((block) => ({
     ...block,
@@ -169,9 +213,14 @@ const cloneData = (data: PageSemanticModelData): PageSemanticModelData => ({
 });
 
 const matchesType = (
-  types: readonly SemanticObjectType[] | undefined,
-  type: SemanticObjectType,
+  types: readonly SemanticCandidateType[] | undefined,
+  type: SemanticCandidateType,
 ): boolean => !types || types.length === 0 || types.includes(type);
+
+const matchesLayoutType = (
+  types: SemanticQueryOptions["layoutTypes"],
+  region: LayoutRegion,
+): boolean => !types || types.length === 0 || types.includes(region.layoutType);
 
 const resolveLimit = (limit: number | undefined): number => {
   if (limit === undefined || !Number.isFinite(limit)) {
@@ -191,11 +240,12 @@ const getFragments = (item: SemanticObject): NormalizedRect[] => {
   return [cloneRect(item.bounds)];
 };
 
-const getContainingTypeRank = (type: SemanticObjectType): number => {
+const getContainingTypeRank = (type: SemanticCandidateType): number => {
   if (type === "SENTENCE") return 0;
   if (type === "PARAGRAPH") return 1;
   if (type === "LINE") return 2;
-  return 3;
+  if (type === "WORD") return 3;
+  return 4;
 };
 
 const createCandidate = (
@@ -222,6 +272,32 @@ const createCandidate = (
   regionId: item.regionId,
   blockId: item.blockId,
   columnId: item.columnId,
+});
+
+const createRegionCandidate = (
+  region: LayoutRegion,
+  text: string,
+  directHit: boolean,
+  distance: number,
+  envelopeOverlap: number,
+): SemanticCandidate => ({
+  id: region.id,
+  type: "LAYOUT_REGION",
+  layoutType: region.layoutType,
+  pageId: region.pageId,
+  text,
+  bounds: cloneRect(region.bounds),
+  fragments: [cloneRect(region.bounds)],
+  containsPoint: directHit,
+  directHit,
+  distance,
+  overlapRatio: envelopeOverlap,
+  fragmentOverlapRatio: envelopeOverlap,
+  readingOrder: region.readingOrder,
+  confidence: region.confidence,
+  regionId: region.id,
+  blockId: "",
+  columnId: "",
 });
 
 const sortCandidates = (
@@ -254,12 +330,14 @@ export class PageSemanticModel implements SemanticModelQuery {
   private readonly lineMap: Map<string, SemanticLine>;
   private readonly sentenceMap: Map<string, SemanticSentence>;
   private readonly paragraphMap: Map<string, SemanticParagraph>;
+  private readonly regionMap: Map<string, LayoutRegion>;
 
   public constructor(private readonly data: PageSemanticModelData) {
-    this.wordMap = new Map(data.words.map((item) => [item.id, item]));
+    this.wordMap = new Map([...data.words, ...data.unassignedWords].map((item) => [item.id, item]));
     this.lineMap = new Map(data.lines.map((item) => [item.id, item]));
     this.sentenceMap = new Map(data.sentences.map((item) => [item.id, item]));
     this.paragraphMap = new Map(data.paragraphs.map((item) => [item.id, item]));
+    this.regionMap = new Map(data.layoutRegions.map((item) => [item.id, item]));
   }
 
   public static fromSerialized(serialized: unknown): PageSemanticModel {
@@ -286,8 +364,24 @@ export class PageSemanticModel implements SemanticModelQuery {
     return this.paragraphMap.get(id) ?? null;
   }
 
+  public getLayoutRegion(id: string): LayoutRegion | null {
+    return this.regionMap.get(id) ?? null;
+  }
+
   public getLayoutRegions(): readonly LayoutRegion[] {
     return this.data.layoutRegions;
+  }
+
+  public getRegionReadingOrder(): readonly string[] {
+    return this.data.readingOrder;
+  }
+
+  public getUnassignedWords(): readonly SemanticWord[] {
+    return this.data.unassignedWords;
+  }
+
+  public getSemanticSource(): PageSemanticModelData["semanticSource"] {
+    return this.data.semanticSource;
   }
 
   public getLayoutBlocks(): readonly LayoutBlock[] {
@@ -321,7 +415,42 @@ export class PageSemanticModel implements SemanticModelQuery {
       columnCount: this.data.columns.length,
       sourceItemCount: this.data.sourceItemCount,
       processingDurationMs: this.data.processingDurationMs,
+      unassignedWordCount: this.data.unassignedWords.length,
+      semanticSource: this.data.semanticSource,
     };
+  }
+
+  public findRegionAtPoint(point: NormalizedPoint): LayoutRegion | null {
+    return [...this.data.layoutRegions]
+      .filter((region) => containsPoint(region.bounds, point))
+      .sort((left, right) => {
+        const areaDelta = area(left.bounds) - area(right.bounds);
+        if (Math.abs(areaDelta) > Number.EPSILON) return areaDelta;
+        if (left.confidence !== right.confidence) return right.confidence - left.confidence;
+        return left.readingOrder - right.readingOrder;
+      })[0] ?? null;
+  }
+
+  public findTextPathAtPoint(point: NormalizedPoint): SemanticTextPath {
+    const region = this.findRegionAtPoint(point);
+    if (!region) {
+      const word = [...this.wordMap.values()]
+        .filter((candidate) => containsPoint(candidate.bounds, point))
+        .sort((left, right) => area(left.bounds) - area(right.bounds))[0] ?? null;
+      return { region: null, line: null, word };
+    }
+    const lines = [...this.lineMap.values()].filter((line) => line.regionId === region.id);
+    const line = lines.filter((candidate) => containsPoint(candidate.bounds, point))
+      .sort((left, right) => area(left.bounds) - area(right.bounds))[0]
+      ?? lines.sort((left, right) => distancePointToRect(point, left.bounds) - distancePointToRect(point, right.bounds))[0]
+      ?? null;
+    const words = [...this.wordMap.values()].filter((word) =>
+      word.regionId === region.id && (!line || word.lineId === line.id));
+    const word = words.filter((candidate) => containsPoint(candidate.bounds, point))
+      .sort((left, right) => area(left.bounds) - area(right.bounds))[0]
+      ?? words.sort((left, right) => distancePointToRect(point, left.bounds) - distancePointToRect(point, right.bounds))[0]
+      ?? null;
+    return { region, line, word };
   }
 
   public findAtPoint(
@@ -347,6 +476,16 @@ export class PageSemanticModel implements SemanticModelQuery {
       }
 
       candidates.push(createCandidate(item, fragments, true, 0, 1, fragmentOverlap));
+    }
+
+    if (matchesType(options.types, "LAYOUT_REGION")) {
+      for (const region of this.data.layoutRegions) {
+        if (!matchesLayoutType(options.layoutTypes, region) || !containsPoint(region.bounds, point)) {
+          continue;
+        }
+
+        candidates.push(createRegionCandidate(region, this.getRegionCandidateText(region), true, 0, 1));
+      }
     }
 
     return candidates.sort(sortCandidates).slice(0, resolveLimit(options.limit));
@@ -379,6 +518,28 @@ export class PageSemanticModel implements SemanticModelQuery {
         directHit ? 1 : 0,
         directHit ? 1 : 0,
       ));
+    }
+
+    if (matchesType(options.types, "LAYOUT_REGION")) {
+      for (const region of this.data.layoutRegions) {
+        if (!matchesLayoutType(options.layoutTypes, region)) {
+          continue;
+        }
+
+        const directHit = containsPoint(region.bounds, point);
+        const distance = distancePointToRect(point, region.bounds);
+        if (distance > maximumDistance) {
+          continue;
+        }
+
+        candidates.push(createRegionCandidate(
+          region,
+          this.getRegionCandidateText(region),
+          directHit,
+          distance,
+          directHit ? 1 : 0,
+        ));
+      }
     }
 
     return candidates.sort(sortCandidates).slice(0, resolveLimit(options.limit));
@@ -416,6 +577,27 @@ export class PageSemanticModel implements SemanticModelQuery {
       ));
     }
 
+    if (matchesType(options.types, "LAYOUT_REGION")) {
+      for (const region of this.data.layoutRegions) {
+        if (!matchesLayoutType(options.layoutTypes, region) || intersectionArea(rect, region.bounds) <= 0) {
+          continue;
+        }
+
+        const regionOverlap = overlapRatio(rect, region.bounds);
+        if (regionOverlap < minimumOverlap) {
+          continue;
+        }
+
+        candidates.push(createRegionCandidate(
+          region,
+          this.getRegionCandidateText(region),
+          true,
+          0,
+          regionOverlap,
+        ));
+      }
+    }
+
     return candidates
       .sort((left, right) => {
         if (left.fragmentOverlapRatio !== right.fragmentOverlapRatio) {
@@ -424,6 +606,18 @@ export class PageSemanticModel implements SemanticModelQuery {
         return sortCandidates(left, right);
       })
       .slice(0, resolveLimit(options.limit));
+  }
+
+  private getRegionCandidateText(region: LayoutRegion): string {
+    if (region.textContent?.text) {
+      return region.textContent.text;
+    }
+
+    const embeddedText = region.mediaContent?.embeddedWordIds
+      .map((wordId) => this.wordMap.get(wordId)?.text ?? "")
+      .filter((text) => text.length > 0)
+      .join(" ");
+    return embeddedText || region.sourceDetection?.label || region.layoutType;
   }
 
   public toSerialized(): PageSemanticModelData {

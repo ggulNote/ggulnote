@@ -17,3 +17,10 @@ docs
 AGENTS.md
 
 tmp-turbo-cache/
+# Document layout model tooling
+tools/document-layout-model/.venv/
+tools/document-layout-model/**/__pycache__/
+tools/document-layout-model/**/*.pyc
+tools/document-layout-model/artifacts/*.pt
+tools/document-layout-model/outputs/*
+!tools/document-layout-model/outputs/.gitkeep

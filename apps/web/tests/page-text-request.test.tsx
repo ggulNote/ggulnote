@@ -46,7 +46,7 @@ describe("page-scoped Text Item requests", () => {
   });
 
   it("invalidates previous semantic caches with extractor version 6", () => {
-    expect(SEMANTIC_EXTRACTOR_VERSION).toBe("7");
+    expect(SEMANTIC_EXTRACTOR_VERSION).toBe("8");
   });
 
   it("rejects cache records whose model document or page identity differs", () => {
