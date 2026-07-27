@@ -20,5 +20,12 @@ export interface NormalizedLandmark3D {
 export interface FaceLandmarkFrame {
   readonly frameId: number;
   readonly sourceCapturedAt: SessionTimeMs;
+  readonly frameWidth: number;
+  readonly frameHeight: number;
   readonly landmarks: readonly NormalizedLandmark3D[];
+  /**
+   * MediaPipe Face Landmarker does not guarantee a per-frame tracking confidence in
+   * the same payload used here.
+   */
+  readonly trackingConfidence: number | null;
 }
