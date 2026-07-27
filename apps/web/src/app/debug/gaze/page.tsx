@@ -23,12 +23,26 @@ const initialStats: FaceTrackingSessionStats = {
   processingCompletedAt: null,
   processingLatencyMs: null,
   inferenceDurationMs: null,
+  gazeComputationDurationMs: null,
+  totalWorkerDurationMs: null,
   droppedFrameCount: 0,
   fps: 0,
   lastError: null,
   frameWidth: null,
   frameHeight: null,
   trackingConfidence: null,
+  rawGazeStatus: null,
+  rawGazeMessage: null,
+  leftDirection: null,
+  rightDirection: null,
+  rawCombinedDirection: null,
+  smoothedCombinedDirection: null,
+  eyeSphereLeft: null,
+  eyeSphereRight: null,
+  sampleCount: null,
+  eyeGeometryInitialized: false,
+  eyeGeometryInitializedAt: null,
+  eyeGeometryInitializedFromFrameId: null,
 };
 
 export default function DebugGazePage(): React.ReactElement {
@@ -38,7 +52,7 @@ export default function DebugGazePage(): React.ReactElement {
   const sessionRef = useRef<FaceTrackingSession | null>(null);
   const statsRef = useRef(initialStats);
   const [stats, setStats] = useState(initialStats);
-  const [running, setRunning] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
 
   useEffect(() => {
     clockRef.current = new InteractionClock(() => performance.now());
@@ -59,7 +73,7 @@ export default function DebugGazePage(): React.ReactElement {
       sessionRef.current?.dispose();
       sessionRef.current = null;
       drawLandmarkOverlay(overlayCanvas, null);
-      setRunning(false);
+      setIsRunning(false);
     };
   }, []);
 
@@ -83,7 +97,11 @@ export default function DebugGazePage(): React.ReactElement {
         {
           onStatsChange: (next) => {
             statsRef.current = next;
-            setRunning(next.status === "running" || next.status === "loading-model" || next.status === "requesting-camera");
+            setIsRunning(
+              next.status === "running" ||
+                next.status === "loading-model" ||
+                next.status === "requesting-camera",
+            );
           },
           onLandmarkFrame: (frame) => {
             drawLandmarkOverlay(overlayCanvasRef.current, frame);
@@ -112,13 +130,36 @@ export default function DebugGazePage(): React.ReactElement {
 
   const stop = () => {
     sessionRef.current?.stop();
-    setRunning(false);
+    setIsRunning(false);
+  };
+
+  const initializeEyeGeometry = async () => {
+    const session = ensureSession();
+    try {
+      await session.initializeEyeGeometry();
+    } catch {
+      // reflected as errors in stats
+    }
+  };
+
+  const resetEyeGeometry = async () => {
+    const session = ensureSession();
+    try {
+      await session.resetEyeGeometry();
+    } catch {
+      // ignore
+    }
   };
 
   return (
     <main className="mx-auto w-full max-w-7xl p-4 md:p-8">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Face Landmark Debug</h1>
+        <div>
+          <h1 className="text-2xl font-semibold">Face Landmark Debug</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Raw gaze 계산을 연결하려면 먼저 정면 중앙을 보면서 <strong>Initialize Eye Geometry</strong>를 실행하세요.
+          </p>
+        </div>
         <Link
           href="/debug"
           className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
@@ -132,13 +173,13 @@ export default function DebugGazePage(): React.ReactElement {
         <FaceLandmarkDebugPanel stats={stats} />
       </div>
 
-      <section className="mt-4 flex gap-3">
+      <section className="mt-4 flex flex-wrap gap-3">
         <button
           type="button"
           onClick={() => {
             void start();
           }}
-          disabled={running}
+          disabled={isRunning}
           className="rounded-md border border-slate-900 px-4 py-2 font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Start Camera
@@ -146,10 +187,30 @@ export default function DebugGazePage(): React.ReactElement {
         <button
           type="button"
           onClick={stop}
-          disabled={!running}
+          disabled={!isRunning}
           className="rounded-md border border-slate-300 px-4 py-2 font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Stop Camera
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void initializeEyeGeometry();
+          }}
+          disabled={!isRunning}
+          className="rounded-md border border-sky-700 px-4 py-2 font-medium text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Initialize Eye Geometry
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void resetEyeGeometry();
+          }}
+          disabled={!isRunning}
+          className="rounded-md border border-amber-700 px-4 py-2 font-medium text-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Reset Eye Geometry
         </button>
       </section>
     </main>

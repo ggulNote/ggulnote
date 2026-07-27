@@ -1,19 +1,30 @@
 import {
   type GazeWorkerDisposedResponse,
   type GazeWorkerErrorResponse,
+  type GazeWorkerEyeGeometryInitializedResponse,
+  type GazeWorkerEyeGeometryResetResponse,
+  type GazeWorkerEyeGeometryRequiredResponse,
   type GazeWorkerInitializeRequest,
-  type GazeWorkerLandmarkResultResponse,
   type GazeWorkerNoFaceResponse,
   type GazeWorkerProcessFrameRequest,
+  type GazeWorkerRawGazeErrorResponse,
+  type GazeWorkerRawGazeResultResponse,
   type GazeWorkerReadyResponse,
   type GazeWorkerRequest,
   type GazeWorkerResponse,
+  type GazeWorkerResetEyeGeometryRequest,
+  type GazeWorkerInitializeEyeGeometryRequest,
 } from "./gaze-worker-protocol";
+import type { SessionTimeMs } from "@ggulnote/shared-types";
 import type { CapturedVideoFrame } from "../capture/frame-scheduler";
 
 type ProcessFrameCallbacks = {
-  onLandmarkResult: (response: GazeWorkerLandmarkResultResponse) => void;
+  onRawGazeResult: (response: GazeWorkerRawGazeResultResponse) => void;
   onNoFace: (response: GazeWorkerNoFaceResponse) => void;
+  onEyeGeometryRequired: (response: GazeWorkerEyeGeometryRequiredResponse) => void;
+  onEyeGeometryInitialized: (response: GazeWorkerEyeGeometryInitializedResponse) => void;
+  onEyeGeometryReset: (response: GazeWorkerEyeGeometryResetResponse) => void;
+  onRawGazeError: (response: GazeWorkerRawGazeErrorResponse) => void;
   onError: (response: GazeWorkerErrorResponse) => void;
   onDisposed: (response: GazeWorkerDisposedResponse | null) => void;
 };
@@ -41,7 +52,6 @@ export class GazeWorkerClient {
   private pendingFrame: CapturedVideoFrame | null = null;
   private droppedFrameCount = 0;
   private isInitialized = false;
-  private disposedEmitted = false;
 
   public constructor(config: GazeWorkerClientConfig) {
     this.modelUrl = config.modelUrl;
@@ -56,23 +66,24 @@ export class GazeWorkerClient {
 
     this.worker.onmessage = (event: MessageEvent<GazeWorkerResponse>) => {
       const response = event.data;
-      const request = this.pending.get(response.requestId);
-      if (!request) {
+      const pendingRequest = this.pending.get(response.requestId);
+      if (!pendingRequest) {
+        if (response.type === "disposed") {
+          this.handleDisposedResponse(response);
+        }
         return;
       }
 
       this.pending.delete(response.requestId);
-      request.resolve(response);
+      this.dispatchResponseCallbacks(response);
+      pendingRequest.resolve(response);
     };
 
     this.worker.onerror = (event) => {
       const error = new Error(event.message || "gaze landmark worker failed");
-      for (const request of this.pending.values()) {
-        request.reject(error);
-      }
-      this.pending.clear();
+      this.failAllPending(error);
       this.disposed = true;
-      this.emitDisposed(null);
+      this.callbacks.onDisposed(null);
     };
   }
 
@@ -94,10 +105,42 @@ export class GazeWorkerClient {
     this.initPromise = this.request<typeof request, GazeWorkerReadyResponse>(request).then(() => {
       this.isInitialized = true;
     });
+
     return this.initPromise;
   }
 
-  public processFrame(frame: CapturedVideoFrame): void {
+  public async initializeEyeGeometry(requestAt: SessionTimeMs): Promise<void> {
+    if (this.disposed) {
+      throw new Error("The gaze worker has already been disposed.");
+    }
+    if (!this.isInitialized) {
+      throw new Error("The gaze worker has not been initialized.");
+    }
+
+    const request = this.createRequest<Omit<GazeWorkerInitializeEyeGeometryRequest, "requestId">>({
+      type: "initialize-eye-geometry",
+      requestAt,
+    });
+
+    await this.request(request);
+  }
+
+  public async resetEyeGeometry(): Promise<void> {
+    if (this.disposed) {
+      throw new Error("The gaze worker has already been disposed.");
+    }
+    if (!this.isInitialized) {
+      throw new Error("The gaze worker has not been initialized.");
+    }
+
+    const request = this.createRequest<Omit<GazeWorkerResetEyeGeometryRequest, "requestId">>({
+      type: "reset-eye-geometry",
+    });
+
+    await this.request(request);
+  }
+
+  public processFrame(frame: CapturedVideoFrame, processingStartedAt: SessionTimeMs): void {
     if (this.disposed || !this.isInitialized) {
       frame.imageBitmap.close();
       return;
@@ -111,14 +154,17 @@ export class GazeWorkerClient {
     }
 
     this.busy = true;
-    void this.postFrame(frame).finally(() => {
+    void this.postFrame(frame, processingStartedAt).catch(() => {}).finally(() => {
       this.busy = false;
 
       const nextFrame = this.pendingFrame;
-      if (nextFrame) {
-        this.pendingFrame = null;
-        this.processFrame(nextFrame);
+      if (!nextFrame) {
+        return;
       }
+
+      this.pendingFrame = null;
+      const startedAt = this.timeNow();
+      this.processFrame(nextFrame, startedAt);
     });
   }
 
@@ -143,44 +189,66 @@ export class GazeWorkerClient {
       this.pendingFrame = null;
     }
 
-    this.worker.postMessage({ requestId: this.requestIdSequence, type: "dispose" });
-    this.requestIdSequence += 1;
+    if (!this.isInitialized) {
+      this.failAllPending(new Error("gaze worker is disposed"));
+      this.worker.terminate();
+      this.callbacks.onDisposed(null);
+      return;
+    }
 
+    const request = {
+      requestId: this.requestIdSequence,
+      type: "dispose" as const,
+    };
+    this.requestIdSequence += 1;
+    this.worker.postMessage(request);
     this.worker.terminate();
 
-    for (const requestEntry of this.pending.values()) {
-      requestEntry.reject(new Error("gaze worker is disposed"));
-    }
-    this.pending.clear();
-    this.emitDisposed(null);
+    this.failAllPending(new Error("gaze worker is disposed"));
+    this.callbacks.onDisposed(null);
   }
 
-  public get isBusy(): boolean {
-    return this.busy;
-  }
-
-  private async postFrame(frame: CapturedVideoFrame): Promise<void> {
+  private async postFrame(frame: CapturedVideoFrame, processingStartedAt: SessionTimeMs): Promise<void> {
     const request = this.createRequest<Omit<GazeWorkerProcessFrameRequest, "requestId">>({
       type: "process-frame",
       frameId: frame.frameId,
       sourceCapturedAt: frame.sourceCapturedAt,
       frameWidth: frame.frameWidth,
       frameHeight: frame.frameHeight,
+      processingStartedAt,
       imageBitmap: frame.imageBitmap,
     });
 
-    const response = await this.request<typeof request, GazeWorkerLandmarkResultResponse | GazeWorkerNoFaceResponse | GazeWorkerErrorResponse>(
-      request,
-      [frame.imageBitmap],
-    );
+    const response = await this.request<typeof request,
+      | GazeWorkerRawGazeResultResponse
+      | GazeWorkerNoFaceResponse
+      | GazeWorkerErrorResponse
+      | GazeWorkerEyeGeometryRequiredResponse
+      | GazeWorkerRawGazeErrorResponse
+      | GazeWorkerDisposedResponse>(request, [frame.imageBitmap]);
 
-    if (response.type === "landmark-result") {
-      this.callbacks.onLandmarkResult(response);
+    if (response.type === "raw-gaze-result") {
+      this.callbacks.onRawGazeResult(response);
       return;
     }
 
     if (response.type === "no-face") {
       this.callbacks.onNoFace(response);
+      return;
+    }
+
+    if (response.type === "eye-geometry-required") {
+      this.callbacks.onEyeGeometryRequired(response);
+      return;
+    }
+
+    if (response.type === "raw-gaze-error") {
+      this.callbacks.onRawGazeError(response);
+      return;
+    }
+
+    if (response.type === "disposed") {
+      this.callbacks.onDisposed(response);
       return;
     }
 
@@ -202,6 +270,34 @@ export class GazeWorkerClient {
     });
   }
 
+  private dispatchResponseCallbacks(response: GazeWorkerResponse): void {
+    switch (response.type) {
+      case "eye-geometry-initialized":
+        this.callbacks.onEyeGeometryInitialized(response);
+        return;
+      case "eye-geometry-reset":
+        this.callbacks.onEyeGeometryReset(response);
+        return;
+      case "disposed":
+        this.callbacks.onDisposed(response);
+        return;
+      default:
+        return;
+    }
+  }
+
+  private handleDisposedResponse(response: GazeWorkerDisposedResponse): void {
+    this.disposed = true;
+    this.callbacks.onDisposed(response);
+  }
+
+  private failAllPending(error: Error): void {
+    for (const request of this.pending.values()) {
+      request.reject(error);
+    }
+    this.pending.clear();
+  }
+
   private createRequest<TRequest extends Omit<GazeWorkerRequest, "requestId">>(
     request: TRequest,
   ): TRequest & { requestId: number } {
@@ -210,11 +306,11 @@ export class GazeWorkerClient {
     return { ...request, requestId };
   }
 
-  private emitDisposed(response: GazeWorkerDisposedResponse | null): void {
-    if (this.disposedEmitted) {
-      return;
+  private timeNow(): SessionTimeMs {
+    if (typeof performance === "undefined") {
+      return Date.now() as SessionTimeMs;
     }
-    this.disposedEmitted = true;
-    this.callbacks.onDisposed(response);
+
+    return performance.now() as SessionTimeMs;
   }
 }

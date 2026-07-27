@@ -5,6 +5,11 @@ import type { GazeWorkerRequest } from "./gaze-worker-protocol";
 
 type WorkerMessage = GazeWorkerRequest | { requestId: number; type: "disposed" };
 
+type ResponseByType = {
+  type: string;
+  [key: string]: unknown;
+};
+
 class FakeWorker {
   public onmessage: ((event: MessageEvent) => void) | null = null;
   public onerror: ((event: ErrorEvent) => void) | null = null;
@@ -21,6 +26,13 @@ class FakeWorker {
       }, 0);
       return;
     }
+
+    if (message.type === "dispose") {
+      const response = { requestId: message.requestId, type: "disposed" };
+      setTimeout(() => {
+        this.emitMessage(response);
+      }, 0);
+    }
   }
 
   public emitMessage(data: unknown): void {
@@ -36,6 +48,7 @@ class FakeWorker {
         return message.requestId;
       }
     }
+
     return null;
   }
 }
@@ -48,10 +61,10 @@ function bitmapWithSize(width: number, height: number): ImageBitmap {
   } as unknown as ImageBitmap;
 }
 
-function createSessionFrame(id: number) {
+function createSessionFrame(id: number, sourceAt: number) {
   return {
     frameId: id,
-    sourceCapturedAt: id as SessionTimeMs,
+    sourceCapturedAt: sourceAt as SessionTimeMs,
     imageBitmap: bitmapWithSize(1, 1),
     frameWidth: 640,
     frameHeight: 480,
@@ -67,8 +80,12 @@ describe("GazeWorkerClient", () => {
 
   it("keeps monotonic processing by processing only the newest queued frame", async () => {
     const callbacks = {
-      onLandmarkResult: vi.fn(),
+      onRawGazeResult: vi.fn(),
       onNoFace: vi.fn(),
+      onEyeGeometryRequired: vi.fn(),
+      onEyeGeometryInitialized: vi.fn(),
+      onEyeGeometryReset: vi.fn(),
+      onRawGazeError: vi.fn(),
       onError: vi.fn(),
       onDisposed: vi.fn(),
     };
@@ -82,13 +99,13 @@ describe("GazeWorkerClient", () => {
 
     await client.initialize();
 
-    const frame1 = createSessionFrame(1);
-    const frame2 = createSessionFrame(2);
-    const frame3 = createSessionFrame(3);
+    const frame1 = createSessionFrame(1, 1000);
+    const frame2 = createSessionFrame(2, 1010);
+    const frame3 = createSessionFrame(3, 1020);
 
-    client.processFrame(frame1);
-    client.processFrame(frame2);
-    client.processFrame(frame3);
+    client.processFrame(frame1, 1000 as SessionTimeMs);
+    client.processFrame(frame2, 1010 as SessionTimeMs);
+    client.processFrame(frame3, 1020 as SessionTimeMs);
 
     expect(client.getDroppedFrameCount()).toBe(2);
 
@@ -99,21 +116,65 @@ describe("GazeWorkerClient", () => {
 
     fakeWorker.emitMessage({
       requestId: (firstProcess as { requestId: number }).requestId,
-      type: "landmark-result",
-      frameId: 1,
-      sourceCapturedAt: 1 as SessionTimeMs,
-      frameWidth: 640,
-      frameHeight: 480,
-      landmarks: [],
-      trackingConfidence: null,
+      type: "raw-gaze-result",
+      frame: {
+        frameId: 1,
+        sourceCapturedAt: 1000 as SessionTimeMs,
+        frameWidth: 640,
+        frameHeight: 480,
+        landmarks: [],
+        trackingConfidence: null,
+      },
+      result: {
+        kind: "tracking",
+        frameId: 1,
+        sourceCapturedAt: 1000 as SessionTimeMs,
+        observation: {
+          frameId: 1,
+          sourceCapturedAt: 1000 as SessionTimeMs,
+          processingStartedAt: 1000 as SessionTimeMs,
+          processingCompletedAt: 1000 as SessionTimeMs,
+          leftDirection: { x: 0, y: 0, z: 1 },
+          rightDirection: { x: 0, y: 0, z: 1 },
+          rawCombinedDirection: { x: 0, y: 0, z: 1 },
+          smoothedCombinedDirection: { x: 0, y: 0, z: 1 },
+          head: {
+            center: { x: 0, y: 0, z: 0 },
+            rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            faceScale: 1,
+          },
+          smoothing: {
+            sampleCount: 1,
+            windowStartedAt: 1000 as SessionTimeMs,
+            windowEndedAt: 1000 as SessionTimeMs,
+          },
+          quality: {
+            faceDetected: true,
+            leftEyeReady: true,
+            rightEyeReady: true,
+            trackingConfidence: null,
+          },
+        },
+        eyeSpheres: {
+          leftEyeSphereCenter: { x: 0, y: 0, z: 0 },
+          rightEyeSphereCenter: { x: 0, y: 0, z: 0 },
+        },
+        timingMs: {
+          gazeComputationDurationMs: 0,
+          totalWorkerDurationMs: 0,
+        },
+      },
       inferenceDurationMs: 1,
-    });
+      gazeComputationDurationMs: 0,
+      totalWorkerDurationMs: 1,
+    } as ResponseByType);
 
     await new Promise((resolve) => setTimeout(resolve, 0));
+
     const processMessages = fakeWorker.postedMessages.filter((item) => item.type === "process-frame");
     expect(processMessages.length).toBe(2);
-    expect(processMessages[1].frameId).toBe(3);
-    expect(callbacks.onLandmarkResult).toHaveBeenCalledTimes(1);
+    expect(processMessages[1]).toMatchObject({ type: "process-frame", frameId: 3 });
+    expect(callbacks.onRawGazeResult).toHaveBeenCalledTimes(1);
   });
 
   it("is safe when disposed repeatedly", () => {
@@ -122,8 +183,12 @@ describe("GazeWorkerClient", () => {
       modelUrl: "model.task",
       wasmRoot: "wasm/",
       callbacks: {
-        onLandmarkResult: vi.fn(),
+        onRawGazeResult: vi.fn(),
         onNoFace: vi.fn(),
+        onEyeGeometryRequired: vi.fn(),
+        onEyeGeometryInitialized: vi.fn(),
+        onEyeGeometryReset: vi.fn(),
+        onRawGazeError: vi.fn(),
         onError: vi.fn(),
         onDisposed,
       },
@@ -134,27 +199,44 @@ describe("GazeWorkerClient", () => {
       client.dispose();
       client.dispose();
     }).not.toThrow();
+
     expect(onDisposed).toHaveBeenCalledTimes(1);
   });
 
-  it("closes queued bitmaps when disposal happens", () => {
-    const frame = createSessionFrame(1);
+  it("closes queued bitmaps when disposal happens", async () => {
+    const initialFrame = createSessionFrame(1, 1000);
+    const queuedFrame = createSessionFrame(2, 1010);
+    const callbacks = {
+      onRawGazeResult: vi.fn(),
+      onNoFace: vi.fn(),
+      onEyeGeometryRequired: vi.fn(),
+      onEyeGeometryInitialized: vi.fn(),
+      onEyeGeometryReset: vi.fn(),
+      onRawGazeError: vi.fn(),
+      onError: vi.fn(),
+      onDisposed: vi.fn(),
+    };
+
     const client = new GazeWorkerClient({
       modelUrl: "model.task",
       wasmRoot: "wasm/",
-      callbacks: {
-        onLandmarkResult: vi.fn(),
-        onNoFace: vi.fn(),
-        onError: vi.fn(),
-        onDisposed: vi.fn(),
-      },
+      callbacks,
       workerFactory: () => fakeWorker as unknown as Worker,
     });
 
-    client.processFrame(frame);
+    await client.initialize();
+    client.processFrame(initialFrame, 1000 as SessionTimeMs);
+    client.processFrame(queuedFrame, 1010 as SessionTimeMs);
+
     client.dispose();
 
-    expect((frame.imageBitmap.close as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
-    expect(fakeWorker.getDisposeRequestId()).toBe(1);
+    expect(
+      (queuedFrame.imageBitmap.close as unknown as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBe(1);
+    expect(initialFrame.imageBitmap.close).toBeDefined();
+    expect(fakeWorker.postedMessages.some((message) => message.type === "dispose")).toBe(true);
+    expect(
+      callbacks.onDisposed.mock.calls.length,
+    ).toBe(1);
   });
 });

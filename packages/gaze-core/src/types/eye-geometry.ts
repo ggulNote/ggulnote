@@ -1,17 +1,18 @@
+import type { SessionTimeMs } from "@ggulnote/shared-types";
 import type { Vector3 } from "./vector";
 
 /**
- * Geometry needed to derive one eye direction in a consistent 3D space.
- *
- * This type only carries geometry. It does not implement the JEO vector
- * calculation.
+ * Eye-sphere offset profile used during runtime gaze computation.
  */
-export interface EyeGeometry {
-  readonly eyeballCenter: Vector3;
-  readonly irisCenter: Vector3;
-}
-
 export interface EyeGeometryProfile {
-  readonly leftEye: EyeGeometry | null;
-  readonly rightEye: EyeGeometry | null;
+  readonly leftEyeLocalOffset: Vector3;
+  readonly rightEyeLocalOffset: Vector3;
+
+  readonly leftReferenceFaceScale: number;
+  readonly rightReferenceFaceScale: number;
+
+  readonly baseEyeSphereRadius: number;
+
+  readonly initializedFromFrameId: number;
+  readonly initializedAt: SessionTimeMs;
 }

@@ -1,13 +1,18 @@
-# Gaze Feature (Phase 2)
+# Gaze Feature (Phase 3)
 
-이 단계에서는 **실제 웹캠**에서 MediaPipe Face Landmarker를 통해 얼굴 Landmark를 추출하고 디버그 화면에서 시각화합니다.
-JEO Python 코드/로직은 가져오지 않고, `Raw Gaze Vector` 계산은 다음 단계로 넘깁니다.
+이 단계는 JEO Python의 `Raw Gaze Vector` 계산 경로를 Next.js 순수 TS로 포팅합니다.
+실시간 웹캠 입력은 이전 단계에서 추출한 MediaPipe Face Landmarker 기반 Landmark를 유지합니다.
 
-- `FrameScheduler`는 `requestVideoFrameCallback`을 우선 사용하고, 미지원 환경에서는 `requestAnimationFrame`으로 fallback합니다.
-- `FaceTrackingSession`은 `InteractionClock`(브라우저는 `performance.now()`로 주입)으로 `sourceCapturedAt`을 기록합니다.
-- MediaPipe 추론은 `Web Worker`에서 수행하고, 타임스탬프(`detectForVideo`)는 별도 증가 카운터(`nextMediaPipeTimestamp`)로 관리합니다.
-- `sourceCapturedAt`은 작업 완료 시각이 아니라 프레임을 받은 시각(`InteractionClock` 기반)입니다.
-- Worker는 동시 처리 1개만 허용하고, 처리 중 새로운 프레임은 가장 최신 프레임만 남기도록 backpressure 처리합니다.
-- `trackingConfidence`은 MediaPipe에서 신뢰할 수 있는 값이 없으므로 임의 채움 없이 `null`을 유지합니다.
-- `Unsupported landmark layout`은 명시적으로 에러로 구분해 실패를 표시합니다.
-- 다음 단계는 `avg_combined_direction`/JEO 기반 시선 벡터 이식입니다.
+- Face Landmark는 워커 내부에서 추출 후 `FaceLandmarkFrame`으로 변환됩니다.
+- `GazeTracking`은 순수 `@ggulnote/gaze-core`에서 수행됩니다.
+- `trackingConfidence`는 MediaPipe에서 신뢰할 수 있는 per-frame 값이 없어 임의 값으로 채우지 않고 `null`로 유지합니다.
+- 얼굴 중심/방향은 `RawGazeEngine` 상태로 계산합니다.
+  - `leftDirection`
+  - `rightDirection`
+  - `rawCombinedDirection`
+  - `smoothedCombinedDirection`(moving average)
+- 결과는 화면 좌표(`screenX/screenY`) 변환 이전 단계가 아니며, 원시 벡터로만 디버그 페이지에 노출합니다.
+- Eye Geometry 초기화는 K-Point 보정과 구분되며, 프레임 기준 최신 얼굴 Landmark이 유효할 때만 수행합니다.
+- `InteractionClock` 기준 `sourceCapturedAt`은 프레임 수신 시각으로 기록하고, 처리 완료 시각은 별도 기록합니다.
+
+추적 동작은 `interaction-core` 브리지를 사용해 메인 스레드와 worker 시간을 분리하고, worker는 동시에 1개 프레임만 처리합니다.

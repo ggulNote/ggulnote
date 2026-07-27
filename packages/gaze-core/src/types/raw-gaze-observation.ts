@@ -1,4 +1,5 @@
 import type { SessionTimeMs } from "@ggulnote/shared-types";
+import type { HeadCoordinateFrame } from "./head-coordinate-frame";
 import type { Vector3 } from "./vector";
 
 export interface RawGazeQuality {
@@ -6,26 +7,32 @@ export interface RawGazeQuality {
   readonly leftEyeReady: boolean;
   readonly rightEyeReady: boolean;
   /**
-   * Provider confidence in the 0..1 range.
+   * MediaPipe does not provide stable per-frame face-tracking confidence in this stage.
    */
-  readonly trackingConfidence: number;
+  readonly trackingConfidence: number | null;
 }
 
 /**
- * One raw gaze result on the shared session time axis.
- *
- * sourceCapturedAt identifies when the source frame was captured.
- * processingStartedAt and processingCompletedAt are retained only for
- * performance and pipeline latency measurements.
+ * One raw gaze result on the shared session timeline.
  */
 export interface RawGazeObservation {
   readonly frameId: number;
   readonly sourceCapturedAt: SessionTimeMs;
   readonly processingStartedAt: SessionTimeMs;
   readonly processingCompletedAt: SessionTimeMs;
-  readonly leftDirection: Vector3 | null;
-  readonly rightDirection: Vector3 | null;
-  readonly rawCombinedDirection: Vector3 | null;
-  readonly smoothedCombinedDirection: Vector3 | null;
+
+  readonly leftDirection: Vector3;
+  readonly rightDirection: Vector3;
+  readonly rawCombinedDirection: Vector3;
+  readonly smoothedCombinedDirection: Vector3;
+
+  readonly head: HeadCoordinateFrame;
+
+  readonly smoothing: {
+    readonly sampleCount: number;
+    readonly windowStartedAt: SessionTimeMs;
+    readonly windowEndedAt: SessionTimeMs;
+  };
+
   readonly quality: RawGazeQuality;
 }
