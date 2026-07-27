@@ -16,6 +16,10 @@
     "paths": {
       "@ggulnote/shared-types": ["packages/shared-types/src"],
       "@ggulnote/shared-types/*": ["packages/shared-types/src/*"],
+      "@ggulnote/gaze-core": ["packages/gaze-core/src"],
+      "@ggulnote/gaze-core/*": ["packages/gaze-core/src/*"],
+      "@ggulnote/interaction-core": ["packages/interaction-core/src"],
+      "@ggulnote/interaction-core/*": ["packages/interaction-core/src/*"],
       "@ggulnote/editor-core": ["packages/editor-core/src"],
       "@ggulnote/editor-core/*": ["packages/editor-core/src/*"]
     }

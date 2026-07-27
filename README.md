@@ -17,13 +17,21 @@ packages/document-core
 packages/editor-core
 └─ Annotation, Scene, Command, Undo/Redo, Hit Test, Serialization
 
+packages/gaze-core
+└─ Landmark Frame, Eye Geometry, Raw Gaze Observation/Engine State 타입
+
+packages/interaction-core
+└─ Session Clock, 시간 기반 Ring Buffer, Gaze/Interaction Timeline
+
 packages/shared-types
-└─ 패키지 간 공유 ID, 좌표, 문서 타입
+└─ 패키지 간 공유 ID, 좌표, 문서·세션 시간 타입
 ```
 
 - `apps/web`은 브라우저 API와 외부 라이브러리 Adapter를 담당합니다.
 - `document-core`는 React, PDF.js, Dexie에 의존하지 않는 순수 TypeScript입니다.
 - `editor-core`는 UI와 저장 기술에 의존하지 않는 Canvas Editor 도메인 로직입니다.
+- `gaze-core`와 `interaction-core`는 MediaPipe나 DOM API에 의존하지 않는 순수 TypeScript 기반 계층입니다.
+- Gaze Timeline은 처리 완료 시각이 아니라 원본 프레임의 `sourceCapturedAt`을 기준으로 기록합니다.
 - Annotation과 Semantic 좌표는 확대율과 무관한 `0~1` 정규화 좌표를 사용합니다.
 
 ## 핵심 명령어
