@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@ggulnote/gaze-core": ["../gaze-core/src"],
+      "@ggulnote/gaze-core/*": ["../gaze-core/src/*"],
+      "@ggulnote/shared-types": ["../shared-types/src"],
+      "@ggulnote/shared-types/*": ["../shared-types/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.spec.ts"]
+}
