@@ -49,6 +49,14 @@
   - `sourceCapturedAt`은 원본 프레임이 앱으로 들어온 시점(InteractionClock 기준)으로 기록
   - worker inference timestamp는 별도 단조 증가 타임스탬프로 관리
 
+- 단계 4: Raw Gaze Timeline 연동
+  - `/debug/gaze`의 `BrowserInteractionSession`에서 공통 `InteractionClock`을 소유
+  - FaceTracking에서 계산이 끝난 `RawGazeObservation`만 `interaction-core`의 `InteractionTimeline.gaze`에 `sourceCapturedAt`을 키로 append
+  - `processingCompletedAt`은 딜레이 지표로만 사용하고 Timeline key로 사용하지 않음
+  - 30초 보관 정책의 `RingBuffer`로 과거 샘플 자동 제거
+  - `no-face`, `eye-geometry-required`, 오류 결과는 Timeline 저장하지 않음
+  - `queryGaze(start, end)`, `queryRecentGaze(1_000)` API로 조회 지원
+  - 재시작 시 Timeline 초기화, Stop 후에는 추가 저장을 중단하되 데이터 유지
 ## 향후 구조(다음 단계)
 
 - Local persistence

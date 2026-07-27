@@ -102,6 +102,9 @@ export interface FaceTrackingSessionCallbacks {
   onLandmarkFrame: (frame: FaceLandmarkFrame, irisState: { hasBothIris: boolean }) => void;
   onNoFace: (frameId: number) => void;
   onError: (error: SessionError) => void;
+
+  onRawGazeResult?: (response: GazeWorkerRawGazeResultResponse) => void;
+  onRawGazeError?: (response: GazeWorkerRawGazeErrorResponse) => void;
 }
 
 const MAX_FPS_WINDOW_MS = 1_000;
@@ -385,6 +388,8 @@ export class FaceTrackingSession {
           adapted.frame.leftIrisCenter !== null && adapted.frame.rightIrisCenter !== null,
       });
     }
+
+    this.callbacks.onRawGazeResult?.(response);
   };
 
   private handleNoFace = (response: GazeWorkerNoFaceResponse): void => {
@@ -489,6 +494,8 @@ export class FaceTrackingSession {
       frameId: response.frameId,
       sourceCapturedAt: response.sourceCapturedAt,
     });
+
+    this.callbacks.onRawGazeError?.(response);
   };
 
   private handleWorkerError = (response: GazeWorkerErrorResponse): void => {

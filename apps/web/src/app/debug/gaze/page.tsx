@@ -2,16 +2,35 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { InteractionClock } from "@ggulnote/interaction-core";
+import { toSessionTimeMs, type SessionTimeMs } from "@ggulnote/interaction-core";
+import {
+  BrowserInteractionSession,
+  type BrowserInteractionSessionSnapshot,
+  GAZE_TIMELINE_RETENTION_MS,
+} from "@/features/interaction";
 import {
   FaceLandmarkDebugPanel,
-  FaceTrackingSession,
-  drawLandmarkOverlay,
   GazeCameraPreview,
+  drawLandmarkOverlay,
   resolveFaceLandmarkerModelUrl,
   resolveMediapipeWasmRoot,
   type FaceTrackingSessionStats,
 } from "@/features/gaze";
+
+const emptyTimelineSnapshot: BrowserInteractionSessionSnapshot = {
+  status: "idle",
+  sessionTime: toSessionTimeMs(0),
+  timelineRetentionMs: GAZE_TIMELINE_RETENTION_MS,
+  timelineSize: 0,
+  oldestSampleSourceCapturedAt: null,
+  newestSampleSourceCapturedAt: null,
+  lastStoredFrameId: null,
+  lastStoredSourceCapturedAt: null,
+  lastStoredProcessingCompletedAt: null,
+  lastEndToEndLatencyMs: null,
+  recentOneSecondSampleCount: 0,
+  duplicateFrameCount: 0,
+};
 
 const initialStats: FaceTrackingSessionStats = {
   status: "idle",
@@ -45,67 +64,74 @@ const initialStats: FaceTrackingSessionStats = {
   eyeGeometryInitializedFromFrameId: null,
 };
 
+const toTimeText = (value: SessionTimeMs | number | null): string => {
+  if (value === null) {
+    return "-";
+  }
+
+  return `${Math.round(value)}`;
+};
+
+const toDurationText = (value: number | null): string => {
+  if (value === null) {
+    return "-";
+  }
+
+  return `${Math.round(value)} ms`;
+};
+
 export default function DebugGazePage(): React.ReactElement {
-  const clockRef = useRef<InteractionClock | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
-  const sessionRef = useRef<FaceTrackingSession | null>(null);
-  const statsRef = useRef(initialStats);
-  const [stats, setStats] = useState(initialStats);
-  const [isRunning, setIsRunning] = useState(false);
+  const sessionRef = useRef<BrowserInteractionSession | null>(null);
+
+  const statsRef = useRef<FaceTrackingSessionStats>(initialStats);
+
+  const [stats, setStats] = useState<FaceTrackingSessionStats>(initialStats);
+  const [timelineState, setTimelineState] = useState<BrowserInteractionSessionSnapshot>(emptyTimelineSnapshot);
+  const [recentCount, setRecentCount] = useState(0);
+  const [recentWindow, setRecentWindow] = useState({
+    startAt: "-",
+    endAt: "-",
+    firstAt: "-",
+    lastAt: "-",
+  });
+
   const [isInitializingEyeGeometry, setIsInitializingEyeGeometry] = useState(false);
   const [isResettingEyeGeometry, setIsResettingEyeGeometry] = useState(false);
 
   useEffect(() => {
-    clockRef.current = new InteractionClock(() => performance.now());
-  }, []);
-
-  useEffect(() => {
     const timer = window.setInterval(() => {
       setStats(statsRef.current);
+      if (sessionRef.current) {
+        setTimelineState(sessionRef.current.getState());
+      }
     }, 200);
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
     const overlayCanvas = overlayCanvasRef.current;
-
     return () => {
       sessionRef.current?.dispose();
       sessionRef.current = null;
       drawLandmarkOverlay(overlayCanvas, null);
-      setIsRunning(false);
-      setIsInitializingEyeGeometry(false);
-      setIsResettingEyeGeometry(false);
     };
   }, []);
 
-  const ensureSession = (): FaceTrackingSession => {
+  const ensureSession = (): BrowserInteractionSession => {
     if (!videoRef.current) {
       throw new Error("비디오 태그가 준비되지 않았습니다.");
     }
 
-    if (!clockRef.current) {
-      throw new Error("InteractionClock가 초기화되지 않았습니다.");
-    }
-
     if (!sessionRef.current) {
-      sessionRef.current = new FaceTrackingSession(
-        videoRef.current,
+      sessionRef.current = new BrowserInteractionSession(
         {
-          clock: clockRef.current,
-          modelUrl: resolveFaceLandmarkerModelUrl(),
-          wasmRoot: resolveMediapipeWasmRoot(),
-        },
-        {
-          onStatsChange: (next) => {
+          onTrackingStatsChange: (next) => {
             statsRef.current = next;
-            setIsRunning(
-              next.status === "running" ||
-                next.status === "loading-model" ||
-                next.status === "requesting-camera",
-            );
           },
           onLandmarkFrame: (frame) => {
             drawLandmarkOverlay(overlayCanvasRef.current, frame);
@@ -116,6 +142,16 @@ export default function DebugGazePage(): React.ReactElement {
           onError: () => {
             drawLandmarkOverlay(overlayCanvasRef.current, null);
           },
+          onTimelineChange: (state) => {
+            setTimelineState(state);
+          },
+        },
+        {
+          video: videoRef.current,
+          modelUrl: resolveFaceLandmarkerModelUrl(),
+          wasmRoot: resolveMediapipeWasmRoot(),
+          timelineRetentionMs: GAZE_TIMELINE_RETENTION_MS,
+          timeProvider: () => performance.now(),
         },
       );
     }
@@ -128,13 +164,52 @@ export default function DebugGazePage(): React.ReactElement {
     try {
       await session.start();
     } catch {
-      // Errors are reflected through session stats callback.
+      // errors are exposed via stats
     }
   };
 
   const stop = () => {
     sessionRef.current?.stop();
-    setIsRunning(false);
+  };
+
+  const clearTimeline = () => {
+    const session = sessionRef.current;
+    if (!session) {
+      return;
+    }
+
+    session.clear();
+    setTimelineState(session.getState());
+    setRecentCount(0);
+    setRecentWindow({
+      startAt: "-",
+      endAt: "-",
+      firstAt: "-",
+      lastAt: "-",
+    });
+  };
+
+  const queryRecentWindow = () => {
+    const session = ensureSession();
+    const samples = session.queryRecentGaze(1_000);
+
+    setRecentCount(samples.length);
+    if (samples.length === 0) {
+      setRecentWindow({
+        startAt: "-",
+        endAt: "-",
+        firstAt: "-",
+        lastAt: "-",
+      });
+      return;
+    }
+
+    setRecentWindow({
+      startAt: `${Number(samples[0].time)}`,
+      endAt: `${Number(samples[samples.length - 1].time)}`,
+      firstAt: `${samples[0].observation.frameId}`,
+      lastAt: `${samples[samples.length - 1].observation.frameId}`,
+    });
   };
 
   const initializeEyeGeometry = async () => {
@@ -169,10 +244,9 @@ export default function DebugGazePage(): React.ReactElement {
     }
   };
 
+  const isRunning = timelineState.status === "running";
   const canControlGeometry =
-    stats.status === "running" ||
-    stats.status === "loading-model" ||
-    stats.status === "requesting-camera";
+    isRunning || stats.status === "running" || stats.status === "loading-model" || stats.status === "requesting-camera";
   const isGeometryBusy = isInitializingEyeGeometry || isResettingEyeGeometry;
 
   const eyeGeometryButtonLabel = isInitializingEyeGeometry
@@ -205,12 +279,16 @@ export default function DebugGazePage(): React.ReactElement {
           <p className="mt-1 text-sm text-slate-600">
             Raw gaze 계산을 연결하려면 먼저 정면 중앙을 보면서 <strong>Initialize Eye Geometry</strong>를 실행하세요.
           </p>
+          <p className="mt-1 text-xs text-slate-500">
+            눈동자 RawGaze 결과는 <strong>Interaction Timeline</strong>에
+            <strong> sourceCapturedAt</strong>으로 저장됩니다.
+          </p>
         </div>
         <Link
           href="/debug"
           className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
         >
-          /debug
+          /debug로 이동
         </Link>
       </div>
 
@@ -219,7 +297,68 @@ export default function DebugGazePage(): React.ReactElement {
         <FaceLandmarkDebugPanel stats={stats} />
       </div>
 
-      <section className="mt-4 flex flex-wrap gap-3">
+      <section className="mt-4 rounded-md border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold uppercase text-slate-500">Interaction Timeline</h2>
+        <dl className="mt-3 grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <div>
+            <dt className="font-semibold">Session 상태</dt>
+            <dd>{timelineState.status}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">현재 Session Time</dt>
+            <dd>{toTimeText(timelineState.sessionTime)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">Timeline 유지시간</dt>
+            <dd>{toTimeText(timelineState.timelineRetentionMs)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">저장된 Gaze Sample 수</dt>
+            <dd>{timelineState.timelineSize}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">가장 오래된 sample sourceCapturedAt</dt>
+            <dd>{toTimeText(timelineState.oldestSampleSourceCapturedAt)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">가장 최근 sample sourceCapturedAt</dt>
+            <dd>{toTimeText(timelineState.newestSampleSourceCapturedAt)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">마지막 저장 frameId</dt>
+            <dd>{timelineState.lastStoredFrameId ?? "-"}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">마지막 저장 sourceCapturedAt</dt>
+            <dd>{toTimeText(timelineState.lastStoredSourceCapturedAt)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">마지막 저장 processingCompletedAt</dt>
+            <dd>{toTimeText(timelineState.lastStoredProcessingCompletedAt)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">마지막 End-to-end latency</dt>
+            <dd>{toDurationText(timelineState.lastEndToEndLatencyMs)}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">최근 1초 Sample 수</dt>
+            <dd>{timelineState.recentOneSecondSampleCount}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">중복/역행 frame 감지</dt>
+            <dd>{timelineState.duplicateFrameCount}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">최근 1초 조회 결과</dt>
+            <dd>
+              count: {recentCount}, startAt: {recentWindow.startAt}, endAt: {recentWindow.endAt},
+              firstFrame: {recentWindow.firstAt}, lastFrame: {recentWindow.lastAt}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="mt-3 flex flex-wrap gap-3">
         <button
           type="button"
           onClick={() => {
@@ -242,6 +381,21 @@ export default function DebugGazePage(): React.ReactElement {
         </button>
         <button
           type="button"
+          onClick={clearTimeline}
+          disabled={timelineState.timelineSize === 0}
+          className="rounded-md border border-slate-500 bg-white px-4 py-2 font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 hover:bg-slate-100"
+        >
+          Timeline Clear
+        </button>
+        <button
+          type="button"
+          onClick={queryRecentWindow}
+          className="rounded-md border border-slate-500 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-100"
+        >
+          최근 1초 조회
+        </button>
+        <button
+          type="button"
           onClick={() => {
             void initializeEyeGeometry();
           }}
@@ -255,7 +409,7 @@ export default function DebugGazePage(): React.ReactElement {
           onClick={() => {
             void resetEyeGeometry();
           }}
-          disabled={!isRunning || !stats.eyeGeometryInitialized || isGeometryBusy}
+          disabled={!stats.eyeGeometryInitialized || isGeometryBusy || !isRunning}
           className={resetButtonClass}
         >
           {resetButtonLabel}

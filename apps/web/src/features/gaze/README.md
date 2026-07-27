@@ -16,3 +16,12 @@
 - `InteractionClock` 기준 `sourceCapturedAt`은 프레임 수신 시각으로 기록하고, 처리 완료 시각은 별도 기록합니다.
 
 추적 동작은 `interaction-core` 브리지를 사용해 메인 스레드와 worker 시간을 분리하고, worker는 동시에 1개 프레임만 처리합니다.
+
+## 단계 4: Timeline 연결 요약
+
+- `BrowserInteractionSession`이 하나의 `InteractionClock`을 생성·소유하고 `InteractionTimeline`을 통해 Timeline을 관리합니다.
+- `RawGazeObservation`은 화면 UI에서 사용하는 원시 벡터이며, `sourceCapturedAt` 기준으로만 `gaze` Buffer에 저장합니다.
+- `processingCompletedAt`은 end-to-end 지연 측정용으로만 사용하고 Timeline key로 쓰지 않습니다.
+- `no-face`, `eye-geometry-required`, `unsupported-landmark-layout` 등 실패 상태 결과는 `gaze` Timeline에 append하지 않습니다.
+- `/debug/gaze`는 최근 1초 조회, 현재 sample 개수, 최신/최초 타임스탬프, 중복 frame 감지 카운트를 보여줍니다.
+- 가시적 Landmark overlay는 `displayWidth/displayHeight` 기준 contain/letterbox 좌표로 유지되며, Timeline에는 원시 결과만 보관됩니다.

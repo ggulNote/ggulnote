@@ -14,6 +14,16 @@ const observation = (
   rightDirection: { x: 0.12, y: -0.18, z: 0.97 },
   rawCombinedDirection: { x: 0.11, y: -0.19, z: 0.97 },
   smoothedCombinedDirection: { x: 0.1, y: -0.2, z: 0.97 },
+  head: {
+    center: { x: 0, y: 0, z: 0 },
+    rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    faceScale: 1,
+  },
+  smoothing: {
+    sampleCount: 1,
+    windowStartedAt: toSessionTimeMs(sourceCapturedAt),
+    windowEndedAt: toSessionTimeMs(sourceCapturedAt + 1),
+  },
   quality: {
     faceDetected: true,
     leftEyeReady: true,
@@ -28,16 +38,14 @@ describe("GazeTimeline", () => {
     const sample = timeline.append(observation(10_000, 10_032));
 
     expect(sample.time).toBe(10_000);
-    expect(timeline.query(toSessionTimeMs(10_000), toSessionTimeMs(10_000)))
-      .toEqual([sample]);
+    expect(timeline.query(toSessionTimeMs(10_000), toSessionTimeMs(10_000))).toEqual([sample]);
   });
 
   it("does not use processingCompletedAt as the Timeline time", () => {
     const timeline = new GazeTimeline(1_000);
     const sample = timeline.append(observation(10_000, 10_032));
 
-    expect(timeline.query(toSessionTimeMs(10_032), toSessionTimeMs(10_032)))
-      .toEqual([]);
+    expect(timeline.query(toSessionTimeMs(10_032), toSessionTimeMs(10_032))).toEqual([]);
     expect(sample.observation.processingCompletedAt).toBe(10_032);
   });
 });
