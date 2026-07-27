@@ -1,8 +1,11 @@
 "use client";
-
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { toSessionTimeMs, type SessionTimeMs } from "@ggulnote/interaction-core";
+import {
+  toSessionTimeMs,
+  type SessionTimeMs,
+  type TimedGazeSample,
+} from "@ggulnote/interaction-core";
 import {
   BrowserInteractionSession,
   type BrowserInteractionSessionSnapshot,
@@ -16,7 +19,7 @@ import {
   resolveMediapipeWasmRoot,
   type FaceTrackingSessionStats,
 } from "@/features/gaze";
-
+import type { FaceLandmarkFrame } from "@ggulnote/gaze-core";
 const emptyTimelineSnapshot: BrowserInteractionSessionSnapshot = {
   status: "idle",
   sessionTime: toSessionTimeMs(0),
@@ -31,7 +34,6 @@ const emptyTimelineSnapshot: BrowserInteractionSessionSnapshot = {
   recentOneSecondSampleCount: 0,
   duplicateFrameCount: 0,
 };
-
 const initialStats: FaceTrackingSessionStats = {
   status: "idle",
   frameId: 0,
@@ -63,30 +65,51 @@ const initialStats: FaceTrackingSessionStats = {
   eyeGeometryInitializedAt: null,
   eyeGeometryInitializedFromFrameId: null,
 };
-
 const toTimeText = (value: SessionTimeMs | number | null): string => {
   if (value === null) {
     return "-";
   }
-
   return `${Math.round(value)}`;
 };
-
 const toDurationText = (value: number | null): string => {
   if (value === null) {
     return "-";
   }
-
   return `${Math.round(value)} ms`;
 };
+function getVectorOverlayData(
+  sample: TimedGazeSample | null,
+  stats: FaceTrackingSessionStats,
+): {
+  leftDirection: TimedGazeSample["observation"]["leftDirection"];
+  rightDirection: TimedGazeSample["observation"]["rightDirection"];
+  rawCombinedDirection: TimedGazeSample["observation"]["rawCombinedDirection"];
+  smoothedCombinedDirection: TimedGazeSample["observation"]["smoothedCombinedDirection"];
+  head: TimedGazeSample["observation"]["head"];
+  leftEyeSphere: FaceLandmarkFrame["landmarks"][number] | null;
+  rightEyeSphere: FaceLandmarkFrame["landmarks"][number] | null;
+} | undefined {
+  if (!sample) {
+    return undefined;
+  }
 
+  return {
+    leftDirection: sample.observation.leftDirection,
+    rightDirection: sample.observation.rightDirection,
+    rawCombinedDirection: sample.observation.rawCombinedDirection,
+    smoothedCombinedDirection: sample.observation.smoothedCombinedDirection,
+    head: sample.observation.head,
+    leftEyeSphere: stats.eyeSphereLeft,
+    rightEyeSphere: stats.eyeSphereRight,
+  };
+}
 export default function DebugGazePage(): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<BrowserInteractionSession | null>(null);
-
+  const latestLandmarkFrameRef = useRef<FaceLandmarkFrame | null>(null);
+  const latestRawSampleRef = useRef<TimedGazeSample | null>(null);
   const statsRef = useRef<FaceTrackingSessionStats>(initialStats);
-
   const [stats, setStats] = useState<FaceTrackingSessionStats>(initialStats);
   const [timelineState, setTimelineState] = useState<BrowserInteractionSessionSnapshot>(emptyTimelineSnapshot);
   const [recentCount, setRecentCount] = useState(0);
@@ -96,10 +119,8 @@ export default function DebugGazePage(): React.ReactElement {
     firstAt: "-",
     lastAt: "-",
   });
-
   const [isInitializingEyeGeometry, setIsInitializingEyeGeometry] = useState(false);
   const [isResettingEyeGeometry, setIsResettingEyeGeometry] = useState(false);
-
   useEffect(() => {
     const timer = window.setInterval(() => {
       setStats(statsRef.current);
@@ -107,26 +128,33 @@ export default function DebugGazePage(): React.ReactElement {
         setTimelineState(sessionRef.current.getState());
       }
     }, 200);
-
     return () => {
       clearInterval(timer);
     };
   }, []);
-
   useEffect(() => {
     const overlayCanvas = overlayCanvasRef.current;
     return () => {
       sessionRef.current?.dispose();
       sessionRef.current = null;
+      latestLandmarkFrameRef.current = null;
+      latestRawSampleRef.current = null;
       drawLandmarkOverlay(overlayCanvas, null);
     };
   }, []);
-
+  const redrawOverlay = () => {
+    const frame = latestLandmarkFrameRef.current;
+    const sample = latestRawSampleRef.current;
+    if (!frame) {
+      drawLandmarkOverlay(overlayCanvasRef.current, null);
+      return;
+    }
+    drawLandmarkOverlay(overlayCanvasRef.current, frame, sample ? getVectorOverlayData(sample, statsRef.current) : undefined);
+  };
   const ensureSession = (): BrowserInteractionSession => {
     if (!videoRef.current) {
       throw new Error("비디오 태그가 준비되지 않았습니다.");
     }
-
     if (!sessionRef.current) {
       sessionRef.current = new BrowserInteractionSession(
         {
@@ -134,9 +162,11 @@ export default function DebugGazePage(): React.ReactElement {
             statsRef.current = next;
           },
           onLandmarkFrame: (frame) => {
-            drawLandmarkOverlay(overlayCanvasRef.current, frame);
+            latestLandmarkFrameRef.current = frame;
+            redrawOverlay();
           },
           onNoFace: () => {
+            latestLandmarkFrameRef.current = null;
             drawLandmarkOverlay(overlayCanvasRef.current, null);
           },
           onError: () => {
@@ -144,6 +174,10 @@ export default function DebugGazePage(): React.ReactElement {
           },
           onTimelineChange: (state) => {
             setTimelineState(state);
+          },
+          onRawGazeSample: (sample) => {
+            latestRawSampleRef.current = sample;
+            redrawOverlay();
           },
         },
         {
@@ -155,10 +189,8 @@ export default function DebugGazePage(): React.ReactElement {
         },
       );
     }
-
     return sessionRef.current;
   };
-
   const start = async () => {
     const session = ensureSession();
     try {
@@ -167,17 +199,14 @@ export default function DebugGazePage(): React.ReactElement {
       // errors are exposed via stats
     }
   };
-
   const stop = () => {
     sessionRef.current?.stop();
   };
-
   const clearTimeline = () => {
     const session = sessionRef.current;
     if (!session) {
       return;
     }
-
     session.clear();
     setTimelineState(session.getState());
     setRecentCount(0);
@@ -188,11 +217,9 @@ export default function DebugGazePage(): React.ReactElement {
       lastAt: "-",
     });
   };
-
   const queryRecentWindow = () => {
     const session = ensureSession();
     const samples = session.queryRecentGaze(1_000);
-
     setRecentCount(samples.length);
     if (samples.length === 0) {
       setRecentWindow({
@@ -203,7 +230,6 @@ export default function DebugGazePage(): React.ReactElement {
       });
       return;
     }
-
     setRecentWindow({
       startAt: `${Number(samples[0].time)}`,
       endAt: `${Number(samples[samples.length - 1].time)}`,
@@ -211,13 +237,11 @@ export default function DebugGazePage(): React.ReactElement {
       lastAt: `${samples[samples.length - 1].observation.frameId}`,
     });
   };
-
   const initializeEyeGeometry = async () => {
     const session = ensureSession();
     if (isInitializingEyeGeometry) {
       return;
     }
-
     try {
       setIsInitializingEyeGeometry(true);
       await session.initializeEyeGeometry();
@@ -227,13 +251,11 @@ export default function DebugGazePage(): React.ReactElement {
       setIsInitializingEyeGeometry(false);
     }
   };
-
   const resetEyeGeometry = async () => {
     const session = ensureSession();
     if (isResettingEyeGeometry) {
       return;
     }
-
     try {
       setIsResettingEyeGeometry(true);
       await session.resetEyeGeometry();
@@ -243,20 +265,16 @@ export default function DebugGazePage(): React.ReactElement {
       setIsResettingEyeGeometry(false);
     }
   };
-
   const isRunning = timelineState.status === "running";
   const canControlGeometry =
     isRunning || stats.status === "running" || stats.status === "loading-model" || stats.status === "requesting-camera";
   const isGeometryBusy = isInitializingEyeGeometry || isResettingEyeGeometry;
-
   const eyeGeometryButtonLabel = isInitializingEyeGeometry
     ? "Initializing Eye Geometry…"
     : stats.eyeGeometryInitialized
       ? "Re-Initialize Eye Geometry"
       : "Initialize Eye Geometry";
-
   const resetButtonLabel = isResettingEyeGeometry ? "Resetting Eye Geometry…" : "Reset Eye Geometry";
-
   const initializeButtonClass =
     `rounded-md border px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
       isInitializingEyeGeometry
@@ -265,12 +283,10 @@ export default function DebugGazePage(): React.ReactElement {
           ? "border-emerald-700 bg-emerald-100 text-emerald-800"
           : "border-sky-700 bg-white text-sky-700"
     }`;
-
   const resetButtonClass =
     `rounded-md border border-amber-700 px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
       isResettingEyeGeometry ? "bg-amber-900 text-white" : "bg-white text-amber-700"
     }`;
-
   return (
     <main className="mx-auto w-full max-w-7xl p-4 md:p-8">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -291,12 +307,10 @@ export default function DebugGazePage(): React.ReactElement {
           /debug로 이동
         </Link>
       </div>
-
       <div className="grid gap-4 lg:grid-cols-[1.8fr_1fr]">
         <GazeCameraPreview videoRef={videoRef} overlayCanvasRef={overlayCanvasRef} />
         <FaceLandmarkDebugPanel stats={stats} />
       </div>
-
       <section className="mt-4 rounded-md border border-slate-200 bg-white p-4">
         <h2 className="text-sm font-semibold uppercase text-slate-500">Interaction Timeline</h2>
         <dl className="mt-3 grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
@@ -357,7 +371,6 @@ export default function DebugGazePage(): React.ReactElement {
           </div>
         </dl>
       </section>
-
       <section className="mt-3 flex flex-wrap gap-3">
         <button
           type="button"
@@ -415,13 +428,12 @@ export default function DebugGazePage(): React.ReactElement {
           {resetButtonLabel}
         </button>
       </section>
-
       <section className="mt-3 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
         <p className="font-medium text-slate-900">Eye Geometry Control</p>
         <p className="mt-1">
-          상태: <span className={stats.eyeGeometryInitialized ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>{
-            stats.eyeGeometryInitialized ? "Initialized" : "Not Initialized"
-          }</span>
+          상태: <span className={stats.eyeGeometryInitialized ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>
+            {stats.eyeGeometryInitialized ? "Initialized" : "Not Initialized"}
+          </span>
         </p>
         {stats.eyeGeometryInitialized && (
           <p className="mt-1 text-slate-600">
