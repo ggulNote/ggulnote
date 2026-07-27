@@ -53,6 +53,8 @@ export default function DebugGazePage(): React.ReactElement {
   const statsRef = useRef(initialStats);
   const [stats, setStats] = useState(initialStats);
   const [isRunning, setIsRunning] = useState(false);
+  const [isInitializingEyeGeometry, setIsInitializingEyeGeometry] = useState(false);
+  const [isResettingEyeGeometry, setIsResettingEyeGeometry] = useState(false);
 
   useEffect(() => {
     clockRef.current = new InteractionClock(() => performance.now());
@@ -74,6 +76,8 @@ export default function DebugGazePage(): React.ReactElement {
       sessionRef.current = null;
       drawLandmarkOverlay(overlayCanvas, null);
       setIsRunning(false);
+      setIsInitializingEyeGeometry(false);
+      setIsResettingEyeGeometry(false);
     };
   }, []);
 
@@ -135,21 +139,63 @@ export default function DebugGazePage(): React.ReactElement {
 
   const initializeEyeGeometry = async () => {
     const session = ensureSession();
+    if (isInitializingEyeGeometry) {
+      return;
+    }
+
     try {
+      setIsInitializingEyeGeometry(true);
       await session.initializeEyeGeometry();
     } catch {
       // reflected as errors in stats
+    } finally {
+      setIsInitializingEyeGeometry(false);
     }
   };
 
   const resetEyeGeometry = async () => {
     const session = ensureSession();
+    if (isResettingEyeGeometry) {
+      return;
+    }
+
     try {
+      setIsResettingEyeGeometry(true);
       await session.resetEyeGeometry();
     } catch {
       // ignore
+    } finally {
+      setIsResettingEyeGeometry(false);
     }
   };
+
+  const canControlGeometry =
+    stats.status === "running" ||
+    stats.status === "loading-model" ||
+    stats.status === "requesting-camera";
+  const isGeometryBusy = isInitializingEyeGeometry || isResettingEyeGeometry;
+
+  const eyeGeometryButtonLabel = isInitializingEyeGeometry
+    ? "Initializing Eye Geometry…"
+    : stats.eyeGeometryInitialized
+      ? "Re-Initialize Eye Geometry"
+      : "Initialize Eye Geometry";
+
+  const resetButtonLabel = isResettingEyeGeometry ? "Resetting Eye Geometry…" : "Reset Eye Geometry";
+
+  const initializeButtonClass =
+    `rounded-md border px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
+      isInitializingEyeGeometry
+        ? "border-sky-900 bg-sky-900 text-white"
+        : stats.eyeGeometryInitialized
+          ? "border-emerald-700 bg-emerald-100 text-emerald-800"
+          : "border-sky-700 bg-white text-sky-700"
+    }`;
+
+  const resetButtonClass =
+    `rounded-md border border-amber-700 px-4 py-2 font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
+      isResettingEyeGeometry ? "bg-amber-900 text-white" : "bg-white text-amber-700"
+    }`;
 
   return (
     <main className="mx-auto w-full max-w-7xl p-4 md:p-8">
@@ -180,15 +226,17 @@ export default function DebugGazePage(): React.ReactElement {
             void start();
           }}
           disabled={isRunning}
-          className="rounded-md border border-slate-900 px-4 py-2 font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+          className={`rounded-md border border-slate-900 px-4 py-2 font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 ${
+            isRunning ? "bg-white" : "bg-slate-900 text-white"
+          }`}
         >
-          Start Camera
+          {isRunning ? "Running…" : "Start Camera"}
         </button>
         <button
           type="button"
           onClick={stop}
           disabled={!isRunning}
-          className="rounded-md border border-slate-300 px-4 py-2 font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md border border-red-500 bg-white px-4 py-2 font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60 hover:bg-red-50"
         >
           Stop Camera
         </button>
@@ -197,21 +245,44 @@ export default function DebugGazePage(): React.ReactElement {
           onClick={() => {
             void initializeEyeGeometry();
           }}
-          disabled={!isRunning}
-          className="rounded-md border border-sky-700 px-4 py-2 font-medium text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!canControlGeometry || isGeometryBusy}
+          className={initializeButtonClass}
         >
-          Initialize Eye Geometry
+          {eyeGeometryButtonLabel}
         </button>
         <button
           type="button"
           onClick={() => {
             void resetEyeGeometry();
           }}
-          disabled={!isRunning}
-          className="rounded-md border border-amber-700 px-4 py-2 font-medium text-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!isRunning || !stats.eyeGeometryInitialized || isGeometryBusy}
+          className={resetButtonClass}
         >
-          Reset Eye Geometry
+          {resetButtonLabel}
         </button>
+      </section>
+
+      <section className="mt-3 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+        <p className="font-medium text-slate-900">Eye Geometry Control</p>
+        <p className="mt-1">
+          상태: <span className={stats.eyeGeometryInitialized ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>{
+            stats.eyeGeometryInitialized ? "Initialized" : "Not Initialized"
+          }</span>
+        </p>
+        {stats.eyeGeometryInitialized && (
+          <p className="mt-1 text-slate-600">
+            마지막 초기화: frame#{stats.eyeGeometryInitializedFromFrameId ?? "-"} / {stats.eyeGeometryInitializedAt ?? "-"}
+          </p>
+        )}
+        <p className="mt-1 text-xs text-slate-500">
+          {isGeometryBusy
+            ? "Eye Geometry 명령 처리 중입니다."
+            : stats.rawGazeStatus === "eye-geometry-required"
+              ? "Eye Geometry가 필요합니다. Initialize Eye Geometry를 눌러주세요."
+              : stats.rawGazeStatus === "tracking"
+                ? "현재 Eye Geometry가 활성화되어 실시간 추적 중입니다."
+                : "Eye Geometry 상태를 확인하세요."}
+        </p>
       </section>
     </main>
   );

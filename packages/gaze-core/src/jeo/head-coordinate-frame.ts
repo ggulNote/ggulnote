@@ -14,6 +14,18 @@ import {
 import type { FaceLandmarkFrame } from "../types/landmark-frame";
 import type { HeadCoordinateFrame } from "../types/head-coordinate-frame";
 
+type AxisCandidate = { axis: Vector3; value: number };
+type AxisPermutation = readonly [number, number, number];
+
+const AXIS_PERMUTATIONS: readonly AxisPermutation[] = [
+  [0, 1, 2],
+  [0, 2, 1],
+  [1, 0, 2],
+  [1, 2, 0],
+  [2, 0, 1],
+  [2, 1, 0],
+];
+
 function matrixVector(matrix: Matrix3, vector: Vector3): Vector3 {
   return {
     x: matrix[0] * vector.x + matrix[1] * vector.y + matrix[2] * vector.z,
@@ -58,7 +70,7 @@ function deflate(matrix: Matrix3, eigenAxis: Vector3, eigenValue: number): Matri
   ];
 }
 
-function powerIteration(matrix: Matrix3, seed: Vector3): { axis: Vector3; value: number } {
+function powerIteration(matrix: Matrix3, seed: Vector3): AxisCandidate {
   let vector = normalize(seed);
   if (!vector) {
     throw new RangeError("Power iteration seed must be non-zero.");
@@ -104,18 +116,20 @@ function orthogonalize(base: Vector3, target: Vector3): Vector3 {
   return normalized;
 }
 
-function normalizeRotation(rotation: Matrix3): Matrix3 {
-  const xAxis = normalize(axis(rotation, 0));
-  if (!xAxis) {
-    throw new RangeError("Invalid head x-axis.");
+function normalizeRotation(xAxisCandidate: Vector3, yAxisCandidate: Vector3): Matrix3 {
+  const xAxis = normalize(xAxisCandidate);
+  if (!xAxis || !hasFiniteLength(xAxisCandidate, ORIENTATION_EPSILON)) {
+    throw new RangeError("Invalid first principal axis.");
   }
 
-  const yRaw = axis(rotation, 1);
-  const yAxis = orthogonalize(xAxis, yRaw);
-  const zRaw = cross(xAxis, yAxis);
-  const zAxis = normalize(zRaw);
+  const yAxis = normalize(orthogonalize(xAxis, yAxisCandidate));
+  if (!yAxis) {
+    throw new RangeError("Invalid second principal axis.");
+  }
+
+  const zAxis = normalize(cross(xAxis, yAxis));
   if (!zAxis) {
-    throw new RangeError("Invalid head z-axis.");
+    throw new RangeError("Invalid third principal axis.");
   }
 
   const result = matrixFromColumns(xAxis, yAxis, zAxis);
@@ -135,12 +149,67 @@ function normalizeRotation(rotation: Matrix3): Matrix3 {
   return result;
 }
 
-function stabilizeSign(rotation: Matrix3, reference: Matrix3 | null): Matrix3 {
-  if (!reference) {
-    return rotation;
+function applyPermutation(columns: readonly Vector3[], permutation: AxisPermutation): Matrix3 {
+  return matrixFromColumns(columns[permutation[0]], columns[permutation[1]], columns[permutation[2]]);
+}
+
+function alignToReference(rotation: Matrix3, reference: Matrix3): Matrix3 {
+  const columns = [axis(rotation, 0), axis(rotation, 1), axis(rotation, 2)];
+  let best: Matrix3 | null = null;
+  let bestScore = -Infinity;
+
+  for (const permutation of AXIS_PERMUTATIONS) {
+    let candidate = applyPermutation(columns, permutation);
+    let score = 0;
+
+    for (let column = 0; column < 3; column += 1) {
+      const current = axis(candidate, column);
+      const target = axis(reference, column);
+      const alignment = dot(current, target);
+
+      if (alignment < 0) {
+        const flipped = {
+          x: -current.x,
+          y: -current.y,
+          z: -current.z,
+        };
+        candidate = withReplacedColumn(candidate, column, flipped);
+        score += -alignment;
+      } else {
+        score += alignment;
+      }
+    }
+
+    const det = determinant(candidate);
+    if (!Number.isFinite(det) || det <= REFERENCE_ORIENTATION_FLIP_EPSILON) {
+      continue;
+    }
+
+    if (det < 0) {
+      const zAxis = axis(candidate, 2);
+      candidate = withReplacedColumn(candidate, 2, {
+        x: -zAxis.x,
+        y: -zAxis.y,
+        z: -zAxis.z,
+      });
+    }
+
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
   }
 
+  if (!best) {
+    return alignSignOnly(rotation, reference);
+  }
+
+  return best;
+}
+
+function alignSignOnly(rotation: Matrix3, reference: Matrix3): Matrix3 {
   let stabilized = rotation;
+
   for (let column = 0; column < 3; column += 1) {
     const current = axis(stabilized, column);
     const previous = axis(reference, column);
@@ -155,6 +224,14 @@ function stabilizeSign(rotation: Matrix3, reference: Matrix3 | null): Matrix3 {
   }
 
   return stabilized;
+}
+
+function stabilizeSign(rotation: Matrix3, reference: Matrix3 | null): Matrix3 {
+  if (!reference) {
+    return rotation;
+  }
+
+  return alignToReference(rotation, reference);
 }
 
 export function estimateHeadCoordinateFrame(frame: FaceLandmarkFrame): HeadCoordinateFrame {
@@ -182,25 +259,17 @@ export function estimateHeadCoordinateFrame(frame: FaceLandmarkFrame): HeadCoord
 
   const first = powerIteration(covariance, { x: 1, y: 0, z: 0 });
   const second = powerIteration(deflate(covariance, first.axis, first.value), { x: 0, y: 1, z: 0 });
-  const third = cross(first.axis, second.axis);
+  const thirdCovariance = deflate(deflate(covariance, first.axis, first.value), second.axis, second.value);
+  const third = powerIteration(thirdCovariance, { x: 0, y: 0, z: 1 });
+  const thirdAxis = third.axis;
 
-  const xAxis = normalize(first.axis);
-  if (!xAxis || !hasFiniteLength(first.axis, ORIENTATION_EPSILON)) {
-    throw new RangeError("Invalid first principal axis.");
-  }
+  const axes: AxisCandidate[] = [
+    first,
+    second,
+    { axis: thirdAxis, value: third.value },
+  ].sort((a, b) => b.value - a.value);
 
-  const yAxis = normalize(orthogonalize(xAxis, second.axis));
-  if (!yAxis) {
-    throw new RangeError("Invalid second principal axis.");
-  }
-
-  const zAxis = normalize(third);
-  if (!zAxis) {
-    throw new RangeError("Invalid third principal axis.");
-  }
-
-  const rawRotation = matrixFromColumns(xAxis, yAxis, zAxis);
-  const rotation = normalizeRotation(rawRotation);
+  const rotation = normalizeRotation(axes[0].axis, axes[1].axis);
 
   const faceScale = computeScale(nosePoints);
   if (!Number.isFinite(faceScale) || faceScale <= MINIMUM_FACE_SCALE) {

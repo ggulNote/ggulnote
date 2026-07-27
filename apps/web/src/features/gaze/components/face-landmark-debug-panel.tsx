@@ -22,6 +22,21 @@ function vectorNorm(value: { x: number; y: number; z: number } | null): string {
   return `${Math.round(norm * 1000) / 1000}`;
 }
 
+function vectorDeltaMagnitude(
+  a: { x: number; y: number; z: number } | null,
+  b: { x: number; y: number; z: number } | null,
+): string {
+  if (!a || !b) {
+    return "-";
+  }
+
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = a.z - b.z;
+  const delta = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  return `${Math.round(delta * 1000) / 1000}`;
+}
+
 export function FaceLandmarkDebugPanel({ stats }: DebugPanelProps): React.ReactElement {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4">
@@ -112,8 +127,16 @@ export function FaceLandmarkDebugPanel({ stats }: DebugPanelProps): React.ReactE
           <dd>{toVectorText(stats.smoothedCombinedDirection)}</dd>
         </div>
         <div>
-          <dt>Combined Norm</dt>
+          <dt>Combined Norm (Raw)</dt>
+          <dd>{vectorNorm(stats.rawCombinedDirection)}</dd>
+        </div>
+        <div>
+          <dt>Combined Norm (Smoothed)</dt>
           <dd>{vectorNorm(stats.smoothedCombinedDirection)}</dd>
+        </div>
+        <div>
+          <dt>Raw vs Smoothed Δ</dt>
+          <dd>{vectorDeltaMagnitude(stats.rawCombinedDirection, stats.smoothedCombinedDirection)}</dd>
         </div>
         <div>
           <dt>Sample Count</dt>
