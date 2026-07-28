@@ -1,4 +1,5 @@
 import type { RawGazeObservation } from "@ggulnote/gaze-core";
+import { toSessionTimeMs } from "../time/session-time";
 import type { SessionTimeMs } from "../time/session-time";
 import type { TimedGazeSample } from "../types/timed-gaze-sample";
 import { RingBuffer } from "./ring-buffer";
@@ -20,11 +21,20 @@ export class GazeTimeline {
     return this.buffer.size;
   }
 
-  public append(observation: RawGazeObservation): TimedGazeSample {
-    const sample: TimedGazeSample = {
-      time: observation.sourceCapturedAt,
-      observation,
-    };
+  public append(observation: RawGazeObservation): TimedGazeSample;
+  public append(sample: TimedGazeSample): TimedGazeSample;
+  public append(payload: RawGazeObservation | TimedGazeSample): TimedGazeSample {
+    const sample: TimedGazeSample =
+      "observation" in payload && "time" in payload
+        ? payload
+        : {
+            time: toSessionTimeMs((payload as RawGazeObservation).sourceCapturedAt),
+            observation: payload as RawGazeObservation,
+            calibratedViewportPoint: null,
+            gazeRoi95: null,
+            pdfHit: null,
+            calibration: null,
+          };
 
     this.buffer.append(sample);
     return sample;

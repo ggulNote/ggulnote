@@ -181,6 +181,9 @@ export class BrowserInteractionSession {
     return this.clock?.now() ?? toSessionTimeMs(0);
   }
 
+  public getClock(): InteractionClock {
+    return this.getActiveClock();
+  }
   public queryGaze(range: { readonly startAt: SessionTimeMs; readonly endAt: SessionTimeMs }): readonly TimedGazeSample[];
   public queryGaze(startAt: SessionTimeMs, endAt: SessionTimeMs): readonly TimedGazeSample[];
   public queryGaze(
@@ -294,7 +297,21 @@ export class BrowserInteractionSession {
 
     let sample: TimedGazeSample;
     try {
-      sample = this.timeline.append(observation);
+      let rawSample: TimedGazeSample = {
+        time: toSessionTimeMs(observation.sourceCapturedAt),
+        observation,
+        calibratedViewportPoint: null,
+        gazeRoi95: null,
+        pdfHit: null,
+        calibration: null,
+      };
+
+      const transformed = this.options.timelineSampleTransformer?.(rawSample);
+      if (transformed) {
+        rawSample = { ...rawSample, ...transformed };
+      }
+
+      sample = this.timeline.append(rawSample);
     } catch (error) {
       this.duplicateFrameCount += 1;
       return;
@@ -421,4 +438,8 @@ function isValidDirection(value: Vector3): boolean {
   const length = Math.hypot(value.x, value.y, value.z);
   return Number.isFinite(length) && length >= DIRECTION_LENGTH_MIN && length <= DIRECTION_LENGTH_MAX;
 }
+
+
+
+
 
