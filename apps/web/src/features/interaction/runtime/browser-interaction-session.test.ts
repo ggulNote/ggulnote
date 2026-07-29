@@ -298,6 +298,7 @@ describe("BrowserInteractionSession", () => {
     const secondTracking = factory.sessions.at(-1);
     providerNow = 10_040;
     secondTracking!.emitRawGazeResult(createTrackingResponse(1, 10_000, createObservation(10_000)));
+    secondTracking!.emitRawGazeResult(createTrackingResponse(1, 10_000, createObservation(10_000)));
 
     expect(session.getState().timelineSize).toBe(1);
     expect(session.getState().duplicateFrameCount).toBe(1);
@@ -350,4 +351,3 @@ describe("BrowserInteractionSession", () => {
     await expect(session.start()).rejects.toThrow("disposed");
   });
 });
-

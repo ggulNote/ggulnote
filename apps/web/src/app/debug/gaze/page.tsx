@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type InteractionClock,
   toSessionTimeMs,
   type SessionTimeMs,
   type TimedGazeSample,
@@ -20,6 +21,14 @@ import {
   type FaceTrackingSessionStats,
 } from "@/features/gaze";
 import type { FaceLandmarkFrame } from "@ggulnote/gaze-core";
+import { DocumentWorkspace } from "@/features/document/components/document-workspace";
+import {
+  PursuitCalibrationDebugPanel,
+  type PursuitObservationSink,
+} from "@/features/gaze-calibration/components/pursuit-calibration-debug-panel";
+import { createGazeTimelineSampleTransformer } from "@/features/gaze-calibration/core/timeline-calibration-transformer";
+import { useViewportRect } from "@/features/gaze-calibration/hooks/use-viewport-rect";
+import { createGazeCalibrationRuntimeContext } from "@/features/gaze-calibration/runtime/gaze-calibration-runtime-context";
 const emptyTimelineSnapshot: BrowserInteractionSessionSnapshot = {
   status: "idle",
   sessionTime: toSessionTimeMs(0),
@@ -107,6 +116,7 @@ export default function DebugGazePage(): React.ReactElement {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<BrowserInteractionSession | null>(null);
+  const calibrationObservationSinkRef = useRef<PursuitObservationSink | null>(null);
   const latestLandmarkFrameRef = useRef<FaceLandmarkFrame | null>(null);
   const latestRawSampleRef = useRef<TimedGazeSample | null>(null);
   const statsRef = useRef<FaceTrackingSessionStats>(initialStats);
@@ -121,6 +131,30 @@ export default function DebugGazePage(): React.ReactElement {
   });
   const [isInitializingEyeGeometry, setIsInitializingEyeGeometry] = useState(false);
   const [isResettingEyeGeometry, setIsResettingEyeGeometry] = useState(false);
+  const [calibrationClock, setCalibrationClock] = useState<InteractionClock | null>(null);
+  const [latestTimelineSample, setLatestTimelineSample] = useState<TimedGazeSample | null>(null);
+  const [fixedGridFallbackRequested, setFixedGridFallbackRequested] = useState(false);
+  const [calibrationRuntime] = useState(createGazeCalibrationRuntimeContext);
+  const {
+    viewportRect: pdfViewportRect,
+    elementRef: pdfViewportElementRef,
+  } = useViewportRect();
+  const handleObservationSinkChange = useCallback((sink: PursuitObservationSink | null): void => {
+    calibrationObservationSinkRef.current = sink;
+  }, []);
+  const handleFixedGridFallback = useCallback((): void => {
+    setFixedGridFallbackRequested(true);
+  }, []);
+
+  useEffect(() => {
+    calibrationRuntime.setPdfViewportRect(pdfViewportRect);
+  }, [calibrationRuntime, pdfViewportRect]);
+
+  useEffect(() => {
+    return () => {
+      calibrationRuntime.setPdfViewportRect(null);
+    };
+  }, [calibrationRuntime]);
   useEffect(() => {
     const timer = window.setInterval(() => {
       setStats(statsRef.current);
@@ -137,6 +171,7 @@ export default function DebugGazePage(): React.ReactElement {
     return () => {
       sessionRef.current?.dispose();
       sessionRef.current = null;
+      calibrationObservationSinkRef.current = null;
       latestLandmarkFrameRef.current = null;
       latestRawSampleRef.current = null;
       drawLandmarkOverlay(overlayCanvas, null);
@@ -177,6 +212,8 @@ export default function DebugGazePage(): React.ReactElement {
           },
           onRawGazeSample: (sample) => {
             latestRawSampleRef.current = sample;
+            setLatestTimelineSample(sample);
+            calibrationObservationSinkRef.current?.(sample.observation);
             redrawOverlay();
           },
         },
@@ -186,6 +223,8 @@ export default function DebugGazePage(): React.ReactElement {
           wasmRoot: resolveMediapipeWasmRoot(),
           timelineRetentionMs: GAZE_TIMELINE_RETENTION_MS,
           timeProvider: () => performance.now(),
+          timelineSampleTransformer:
+            createGazeTimelineSampleTransformer(calibrationRuntime),
         },
       );
     }
@@ -195,12 +234,14 @@ export default function DebugGazePage(): React.ReactElement {
     const session = ensureSession();
     try {
       await session.start();
+      setCalibrationClock(session.getClock());
     } catch {
       // errors are exposed via stats
     }
   };
   const stop = () => {
     sessionRef.current?.stop();
+    setCalibrationClock(null);
   };
   const clearTimeline = () => {
     const session = sessionRef.current;
@@ -210,6 +251,7 @@ export default function DebugGazePage(): React.ReactElement {
     session.clear();
     setTimelineState(session.getState());
     setRecentCount(0);
+    setLatestTimelineSample(null);
     setRecentWindow({
       startAt: "-",
       endAt: "-",
@@ -288,7 +330,7 @@ export default function DebugGazePage(): React.ReactElement {
       isResettingEyeGeometry ? "bg-amber-900 text-white" : "bg-white text-amber-700"
     }`;
   return (
-    <main className="mx-auto w-full max-w-7xl p-4 md:p-8">
+    <div className="mx-auto w-full max-w-7xl p-4 md:p-8">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Face Landmark Debug</h1>
@@ -450,6 +492,28 @@ export default function DebugGazePage(): React.ReactElement {
                 : "Eye Geometry 상태를 확인하세요."}
         </p>
       </section>
-    </main>
+      {calibrationClock !== null && pdfViewportRect !== null ? (
+        <PursuitCalibrationDebugPanel
+          clock={calibrationClock}
+          latestTimelineSample={latestTimelineSample}
+          onObservationSinkChange={handleObservationSinkChange}
+          onRequestFixedGridFallback={handleFixedGridFallback}
+          runtimeContext={calibrationRuntime}
+          viewportRect={pdfViewportRect}
+        />
+      ) : (
+        <section className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Smooth Pursuit Calibration을 시작하려면 Camera를 실행하고 아래 Document Workspace에서 PDF를 여세요.
+        </section>
+      )}
+      {fixedGridFallbackRequested ? (
+        <p role="status" className="mt-2 text-sm text-amber-800">
+          Fixed-grid Controller 진입 경계를 선택했습니다. 기존 Fixed-grid 구현은 유지되며 Smooth Pursuit Profile을 대체하지 않았습니다.
+        </p>
+      ) : null}
+      <section className="mt-6" aria-label="Calibration PDF Workspace">
+        <DocumentWorkspace onPdfViewportElementChange={pdfViewportElementRef} />
+      </section>
+    </div>
   );
 }

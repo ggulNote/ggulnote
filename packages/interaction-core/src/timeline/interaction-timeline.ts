@@ -33,8 +33,13 @@ export class InteractionTimeline {
     return this.clock.now();
   }
 
-  public append(observation: RawGazeObservation): TimedGazeSample {
-    return this.gaze.append(observation);
+  public append(observation: RawGazeObservation): TimedGazeSample;
+  public append(sample: TimedGazeSample): TimedGazeSample;
+  public append(payload: RawGazeObservation | TimedGazeSample): TimedGazeSample {
+    if ("observation" in payload && "time" in payload) {
+      return this.gaze.append(payload);
+    }
+    return this.gaze.append(payload);
   }
 
   public queryGaze(

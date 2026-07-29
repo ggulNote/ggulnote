@@ -46,4 +46,5 @@ export interface BrowserInteractionSessionOptions {
   readonly wasmRoot: string;
   readonly timelineRetentionMs?: number;
   readonly timeProvider?: () => number;
+  readonly timelineSampleTransformer?: (sample: TimedGazeSample) => Partial<TimedGazeSample>;
 }
