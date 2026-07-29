@@ -34,6 +34,8 @@ export class GazeTimeline {
             gazeRoi95: null,
             pdfHit: null,
             calibration: null,
+            confidenceRoi: null,
+            calibrationData: null,
           };
 
     this.buffer.append(sample);

@@ -304,11 +304,17 @@ export class BrowserInteractionSession {
         gazeRoi95: null,
         pdfHit: null,
         calibration: null,
+        confidenceRoi: null,
+        calibrationData: null,
       };
 
-      const transformed = this.options.timelineSampleTransformer?.(rawSample);
-      if (transformed) {
-        rawSample = { ...rawSample, ...transformed };
+      try {
+        const transformed = this.options.timelineSampleTransformer?.(rawSample);
+        if (transformed) {
+          rawSample = { ...rawSample, ...transformed };
+        }
+      } catch {
+        // Calibration enrichment is optional. Preserve the valid raw sample.
       }
 
       sample = this.timeline.append(rawSample);
@@ -354,6 +360,14 @@ export class BrowserInteractionSession {
     }
 
     if (this.lastStoredFrameId !== null && frameId <= this.lastStoredFrameId) {
+      this.duplicateFrameCount += 1;
+      return true;
+    }
+
+    if (
+      this.lastStoredSourceCapturedAt !== null
+      && observation.sourceCapturedAt < this.lastStoredSourceCapturedAt
+    ) {
       this.duplicateFrameCount += 1;
       return true;
     }
@@ -438,8 +452,3 @@ function isValidDirection(value: Vector3): boolean {
   const length = Math.hypot(value.x, value.y, value.z);
   return Number.isFinite(length) && length >= DIRECTION_LENGTH_MIN && length <= DIRECTION_LENGTH_MAX;
 }
-
-
-
-
-

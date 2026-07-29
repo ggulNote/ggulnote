@@ -10,4 +10,21 @@ export { GazeTimeline } from "./timeline/gaze-timeline";
 export type { InteractionTimelineOptions } from "./timeline/interaction-timeline";
 export { InteractionTimeline } from "./timeline/interaction-timeline";
 
-export type { TimedGazeSample } from "./types/timed-gaze-sample";
+export type {
+  AxisAlignedBounds,
+  CalibratedGazeTimelineData,
+  CalibrationQuality,
+  GazeCalibrationMetadata,
+  GazeCalibrationMode,
+  GazeConfidenceRoi,
+  GazeRoi95,
+  GazeRoiEstimationMethod,
+  GazeRoiFallbackReason,
+  GazeRoiSource,
+  GazeTimelineCalibrationMetadata,
+  PdfViewportHit,
+  PdfViewportRect,
+  ResidualCovariance,
+  TimedGazeSample,
+  ViewportPoint,
+} from "./types/timed-gaze-sample";

@@ -26,6 +26,7 @@ export const DEFAULT_QUALITY_THRESHOLDS = {
 } as const;
 
 export const CHI_SQUARE_2D_95 = 5.991;
+export const LEGACY_GAZE_ROI_COVERAGE_PROBABILITY = 0.95 as const;
 export const CALIBRATION_MODEL_VERSION = "1.0.0";
 export const MIN_RESIDUAL_SAMPLES_FOR_ROI = 3;
 export const MAX_ROI_RADIUS_RATIO = 0.6;
@@ -183,6 +184,78 @@ export type ResidualAnalysisResult = Readonly<{
 export type ResidualError = "sample-count" | "invalid-number";
 
 export type RoiEstimationError = "sample-count" | "invalid-number" | "invalid-covariance";
+export type GazeResidual = Readonly<{
+  readonly x: number;
+  readonly y: number;
+}>;
+
+export type ConfidenceRoiEstimationMethod =
+  | "empirical-mahalanobis"
+  | "gaussian-chi-square";
+
+export type ConfidenceRoiSource = "validation-residuals" | "fallback";
+
+export type ConfidenceRoiFallbackReason =
+  | "insufficient-residuals"
+  | "singular-covariance"
+  | "invalid-distance-distribution"
+  | "invalid-eigenvalues";
+
+export type RoiClampInfo = Readonly<{
+  readonly majorClamped: boolean;
+  readonly minorClamped: boolean;
+}>;
+
+export type RoiCoverageMetrics = Readonly<{
+  readonly requestedCoverage: number;
+  readonly empiricalCoverage: number;
+  readonly coveredResidualCount: number;
+  readonly totalResidualCount: number;
+  readonly roiAreaPx2: number;
+  readonly scaleQuantile: number;
+  readonly radiusMajor: number;
+  readonly radiusMinor: number;
+  readonly majorRadiusClamped: boolean;
+  readonly minorRadiusClamped: boolean;
+}>;
+
+export type GazeConfidenceRoiTemplate = Readonly<{
+  readonly coverageProbability: number;
+  readonly radiusMajor: number;
+  readonly radiusMinor: number;
+  readonly rotationRad: number;
+  readonly covariance: ResidualCovariance;
+  readonly scaleQuantile: number;
+  readonly estimationMethod: ConfidenceRoiEstimationMethod;
+  readonly source: ConfidenceRoiSource;
+  readonly clampBoundsToViewport: boolean;
+  readonly metrics: RoiCoverageMetrics;
+  readonly fallbackReason?: ConfidenceRoiFallbackReason;
+}>;
+
+export type GazeConfidenceRoi = Readonly<{
+  readonly coverageProbability: number;
+  readonly shape: "ellipse";
+
+  readonly center: ViewportPoint;
+
+  readonly radiusMajor: number;
+  readonly radiusMinor: number;
+  readonly rotationRad: number;
+
+  readonly axisAlignedBounds: Readonly<AxisAlignedBounds>;
+
+  readonly covariance: ResidualCovariance;
+  readonly scaleQuantile: number;
+
+  readonly estimationMethod: ConfidenceRoiEstimationMethod;
+  readonly source: ConfidenceRoiSource;
+  readonly fallbackReason?: ConfidenceRoiFallbackReason;
+
+  readonly calibrationVersion: string;
+}>;
+
+export type LegacyGazeRoi95Error = "unsupported-coverage";
 
 export type CalibrationRoiTemplate = Readonly<{
   readonly radiusMajor: number;
@@ -193,7 +266,7 @@ export type CalibrationRoiTemplate = Readonly<{
 }>;
 
 export type GazeRoi95 = Readonly<{
-  readonly confidence: 0.95;
+  readonly confidence: typeof LEGACY_GAZE_ROI_COVERAGE_PROBABILITY;
   readonly shape: "ellipse";
   readonly center: ViewportPoint;
   readonly radiusMajor: number;
@@ -360,5 +433,3 @@ export const toPdfViewportLocalPoint = (
     },
   };
 };
-
-

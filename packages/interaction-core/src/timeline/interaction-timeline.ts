@@ -36,6 +36,9 @@ export class InteractionTimeline {
   public append(observation: RawGazeObservation): TimedGazeSample;
   public append(sample: TimedGazeSample): TimedGazeSample;
   public append(payload: RawGazeObservation | TimedGazeSample): TimedGazeSample {
+    if ("observation" in payload && "time" in payload) {
+      return this.gaze.append(payload);
+    }
     return this.gaze.append(payload);
   }
 

@@ -3,6 +3,7 @@ import {
   type CalibrationErrorKind,
   type CalibrationObservation,
   type CalibrationVector3D,
+  type ResidualBias,
   type Result,
   type ViewportPoint,
 } from "../domain/calibration-types";
@@ -144,9 +145,16 @@ export function projectRawGazeToViewport(
   rawVector: CalibrationVector3D,
 ): ViewportPoint {
   const withoutBias = projectRawGazeToViewportWithoutBias(model, rawVector);
+  return applyResidualBiasCorrection(withoutBias, model.biasCorrection);
+}
+
+export function applyResidualBiasCorrection(
+  viewportPoint: ViewportPoint,
+  bias: ResidualBias,
+): ViewportPoint {
   return {
-    x: withoutBias.x - model.biasCorrection.x,
-    y: withoutBias.y - model.biasCorrection.y,
+    x: viewportPoint.x - bias.x,
+    y: viewportPoint.y - bias.y,
   };
 }
 

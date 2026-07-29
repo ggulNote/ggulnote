@@ -330,7 +330,15 @@ function clampSemanticRect(value: NormalizedRect): NormalizedRect {
     height: Math.max(0, preserveSemanticCoord(value.height)),
   };
 }
-export function DocumentWorkspace(): React.ReactElement {
+export type DocumentWorkspaceProps = Readonly<{
+  readonly onPdfViewportElementChange?: (
+    element: HTMLDivElement | null,
+  ) => void;
+}>;
+
+export function DocumentWorkspace({
+  onPdfViewportElementChange,
+}: DocumentWorkspaceProps = {}): React.ReactElement {
   const {
     state,
     openPdfFile,
@@ -1211,6 +1219,29 @@ export function DocumentWorkspace(): React.ReactElement {
     },
     [],
   );
+
+  useEffect(() => {
+    const isRenderedPdfViewport =
+      state.status === "ready"
+      && state.document?.kind === "pdf"
+      && state.renderedWidth > 0
+      && state.renderedHeight > 0;
+    onPdfViewportElementChange?.(
+      isRenderedPdfViewport ? stageElementRef.current : null,
+    );
+  }, [
+    onPdfViewportElementChange,
+    state.document?.kind,
+    state.renderedHeight,
+    state.renderedWidth,
+    state.status,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      onPdfViewportElementChange?.(null);
+    };
+  }, [onPdfViewportElementChange]);
 
   useEffect(() => {
     return () => {
