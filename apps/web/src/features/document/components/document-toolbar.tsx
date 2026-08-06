@@ -19,6 +19,7 @@ type ToolbarProps = {
   canGoNext: boolean;
   disabledPageInput: boolean;
   canFitWidth: boolean;
+  voiceControl?: React.ReactNode;
 };
 
 function FileInput({ onOpenPdf }: { onOpenPdf: (file: File | null) => void }): React.ReactElement {
@@ -70,6 +71,7 @@ export function DocumentToolbar({
   canGoNext,
   disabledPageInput,
   canFitWidth,
+  voiceControl,
 }: ToolbarProps): React.ReactElement {
   const pageInputId = useId();
 
@@ -108,6 +110,7 @@ export function DocumentToolbar({
         >
           문서 닫기
         </button>
+        {voiceControl}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="페이지 이동">

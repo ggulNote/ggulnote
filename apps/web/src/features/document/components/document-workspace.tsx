@@ -8,6 +8,7 @@ import { EditorDevelopmentToolbar } from "../../editor/components/editor-develop
 import { DEFAULT_INTERACTION_MODE, type EditorInteractionMode } from "../../editor/interaction/interaction-mode";
 import {
   EditorEngine,
+  createSceneRevisionTracker,
   type CreateAnnotationInput,
   type SerializedAnnotation,
 } from "@ggulnote/editor-core";
@@ -50,6 +51,12 @@ import {
   type LayoutWorkerClientContract,
 } from "../layout-detection";
 import { LayoutDetectionDebugPanel } from "./layout-detection-debug-panel";
+import {
+  buildEditorVoiceContextRead,
+  useOwnedBrowserVoiceTurnController,
+  VoiceLensOverlay,
+  VoiceTriggerControl,
+} from "../../voice";
 
 const ZOOM_STEP = 25;
 const DRAG_CREATE_THRESHOLD_PX = 4;
@@ -374,6 +381,7 @@ export function DocumentWorkspace(): React.ReactElement {
   const [highlightOpacity, setHighlightOpacity] = useState(DEFAULT_HIGHLIGHT_OPACITY);
 
   const [editorEngine] = useState(() => new EditorEngine());
+  const [voiceSceneRevision] = useState(() => createSceneRevisionTracker());
   const annotationCanvasRef = useRef<AnnotationCanvasHandle | null>(null);
   const rendererRef = useRef(new NativeCanvasRenderer());
   const activeDragRef = useRef<DragDraft | null>(null);
@@ -384,6 +392,8 @@ export function DocumentWorkspace(): React.ReactElement {
   const layoutWorkerClientRef = useRef<LayoutWorkerClientContract | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const stageElementRef = useRef<HTMLDivElement | null>(null);
+  const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null);
+  const [toolbarElement, setToolbarElement] = useState<HTMLDivElement | null>(null);
 
   const [dpr, setDpr] = useState(1);
   const persistenceViewStateRef = useRef<DocumentRecordViewState>({
@@ -968,6 +978,82 @@ export function DocumentWorkspace(): React.ReactElement {
 
   const canApplyToSelected = Boolean(editorSnapshot.selectedAnnotationId);
 
+  useEffect(() => {
+    voiceSceneRevision.next();
+  }, [
+    activePageId,
+    editorSnapshot.revision,
+    semanticDebugModel,
+    state.page?.height,
+    state.page?.width,
+    voiceSceneRevision,
+  ]);
+
+  const readVoiceTurnContext = useCallback(() => {
+    const document = state.document;
+    const page = state.page;
+    if (
+      state.status !== "ready"
+      || !document
+      || !page
+      || !activePageId
+      || page.width <= 0
+      || page.height <= 0
+    ) {
+      throw new Error("The current editor page is unavailable.");
+    }
+
+    return buildEditorVoiceContextRead({
+      documentId: document.id,
+      mode: document.kind,
+      pageId: activePageId,
+      pageIndex: Math.max(0, state.currentPage - 1),
+      pageSize: { width: page.width, height: page.height },
+      sceneRevision: voiceSceneRevision.get(),
+      pageSnapshot: editorEngine.exportPageSnapshot(activePageId),
+      ...(document.kind === "pdf" && visiblePageText && semanticDebugModel
+        ? { semanticModel: semanticDebugModel }
+        : {}),
+      ...(editorSnapshot.selectedAnnotationId
+        ? { selectedAnnotationId: editorSnapshot.selectedAnnotationId }
+        : {}),
+      ...(semanticCandidates[0]
+        ? { recentSemanticCandidate: semanticCandidates[0] }
+        : {}),
+    });
+  }, [
+    activePageId,
+    editorEngine,
+    editorSnapshot.selectedAnnotationId,
+    semanticCandidates,
+    semanticDebugModel,
+    state.currentPage,
+    state.document,
+    state.page,
+    state.status,
+    visiblePageText,
+    voiceSceneRevision,
+  ]);
+  const voiceTurnController = useOwnedBrowserVoiceTurnController(
+    readVoiceTurnContext,
+  );
+  const voiceLensPage = useMemo(() => {
+    if (
+      state.status !== "ready"
+      || !activePageId
+      || !state.page
+      || state.page.width <= 0
+      || state.page.height <= 0
+    ) {
+      return undefined;
+    }
+    return {
+      id: activePageId,
+      width: state.page.width,
+      height: state.page.height,
+    };
+  }, [activePageId, state.page, state.status]);
+
   const canGoPrevious = state.currentPage > 1 && state.totalPages > 1;
   const canGoNext = state.currentPage < state.totalPages;
   const documentName = useMemo(() => state.document?.name ?? "-", [state.document?.name]);
@@ -1190,6 +1276,7 @@ export function DocumentWorkspace(): React.ReactElement {
   const stageRef = useCallback(
     (element: HTMLDivElement | null) => {
       stageElementRef.current = element;
+      setStageElement(element);
 
       if (observerRef.current) {
         observerRef.current.disconnect();
@@ -2315,25 +2402,40 @@ export function DocumentWorkspace(): React.ReactElement {
         </div>
       </header>
 
-      <DocumentToolbar
-        onOpenPdf={handleOpenPdf}
-        onCreateBlank={handleCreateBlank}
-        onClose={handleCloseDocument}
-        onPreviousPage={() => handlePageSubmit(state.currentPage - 1)}
-        onNextPage={() => handlePageSubmit(state.currentPage + 1)}
-        onSetPage={handlePageSubmit}
-        onZoomIn={() => setZoom(state.zoom + ZOOM_STEP)}
-        onZoomOut={() => setZoom(state.zoom - ZOOM_STEP)}
-        onResetZoom={() => setZoom(100)}
-        onFitWidth={fitWidth}
-        status={state.status}
-        currentPage={state.currentPage}
-        totalPages={state.totalPages}
-        zoom={state.zoom}
-        canGoPrevious={canGoPrevious}
-        canGoNext={canGoNext}
-        disabledPageInput={state.status !== "ready"}
-        canFitWidth={fitWidthTargetPageWidth > 0 && containerWidth > 0 && state.status === "ready"}
+      <div ref={setToolbarElement}>
+        <DocumentToolbar
+          onOpenPdf={handleOpenPdf}
+          onCreateBlank={handleCreateBlank}
+          onClose={handleCloseDocument}
+          onPreviousPage={() => handlePageSubmit(state.currentPage - 1)}
+          onNextPage={() => handlePageSubmit(state.currentPage + 1)}
+          onSetPage={handlePageSubmit}
+          onZoomIn={() => setZoom(state.zoom + ZOOM_STEP)}
+          onZoomOut={() => setZoom(state.zoom - ZOOM_STEP)}
+          onResetZoom={() => setZoom(100)}
+          onFitWidth={fitWidth}
+          status={state.status}
+          currentPage={state.currentPage}
+          totalPages={state.totalPages}
+          zoom={state.zoom}
+          canGoPrevious={canGoPrevious}
+          canGoNext={canGoNext}
+          disabledPageInput={state.status !== "ready"}
+          canFitWidth={fitWidthTargetPageWidth > 0 && containerWidth > 0 && state.status === "ready"}
+          voiceControl={(
+            <VoiceTriggerControl
+              controller={voiceTurnController}
+              disabled={!hasDocument || state.status !== "ready"}
+            />
+          )}
+        />
+      </div>
+
+      <VoiceLensOverlay
+        controller={voiceTurnController}
+        currentPage={voiceLensPage}
+        pageElement={stageElement}
+        toolbarElement={toolbarElement}
       />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)_300px]">

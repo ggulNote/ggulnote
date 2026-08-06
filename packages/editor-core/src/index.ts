@@ -46,5 +46,15 @@ export { validatePlacementRequest } from './scene-core/placement-validator';
 export { buildSceneContext } from './scene-core/scene-context';
 export { buildCompositeRenderSnapshot } from './scene-core/composite-render';
 export { InMemoryCapabilityRegistry, createCapabilityRegistry, createRegistryFactory } from './scene-core/capability-registry';
+export {
+  canonicalToNormalizedRect,
+  clampRectToPage,
+  normalizedToCanonicalRect,
+  pagePointToScreenPoint,
+  pageRectToScreenRect,
+  screenPointToPagePoint,
+  screenRectToPageRect,
+} from './scene-core/coordinate';
+export type { CanonicalPageDimensions, ScreenViewport } from './scene-core/coordinate';
 
 
