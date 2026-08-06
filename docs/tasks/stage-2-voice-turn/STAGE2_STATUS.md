@@ -14,6 +14,7 @@
 | 기준 브랜치 | `feat/unified-scene-core` |
 | 기준 Commit | `354c76e` (`feat(scene): add unified PDF and canvas scene core`) |
 | Phase A Commit | `a0a02a0` (`feat(voice): add speech recognition provider contract`) |
+| Phase B Commit | `81bddba` (`feat(voice): add Web Speech recognition provider`) |
 | 최종 Commit | 없음 |
 | 담당 | Codex |
 | MVP Browser | Desktop Chrome |
@@ -22,15 +23,15 @@
 ## Current Milestone
 
 ```text
-Phase A — DONE: 기존 구조 조사, Voice Domain/Provider 계약, Fake Provider, 기본 단위 테스트
+Phase B — DONE: Web Speech Provider, Feature Detection, Event Normalization, Transcript Accumulator
 ```
 
-이번 마일스톤에서는 Web Speech 브라우저 어댑터, Voice Turn Controller, Voice Lens와 Debug UI를 구현하지 않는다.
+이번 마일스톤에서는 Web Speech 브라우저 어댑터와 Transcript Accumulator만 구현한다. Voice Turn Controller, Voice Lens와 Debug UI는 구현하지 않는다.
 
 다음 Milestone:
 
 ```text
-Phase B — Web Speech Provider, Feature Detection, Event Normalization, Transcript Accumulator
+Phase C — Voice Turn Controller, State Machine, Context Freeze, Scene Core 통합
 ```
 
 ## 2. 범위
@@ -85,22 +86,22 @@ Phase B — Web Speech Provider, Feature Detection, Event Normalization, Transcr
 | Workstream | 상태 | 진행 내용 | 남은 작업 |
 |---|---|---|---|
 | 기존 구조 조사 | DONE | Stage 1 Scene, Raw Gaze Timeline, Selection, Clock, Debug/Test 구조 확인 | Focus Resolver는 Phase C에서 최소 Adapter 필요 |
-| Voice Domain | DONE | SPEC의 Config, Availability, Event, Error, Mode, Turn, Focus, Metric 타입 구현 | Phase B 구현에서 사용 |
-| Provider Contract | DONE | 브라우저/React 독립 인터페이스와 `InteractionClock` 호환 Clock 주입 | Web Speech 구현은 Phase B |
-| Web Speech Provider | NOT STARTED |  |  |
+| Voice Domain | DONE | SPEC의 Config, Availability, Event, Error, Mode, Turn, Focus, Metric 타입 구현 | Phase C Controller에서 재사용 |
+| Provider Contract | DONE | 브라우저/React 독립 인터페이스와 `InteractionClock` 호환 Clock 주입 | Web Speech 구현 연결 완료 |
+| Web Speech Provider | DONE | Standard/prefix detection, SSR-safe factory, config, event/error 정규화, 세션 격리, 수명주기 구현 | Phrase 오류 후 재시작 정책은 Phase C Controller에서 구현 |
 | Fake Provider | DONE | 세션/시간 제어, 전체 정규화 Event helper, 수명주기/호출 기록 구현 | Controller 테스트에서 재사용 |
-| Transcript Accumulator | NOT STARTED |  |  |
+| Transcript Accumulator | DONE | Segment Map, interim 교체, final lock/dedupe, 정렬/공백 결합, session reset 구현 | Phase C Turn Session에서 연결 |
 | Voice Mode Controller | NOT STARTED |  |  |
 | Voice Turn Session | NOT STARTED |  |  |
 | Focus/Scene Freeze | NOT STARTED |  |  |
 | Voice Lens | NOT STARTED |  |  |
 | Turn Store | NOT STARTED |  |  |
 | Debug | NOT STARTED |  |  |
-| Unit Test | PARTIAL | Phase A Voice 테스트 9개 통과 | Phase B 이후 Provider/Accumulator 테스트 추가 |
+| Unit Test | PARTIAL | Voice 6 files, 43 tests 통과 | Phase C 이후 Mode/Turn 테스트 추가 |
 | Integration Test | NOT STARTED |  |  |
 | Chrome Manual Test | NOT STARTED |  |  |
-| Regression | PARTIAL | `editor-core` 47개 통과, Web 86개 통과/기존 Interaction 1개 실패 | 기존 Raw Gaze 실패 별도 해결 필요 |
-| Documentation | DONE | Phase A 기준점, 구현, 검증, 남은 문제 반영 | 다음 Milestone에서 지속 갱신 |
+| Regression | PARTIAL | `editor-core` 47개 통과, Web 120개 통과/기존 Interaction 1개 실패 | 기존 Raw Gaze 실패 별도 해결 필요 |
+| Documentation | DONE | Phase B 체크 상태, 변경 파일, 검증과 제한사항 반영 | 다음 Milestone에서 지속 갱신 |
 
 허용 상태:
 
@@ -127,24 +128,23 @@ SKIPPED
 
 | 파일 | 역할 |
 |---|---|
-| `apps/web/src/features/voice/domain/speech-types.ts` | STT Config, Availability, 정규화 Event, Clock 계약 |
-| `apps/web/src/features/voice/domain/voice-errors.ts` | Provider/Turn 오류 계약 |
-| `apps/web/src/features/voice/domain/voice-mode-types.ts` | Voice Mode 상태 계약 |
-| `apps/web/src/features/voice/domain/voice-turn-types.ts` | Turn, Transcript, Focus, Scene, Metric 계약 |
-| `apps/web/src/features/voice/domain/index.ts` | Domain 공개 API |
-| `apps/web/src/features/voice/providers/speech-recognition-provider.ts` | Provider 인터페이스 |
-| `apps/web/src/features/voice/providers/testing/fake-speech-recognition-provider.ts` | Browser 독립 Fake Provider |
-| `apps/web/src/features/voice/providers/index.ts` | Production Provider 공개 API |
-| `apps/web/src/features/voice/index.ts` | Voice Feature 공개 API(Fake 제외) |
-| `apps/web/src/features/voice/domain/speech-types.test.ts` | 기본 Config와 immutable clone 테스트 |
-| `apps/web/src/features/voice/providers/testing/fake-speech-recognition-provider.test.ts` | Fake 수명주기, Event, Session, Clock 테스트 |
+| `apps/web/src/features/voice/domain/transcript-accumulator.ts` | Session-scoped Segment Map과 Raw Transcript 결합 |
+| `apps/web/src/features/voice/domain/transcript-accumulator.test.ts` | Interim/Final, 정렬, 공백, reset, immutable snapshot 테스트 |
+| `apps/web/src/features/voice/providers/web-speech-compat.ts` | Browser API 최소 타입, constructor/experimental feature detection, phrase 제한 |
+| `apps/web/src/features/voice/providers/web-speech-compat.test.ts` | Standard/prefix/unsupported/local/phrase detection 테스트 |
+| `apps/web/src/features/voice/providers/web-speech-recognition-provider.ts` | Web Speech config, 정규화 Event/Error, Session과 lifecycle 구현 |
+| `apps/web/src/features/voice/providers/web-speech-recognition-provider.test.ts` | Config, resultIndex, final dedupe, late event, stop/abort/dispose/error 테스트 |
+| `apps/web/src/features/voice/providers/web-speech-ssr.test.ts` | Node 환경 import와 unsupported 처리 테스트 |
 
 ### 수정
 
 | 파일 | 변경 이유 |
 |---|---|
-| `docs/tasks/stage-2-voice-turn/STAGE2_STATUS.md` | Phase A 진행/검증 결과 기록 |
-| `docs/tasks/stage-2-voice-turn/STAGE2_CHECKLIST.md` | 검증된 Phase A 항목 체크 |
+| `apps/web/src/features/voice/domain/index.ts` | Transcript Accumulator 공개 API 추가 |
+| `apps/web/src/features/voice/providers/index.ts` | Web Speech Provider와 compatibility API 공개 |
+| `apps/web/src/features/voice/index.ts` | Provider runtime export 추가 |
+| `docs/tasks/stage-2-voice-turn/STAGE2_STATUS.md` | Phase B 진행/검증 결과 기록 |
+| `docs/tasks/stage-2-voice-turn/STAGE2_CHECKLIST.md` | 검증된 Phase B 항목만 체크 |
 
 ### 삭제
 
@@ -156,12 +156,12 @@ SKIPPED
 
 | 명령 | 결과 | 실행 시각 | 비고 |
 |---|---|---|---|
-| lint | PASS | 2026-08-06 | Web 패키지 전체 ESLint 통과 |
+| lint | PASS | 2026-08-06 | Phase B 디렉터리와 생성 산출물을 제외한 Web 전체 소스 ESLint 통과. 정확한 package script 최종 재실행 1회는 active Next build 스캔 중 timeout |
 | typecheck | PASS | 2026-08-06 | Web strict TypeScript 통과 |
-| unit test | PASS | 2026-08-06 | Voice 2 files, 9 tests 통과 |
+| unit test | PASS | 2026-08-06 | Voice 6 files, 43 tests 통과 |
 | integration test | NOT RUN |  |  |
 | build | NOT RUN |  |  |
-| regression | PARTIAL | 2026-08-06 | editor-core 47/47 통과, Web 86/87 통과 |
+| regression | PARTIAL | 2026-08-06 | editor-core 47/47 통과, Web 120/121 통과. 유일한 실패는 기존 Raw Gaze 테스트 |
 
 실제 실행 명령을 아래에 기록한다.
 
@@ -169,8 +169,9 @@ SKIPPED
 pnpm --filter @ggulnote/web test -- src/features/voice
 pnpm --filter @ggulnote/web typecheck
 pnpm --filter @ggulnote/web lint
+pnpm --filter @ggulnote/web exec eslint src/features/voice
+pnpm --filter @ggulnote/web exec eslint . --ignore-pattern build --ignore-pattern .next
 pnpm --filter @ggulnote/web test
-pnpm --filter @ggulnote/web test -- src/features/interaction/runtime/browser-interaction-session.test.ts
 pnpm --filter @ggulnote/editor-core test
 ```
 
@@ -243,6 +244,8 @@ Summary:
 | V-001 | 낮음 | 저장소 요구 Node `>=22`, 검증 환경 Node `20.19.4` | 모든 pnpm 명령에서 engine warning | Node 22 환경에서 최종 검증 필요 |
 | V-002 | 중간 | 기존 Raw Gaze restart 테스트의 `duplicateFrameCount` 기대값 실패 | Interaction 테스트 단독 실행 시 5/6 통과 | Phase A 변경 파일과 무관하며 기준 Commit에도 동일 테스트 존재; 별도 Gaze 작업으로 해결 |
 | V-003 | 낮음 | Stage 2 문서가 저장소 `.gitignore`의 `docs` 규칙에 포함됨 | `git check-ignore -v` | 변경한 STATUS/CHECKLIST만 명시적으로 Stage 필요 |
+| V-004 | 낮음 | 정확한 Web package lint 최종 재실행이 active Next dev 산출물을 스캔하며 120초 timeout | `pnpm --filter @ggulnote/web lint` | 동일 변경에 대한 Voice lint와 `build`/`.next` 제외 Web 전체 소스 lint는 통과 |
+| V-005 | 낮음 | Phrase 미지원 오류 후 1회 재시작은 Provider가 수행하지 않음 | 미지원 Phrase는 생략하고 기본 Recognition은 시작 | D-011에 따라 Phase C `VoiceModeController`에서 상한 있는 재시작 정책 구현 |
 
 예상 제한:
 
@@ -281,7 +284,7 @@ Summary:
 최종 상태:
 
 ```text
-IN PROGRESS — Phase A 완료, Phase B 대기
+IN PROGRESS — Phase B 완료, Phase C 대기
 ```
 
 ## 12. 다음 단계 Handoff

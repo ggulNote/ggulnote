@@ -61,38 +61,39 @@
 
 ## E. Web Speech Provider
 
-- [ ] Client Boundary에서만 `window` 접근
-- [ ] `SpeechRecognition` Detection
-- [ ] `webkitSpeechRecognition` Fallback
-- [ ] Unsupported 처리
-- [ ] `ko-KR`
-- [ ] `interimResults = true`
-- [ ] `continuous = true`
-- [ ] `maxAlternatives = 1`
-- [ ] `resultIndex`부터 순회
-- [ ] Stable Segment ID
-- [ ] Interim 교체
-- [ ] Final 한 번만 확정
-- [ ] 이전 Session Segment 혼입 방지
-- [ ] Error Code 정규화
-- [ ] Intentional Stop 식별
-- [ ] Unexpected End 식별
-- [ ] Strict Mode 중복 Session 방지
-- [ ] Experimental Type를 최소 범위로 정의
+- [x] Client Boundary에서만 `window` 접근
+- [x] `SpeechRecognition` Detection
+- [x] `webkitSpeechRecognition` Fallback
+- [x] Unsupported 처리
+- [x] `ko-KR`
+- [x] `interimResults = true`
+- [x] `continuous = true`
+- [x] `maxAlternatives = 1`
+- [x] `resultIndex`부터 순회
+- [x] Stable Segment ID
+- [x] Interim 교체
+- [x] Final 한 번만 확정
+- [x] 이전 Session Segment 혼입 방지
+- [x] Error Code 정규화
+- [x] Intentional Stop 식별
+- [x] Unexpected End 식별
+- [x] Strict Mode 중복 Session 방지
+- [x] Experimental Type를 최소 범위로 정의
 
 ## F. Progressive Enhancement
 
-- [ ] `phrases` Feature Detection
-- [ ] `SpeechRecognitionPhrase` Feature Detection
-- [ ] Phrase 개수/길이/중복 제한
-- [ ] Phrase Boost 검증
+- [x] `phrases` Feature Detection
+- [x] `SpeechRecognitionPhrase` Feature Detection
+- [x] Phrase 개수/길이/중복 제한
+- [x] Phrase Boost 검증
 - [ ] Phrase 미지원 시 한 번만 Fallback
-- [ ] `processLocally` Feature Detection
-- [ ] `available` Feature Detection
-- [ ] `install` Feature Detection
-- [ ] Local Pack 자동 설치 없음
-- [ ] Local 미지원이 기본 Recognition을 막지 않음
-- [ ] Experimental 기능이 완료 조건을 막지 않음
+  - Provider는 미지원 Phrase를 생략하고 기본 인식을 계속한다. 재시작 1회 정책은 D-011에 따라 Phase C `VoiceModeController`에서 구현한다.
+- [x] `processLocally` Feature Detection
+- [x] `available` Feature Detection
+- [x] `install` Feature Detection
+- [x] Local Pack 자동 설치 없음
+- [x] Local 미지원이 기본 Recognition을 막지 않음
+- [x] Experimental 기능이 완료 조건을 막지 않음
 
 ## G. Fake Provider
 
@@ -110,18 +111,18 @@
 
 ## H. Transcript Accumulator
 
-- [ ] Segment Map
-- [ ] Interim 동일 ID 교체
-- [ ] Final 확정
-- [ ] Final → Interim 역행 금지
-- [ ] Segment Index 정렬
-- [ ] Final Text 생성
-- [ ] Interim Text 생성
-- [ ] Display Text 생성
-- [ ] Empty Text 처리
-- [ ] 한글 Whitespace Utility
-- [ ] 이전 Turn 데이터 초기화
-- [ ] Unit Test
+- [x] Segment Map
+- [x] Interim 동일 ID 교체
+- [x] Final 확정
+- [x] Final → Interim 역행 금지
+- [x] Segment Index 정렬
+- [x] Final Text 생성
+- [x] Interim Text 생성
+- [x] Display Text 생성
+- [x] Empty Text 처리
+- [x] 한글 Whitespace Utility
+- [x] 이전 Turn 데이터 초기화
+- [x] Unit Test
 
 ## I. Voice Mode Controller
 
@@ -240,21 +241,22 @@
 
 ### Provider
 
-- [ ] Standard Constructor
-- [ ] Prefix Constructor
-- [ ] Unsupported
-- [ ] Config
-- [ ] Result Index
-- [ ] Interim 교체
-- [ ] Final 중복 방지
-- [ ] Session Namespace
-- [ ] Error 정규화
-- [ ] Stop/Abort
-- [ ] Unexpected End
-- [ ] Dispose
-- [ ] Strict Mode
+- [x] Standard Constructor
+- [x] Prefix Constructor
+- [x] Unsupported
+- [x] Config
+- [x] Result Index
+- [x] Interim 교체
+- [x] Final 중복 방지
+- [x] Session Namespace
+- [x] Error 정규화
+- [x] Stop/Abort
+- [x] Unexpected End
+- [x] Dispose
+- [x] Strict Mode
 - [ ] Phrase Detection/Fallback
-- [ ] Local Detection
+  - Detection과 미지원 시 기본 인식 계속은 검증했다. Controller 재시작 Fallback은 Phase C 범위다.
+- [x] Local Detection
 
 ### Mode/Turn
 
@@ -339,10 +341,11 @@
 - [ ] Integration Test
 - [ ] Build
 - [x] `git diff` 검토
-- [ ] 임시 파일/Audio/Transcript Fixture 정리
+- [x] 임시 파일/Audio/Transcript Fixture 정리
 - [ ] `STAGE2_STATUS.md` 최종 갱신
 - [x] 관련 파일만 Stage
 - [x] Phase A 논리 커밋 생성 (`a0a02a0`)
+- [x] Phase B 논리 커밋 생성 (`81bddba`)
 
 권장 Commit:
 
