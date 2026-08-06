@@ -26,7 +26,7 @@
 - [x] 최근 Stable Focus 확인
   - 별도 Recent Stable Focus Store는 현재 없다.
 - [x] Interaction Clock 재사용 결정
-- [ ] Editor Resize/Scroll/Zoom 구독 확인
+- [x] Editor Resize/Scroll/Zoom 구독 확인
 - [x] 기존 `/debug` 구조 확인
 - [x] Store Convention 확인
 - [x] 테스트 Convention 확인
@@ -176,34 +176,40 @@
 - [x] 발화 중 Gaze 이동에도 불변
 - [x] Scene 변경 기록
 - [x] Page 변경 기록
-- [ ] Zoom/Scroll은 Screen Anchor만 변경
+- [x] Zoom/Scroll은 Screen Anchor만 변경
 - [ ] Context Prewarm 실패 격리
 - [ ] Prewarm에서 LLM/YOLO/PDF 재파싱 없음
 
 ## L. Voice Lens
 
-- [ ] `hidden`
-- [ ] `listening`
-- [ ] `transcribing`
-- [ ] `finalizing`
-- [ ] `error`
-- [ ] speech-start 시 표시
-- [ ] Interim 즉시 갱신
-- [ ] Final + Interim 조합
-- [ ] Complete/Discard/Fail 시 제거
-- [ ] Focus 주변 Anchor
-- [ ] Viewport/Toolbar Clamp
-- [ ] 화면 밖 하단 중앙 Fallback
-- [ ] Focus 없음 Fallback
-- [ ] Zoom/Resize/Scroll 재계산
-- [ ] Transcript 줄 수 제한
-- [ ] Raw Text 보존
-- [ ] Voice Lens가 SceneObject가 아님
-- [ ] SceneRevision 증가 없음
-- [ ] PDF 전체 Re-render 없음
-- [ ] Reduced Motion
-- [ ] Accessible Status
-- [ ] 사용자용 오류 문구
+- [x] `useVoiceTurn`이 Controller를 `useSyncExternalStore`로 구독
+- [x] Hook은 subscriber cleanup만 수행하고 owner만 Controller dispose
+- [x] React Strict Mode effect replay에서 Provider 자동 시작/조기 dispose 없음
+- [x] Voice Trigger Start/Stop/Cancel/Retry
+- [x] Unsupported Trigger 비활성화
+- [x] 실제 button semantics와 accessible name
+- [x] `hidden`
+- [x] `listening`
+- [x] `transcribing`
+- [x] `finalizing`
+- [x] `error`
+- [x] speech-start 시 표시
+- [x] Interim 즉시 갱신
+- [x] Final + Interim 조합
+- [x] Complete/Discard/Cancel 시 제거, Fail 시 Raw Lens 제거 후 정규화 Error Lens 표시
+- [x] Focus 주변 Anchor
+- [x] Viewport/Toolbar Clamp
+- [x] 화면 밖 하단 중앙 Fallback
+- [x] Focus 없음 Fallback
+- [x] Zoom/Resize/Scroll 재계산
+- [x] Transcript 줄 수 제한
+- [x] Raw Text 보존
+- [x] Voice Lens가 SceneObject가 아님
+- [x] SceneRevision 증가 없음
+- [x] PDF 전체 Re-render 없음
+- [x] Reduced Motion
+- [x] Accessible Status
+- [x] 사용자용 오류 문구
 
 ## M. Turn Store와 Privacy
 
@@ -281,11 +287,11 @@
 - [x] Stale
 - [x] Focus Freeze
 - [x] Scene/Page 변경
-- [ ] Lens 표시/제거
-- [ ] Anchor/Fallback
-- [ ] Resize/Zoom/Scroll
-- [ ] Reduced Motion
-- [ ] Store/Revision 불변
+- [x] Lens 표시/제거
+- [x] Anchor/Fallback
+- [x] Resize/Zoom/Scroll
+- [x] Reduced Motion
+- [x] Store/Revision 불변
 
 ## P. 실제 Chrome 수동 테스트
 
@@ -338,14 +344,16 @@
 - [x] Lint
 - [x] Typecheck
 - [x] Unit Test
-- [ ] Integration Test
-- [ ] Build
+- [x] Integration Test
+- [x] Build
 - [x] `git diff` 검토
 - [x] 임시 파일/Audio/Transcript Fixture 정리
-- [ ] `STAGE2_STATUS.md` 최종 갱신
+- [x] `STAGE2_STATUS.md` Phase D 갱신
 - [x] 관련 파일만 Stage
 - [x] Phase A 논리 커밋 생성 (`a0a02a0`)
 - [x] Phase B 논리 커밋 생성 (`81bddba`)
+- [x] Phase C 논리 커밋 생성 (`0129654`)
+- [x] Phase D 논리 커밋 생성 (`ee08797`)
 
 권장 Commit:
 
