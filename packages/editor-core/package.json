@@ -17,7 +17,8 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@ggulnote/shared-types": "workspace:*"
+    "@ggulnote/shared-types": "workspace:*",
+    "@ggulnote/document-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

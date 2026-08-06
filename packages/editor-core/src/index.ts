@@ -32,3 +32,19 @@ export { CreateAnnotationCommand } from "./commands/create-annotation-command";
 export { DeleteAnnotationCommand } from "./commands/delete-annotation-command";
 export { MoveAnnotationCommand } from "./commands/move-annotation-command";
 export { UpdateAnnotationCommand } from "./commands/update-annotation-command";
+
+
+export * from './scene-core/types';
+export { buildPdfSceneObjects } from './scene-core/pdf-scene-adapter';
+export { buildCanvasSceneObjects, resolveCanvasGroupBounds } from './scene-core/canvas-scene-adapter';
+export { CanvasObjectStore } from './scene-core/canvas-object-store';
+export { buildSceneSnapshot, type SceneSnapshotWithStats } from './scene-core/scene-snapshot';
+export { createSceneRevisionTracker } from './scene-core/revision';
+export { buildOccupancyMap } from './scene-core/occupancy';
+export { buildPlacementCandidates } from './scene-core/placement';
+export { validatePlacementRequest } from './scene-core/placement-validator';
+export { buildSceneContext } from './scene-core/scene-context';
+export { buildCompositeRenderSnapshot } from './scene-core/composite-render';
+export { InMemoryCapabilityRegistry, createCapabilityRegistry, createRegistryFactory } from './scene-core/capability-registry';
+
+

@@ -4,13 +4,32 @@
     "outDir": "dist",
     "declaration": true,
     "emitDeclarationOnly": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "baseUrl": ".",
     "paths": {
-      "@ggulnote/shared-types": ["../shared-types/src"],
-      "@ggulnote/shared-types/*": ["../shared-types/src/*"]
+      "@ggulnote/shared-types": [
+        "../shared-types/src"
+      ],
+      "@ggulnote/shared-types/*": [
+        "../shared-types/src/*"
+      ],
+      "@ggulnote/document-core": [
+        "../document-core/src"
+      ],
+      "@ggulnote/document-core/*": [
+        "../document-core/src/*"
+      ]
     }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.spec.ts"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
 }

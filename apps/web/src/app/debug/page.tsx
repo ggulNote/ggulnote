@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DebugDashboard } from "@/features/debug/components/debug-dashboard";
+import { SceneCoreDebugPanel } from "@/features/debug/components/scene-core-debug-panel";
 
 const moduleStatus = [
   { name: "Document Engine", status: "준비 중" as const },
@@ -56,6 +57,10 @@ export default function DebugPage() {
             pdfWorkerLoaded: "not loaded",
           }}
         />
+      </div>
+
+      <div className="mt-6">
+        <SceneCoreDebugPanel />
       </div>
     </main>
   );
