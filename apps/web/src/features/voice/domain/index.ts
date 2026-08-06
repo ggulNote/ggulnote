@@ -12,6 +12,12 @@ export {
   DEFAULT_COMMAND_RECOGNITION_CONFIG,
   cloneSpeechRecognitionConfig,
 } from "./speech-types";
+export {
+  TranscriptAccumulator,
+  joinVoiceTranscriptText,
+  normalizeVoiceTranscriptSegmentText,
+} from "./transcript-accumulator";
+export type { SpeechTranscriptEvent } from "./transcript-accumulator";
 export type {
   LocalRecognitionStatus,
   SpeechBiasPhrase,
