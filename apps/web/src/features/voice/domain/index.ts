@@ -31,13 +31,22 @@ export type {
   SpeechRecognitionQuality,
 } from "./speech-types";
 export type { VoiceModeSnapshot, VoiceModeState } from "./voice-mode-types";
+export { isTerminalVoiceTurnStatus, reduceVoiceTurnLifecycle } from "./voice-turn-reducer";
+export type { VoiceTurnLifecycleAction } from "./voice-turn-reducer";
 export type {
   ActiveVoiceTurnSnapshot,
+  FrozenVoiceTurnContext,
   TranscriptAccumulatorSnapshot,
   VoiceFocusSnapshot,
   VoiceFocusSource,
   VoiceTranscriptSegment,
   VoiceTurnMetrics,
+  VoiceTurnCancelReason,
+  VoiceTurnControllerError,
+  VoiceTurnControllerErrorCode,
+  VoiceTurnControllerState,
+  VoiceTurnControllerStatus,
+  VoiceTurnDiscardReason,
   VoiceTurnRecord,
   VoiceTurnSceneReference,
   VoiceTurnState,
