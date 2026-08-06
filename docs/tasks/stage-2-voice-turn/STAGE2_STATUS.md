@@ -23,15 +23,25 @@
 ## Current Milestone
 
 ```text
-Phase B — DONE: Web Speech Provider, Feature Detection, Event Normalization, Transcript Accumulator
+Phase C — DONE: Voice Turn Controller, State Machine, Context Freeze, Scene Core integration
 ```
 
-이번 마일스톤에서는 Web Speech 브라우저 어댑터와 Transcript Accumulator만 구현한다. Voice Turn Controller, Voice Lens와 Debug UI는 구현하지 않는다.
+Phase A/B 커밋과 clean worktree를 확인하고 `4afc58f`를 기준으로 Phase C를 완료했다. React와 독립된 Turn Controller, 순수 State Machine, speech-start Context Freeze, Scene/Focus Adapter와 테스트를 구현했다. Voice Lens, Trigger, Debug UI는 포함하지 않았다.
 
 다음 Milestone:
 
 ```text
-Phase C — Voice Turn Controller, State Machine, Context Freeze, Scene Core 통합
+Phase D — React Hook, Voice Trigger, Voice Lens, Frozen Focus screen positioning
+```
+
+Phase C 구현 순서:
+
+```text
+Context Source/Focus Resolver
+→ pure lifecycle reducer
+→ Voice Turn Controller + Transcript/Metrics
+→ Fake Context Source와 단위 테스트
+→ 회귀 검증과 문서 갱신
 ```
 
 ## 2. 범위
@@ -88,20 +98,20 @@ Phase C — Voice Turn Controller, State Machine, Context Freeze, Scene Core 통
 | 기존 구조 조사 | DONE | Stage 1 Scene, Raw Gaze Timeline, Selection, Clock, Debug/Test 구조 확인 | Focus Resolver는 Phase C에서 최소 Adapter 필요 |
 | Voice Domain | DONE | SPEC의 Config, Availability, Event, Error, Mode, Turn, Focus, Metric 타입 구현 | Phase C Controller에서 재사용 |
 | Provider Contract | DONE | 브라우저/React 독립 인터페이스와 `InteractionClock` 호환 Clock 주입 | Web Speech 구현 연결 완료 |
-| Web Speech Provider | DONE | Standard/prefix detection, SSR-safe factory, config, event/error 정규화, 세션 격리, 수명주기 구현 | Phrase 오류 후 재시작 정책은 Phase C Controller에서 구현 |
+| Web Speech Provider | DONE | Standard/prefix detection, SSR-safe factory, config, event/error 정규화, 세션 격리, 수명주기 구현 | Phrase 오류 후 재시작 정책은 후속 VoiceModeController에서 구현 |
 | Fake Provider | DONE | 세션/시간 제어, 전체 정규화 Event helper, 수명주기/호출 기록 구현 | Controller 테스트에서 재사용 |
-| Transcript Accumulator | DONE | Segment Map, interim 교체, final lock/dedupe, 정렬/공백 결합, session reset 구현 | Phase C Turn Session에서 연결 |
-| Voice Mode Controller | NOT STARTED |  |  |
-| Voice Turn Session | NOT STARTED |  |  |
-| Focus/Scene Freeze | NOT STARTED |  |  |
+| Transcript Accumulator | DONE | Segment Map, interim 교체, final lock/dedupe, 정렬/공백 결합, session reset 구현 | Phase C Turn Controller 연결 완료 |
+| Voice Mode Controller | NOT STARTED | 자동 Restart와 장기 Mode 수명주기는 별도 Controller 책임으로 유지 | Phase C Turn Controller 완료 후 후속 Milestone에서 연결 |
+| Voice Turn Session | DONE | Start/Stop/Cancel, transcript-first, grace/final wait, complete/discard/fail, session 격리 구현 | Phase D React 연결 필요 |
+| Focus/Scene Freeze | DONE | 단일 SceneSnapshot 기반 page/mode/revision과 우선순위 Focus를 speech-start에서 고정 | 실제 Editor/Gaze wiring은 Phase D 필요 |
 | Voice Lens | NOT STARTED |  |  |
 | Turn Store | NOT STARTED |  |  |
 | Debug | NOT STARTED |  |  |
-| Unit Test | PARTIAL | Voice 6 files, 43 tests 통과 | Phase C 이후 Mode/Turn 테스트 추가 |
+| Unit Test | DONE | Voice 9 files, 74 tests 통과 | Phase D UI 테스트는 다음 Milestone |
 | Integration Test | NOT STARTED |  |  |
 | Chrome Manual Test | NOT STARTED |  |  |
-| Regression | PARTIAL | `editor-core` 47개 통과, Web 120개 통과/기존 Interaction 1개 실패 | 기존 Raw Gaze 실패 별도 해결 필요 |
-| Documentation | DONE | Phase B 체크 상태, 변경 파일, 검증과 제한사항 반영 | 다음 Milestone에서 지속 갱신 |
+| Regression | PARTIAL | `editor-core` 47개 통과, Web 148개 통과/기존 Interaction 1개 실패 | 기존 Raw Gaze 실패 별도 해결 필요 |
+| Documentation | DONE | Phase C 체크 상태, 변경 파일, 검증과 제한사항 반영 | 다음 Milestone에서 지속 갱신 |
 
 허용 상태:
 
@@ -135,6 +145,14 @@ SKIPPED
 | `apps/web/src/features/voice/providers/web-speech-recognition-provider.ts` | Web Speech config, 정규화 Event/Error, Session과 lifecycle 구현 |
 | `apps/web/src/features/voice/providers/web-speech-recognition-provider.test.ts` | Config, resultIndex, final dedupe, late event, stop/abort/dispose/error 테스트 |
 | `apps/web/src/features/voice/providers/web-speech-ssr.test.ts` | Node 환경 import와 unsupported 처리 테스트 |
+| `apps/web/src/features/voice/domain/voice-turn-reducer.ts` | 허용된 Turn lifecycle transition만 적용하는 순수 reducer |
+| `apps/web/src/features/voice/domain/voice-turn-reducer.test.ts` | 정상/중지/취소/실패/중복 terminal transition 테스트 |
+| `apps/web/src/features/voice/application/voice-turn-context-source.ts` | SceneSnapshot과 Focus 후보를 원자적으로 읽는 Context Source/Resolver |
+| `apps/web/src/features/voice/application/voice-turn-context-source.test.ts` | Gaze 우선순위, fallback, stale object, canonical bounds 테스트 |
+| `apps/web/src/features/voice/application/voice-turn-controller.ts` | Provider Event, transcript, freeze, lifecycle, metric, cleanup 조합 |
+| `apps/web/src/features/voice/application/voice-turn-controller.test.ts` | Turn lifecycle, session 격리, stop/cancel/error/metric/timer 테스트 |
+| `apps/web/src/features/voice/application/testing/fake-voice-turn-context-source.ts` | Scene/Focus 변경과 capture 오류를 재현하는 테스트 Fake |
+| `apps/web/src/features/voice/application/index.ts` | Phase C Application public contract export |
 
 ### 수정
 
@@ -142,9 +160,10 @@ SKIPPED
 |---|---|
 | `apps/web/src/features/voice/domain/index.ts` | Transcript Accumulator 공개 API 추가 |
 | `apps/web/src/features/voice/providers/index.ts` | Web Speech Provider와 compatibility API 공개 |
-| `apps/web/src/features/voice/index.ts` | Provider runtime export 추가 |
-| `docs/tasks/stage-2-voice-turn/STAGE2_STATUS.md` | Phase B 진행/검증 결과 기록 |
-| `docs/tasks/stage-2-voice-turn/STAGE2_CHECKLIST.md` | 검증된 Phase B 항목만 체크 |
+| `apps/web/src/features/voice/index.ts` | Application runtime export 추가 |
+| `apps/web/src/features/voice/domain/voice-turn-types.ts` | Frozen Context, Controller state, timestamp/metric/record 계약 확장 |
+| `docs/tasks/stage-2-voice-turn/STAGE2_STATUS.md` | Phase C 진행/검증 결과 기록 |
+| `docs/tasks/stage-2-voice-turn/STAGE2_CHECKLIST.md` | 검증된 Phase C 항목만 체크 |
 
 ### 삭제
 
@@ -156,12 +175,12 @@ SKIPPED
 
 | 명령 | 결과 | 실행 시각 | 비고 |
 |---|---|---|---|
-| lint | PASS | 2026-08-06 | Phase B 디렉터리와 생성 산출물을 제외한 Web 전체 소스 ESLint 통과. 정확한 package script 최종 재실행 1회는 active Next build 스캔 중 timeout |
+| lint | PASS | 2026-08-06 | Voice ESLint, 생성 산출물 제외 전체 소스 ESLint, `@ggulnote/web lint` 통과 |
 | typecheck | PASS | 2026-08-06 | Web strict TypeScript 통과 |
-| unit test | PASS | 2026-08-06 | Voice 6 files, 43 tests 통과 |
+| unit test | PASS | 2026-08-06 | Voice 9 files, 74 tests 통과 |
 | integration test | NOT RUN |  |  |
 | build | NOT RUN |  |  |
-| regression | PARTIAL | 2026-08-06 | editor-core 47/47 통과, Web 120/121 통과. 유일한 실패는 기존 Raw Gaze 테스트 |
+| regression | PARTIAL | 2026-08-06 | editor-core 47/47 통과, Web 148/149 통과. 유일한 실패는 기존 Raw Gaze 테스트 |
 
 실제 실행 명령을 아래에 기록한다.
 
@@ -244,8 +263,9 @@ Summary:
 | V-001 | 낮음 | 저장소 요구 Node `>=22`, 검증 환경 Node `20.19.4` | 모든 pnpm 명령에서 engine warning | Node 22 환경에서 최종 검증 필요 |
 | V-002 | 중간 | 기존 Raw Gaze restart 테스트의 `duplicateFrameCount` 기대값 실패 | Interaction 테스트 단독 실행 시 5/6 통과 | Phase A 변경 파일과 무관하며 기준 Commit에도 동일 테스트 존재; 별도 Gaze 작업으로 해결 |
 | V-003 | 낮음 | Stage 2 문서가 저장소 `.gitignore`의 `docs` 규칙에 포함됨 | `git check-ignore -v` | 변경한 STATUS/CHECKLIST만 명시적으로 Stage 필요 |
-| V-004 | 낮음 | 정확한 Web package lint 최종 재실행이 active Next dev 산출물을 스캔하며 120초 timeout | `pnpm --filter @ggulnote/web lint` | 동일 변경에 대한 Voice lint와 `build`/`.next` 제외 Web 전체 소스 lint는 통과 |
-| V-005 | 낮음 | Phrase 미지원 오류 후 1회 재시작은 Provider가 수행하지 않음 | 미지원 Phrase는 생략하고 기본 Recognition은 시작 | D-011에 따라 Phase C `VoiceModeController`에서 상한 있는 재시작 정책 구현 |
+| V-004 | 해결 | Web package lint의 이전 timeout | `pnpm --filter @ggulnote/web lint` | Phase C 종료 검증에서 24.3초 내 통과 |
+| V-005 | 낮음 | Phrase 미지원 오류 후 1회 재시작은 Provider가 수행하지 않음 | 미지원 Phrase는 생략하고 기본 Recognition은 시작 | D-011에 따라 후속 `VoiceModeController`에서 상한 있는 재시작 정책 구현 |
+| V-006 | 낮음 | Web 앱에 SceneSnapshot과 Gaze/Selection Focus를 원자적으로 제공하는 통합 Store가 없음 | Scene Core는 builder 계약만 있고 실제 Editor/Gaze 연결점은 분리됨 | Phase C는 동기 주입형 Context Source/Focus Resolver를 제공하고 실제 UI wiring은 Phase D에서 수행 |
 
 예상 제한:
 
@@ -284,7 +304,7 @@ Summary:
 최종 상태:
 
 ```text
-IN PROGRESS — Phase B 완료, Phase C 대기
+IN PROGRESS — Phase C 완료, Phase D 대기
 ```
 
 ## 12. 다음 단계 Handoff

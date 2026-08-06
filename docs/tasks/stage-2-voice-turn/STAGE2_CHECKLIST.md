@@ -145,37 +145,37 @@
 
 ## J. Voice Turn Session
 
-- [ ] `speech-start`에서 Turn 생성
-- [ ] Transcript-first 방어
-- [ ] Focus Snapshot 고정
-- [ ] Scene Revision 고정
-- [ ] Page ID 고정
-- [ ] Interim Metric
-- [ ] Final Metric
-- [ ] `speech-end` → `finalizing`
-- [ ] Finalization Grace Timer
-- [ ] Final Wait Timeout
-- [ ] Final 있음 → Completed
-- [ ] Final 없음 → Discarded
-- [ ] Fatal + Final 없음 → Failed
-- [ ] Final + Error Metadata 정책
-- [ ] 완료 Turn Record 생성
-- [ ] 다음 Turn에서 Active 상태 초기화
+- [x] `speech-start`에서 Turn 생성
+- [x] Transcript-first 방어
+- [x] Focus Snapshot 고정
+- [x] Scene Revision 고정
+- [x] Page ID 고정
+- [x] Interim Metric
+- [x] Final Metric
+- [x] `speech-end` → `finalizing`
+- [x] Finalization Grace Timer
+- [x] Final Wait Timeout
+- [x] Final 있음 → Completed
+- [x] Final 없음 → Discarded
+- [x] Fatal + Final 없음 → Failed
+- [x] Final + Error Metadata 정책
+- [x] 완료 Turn Record 생성
+- [x] 다음 Turn에서 Active 상태 초기화
 
 ## K. Focus와 Scene Freeze
 
-- [ ] Gaze Focus 우선
-- [ ] Gaze 신뢰도 필터
-- [ ] Selection Fallback
-- [ ] Recent Focus Fallback
-- [ ] Page Fallback
-- [ ] None 처리
-- [ ] Canonical Bounds 저장
-- [ ] Scene Object 존재 검증
+- [x] Gaze Focus 우선
+- [x] Gaze 신뢰도 필터
+- [x] Selection Fallback
+- [x] Recent Focus Fallback
+- [x] Page Fallback
+- [x] None 처리
+- [x] Canonical Bounds 저장
+- [x] Scene Object 존재 검증
 - [ ] Revision mismatch `stale`
-- [ ] 발화 중 Gaze 이동에도 불변
-- [ ] Scene 변경 기록
-- [ ] Page 변경 기록
+- [x] 발화 중 Gaze 이동에도 불변
+- [x] Scene 변경 기록
+- [x] Page 변경 기록
 - [ ] Zoom/Scroll은 Screen Anchor만 변경
 - [ ] Context Prewarm 실패 격리
 - [ ] Prewarm에서 LLM/YOLO/PDF 재파싱 없음
@@ -261,26 +261,26 @@
 ### Mode/Turn
 
 - [ ] Enable/Disable
-- [ ] speech-start
-- [ ] Transcript-first
-- [ ] Finalizing
-- [ ] Grace Timer
-- [ ] Complete
-- [ ] Discard
-- [ ] Fail
-- [ ] Fatal Error
+- [x] speech-start
+- [x] Transcript-first
+- [x] Finalizing
+- [x] Grace Timer
+- [x] Complete
+- [x] Discard
+- [x] Fail
+- [x] Fatal Error
 - [ ] Network Recovery
 - [ ] Restart 상한
-- [ ] Intentional Stop
-- [ ] 다음 Turn 초기화
+- [x] Intentional Stop
+- [x] 다음 Turn 초기화
 
 ### Focus/Lens
 
-- [ ] Gaze 우선
-- [ ] Fallback
-- [ ] Stale
-- [ ] Focus Freeze
-- [ ] Scene/Page 변경
+- [x] Gaze 우선
+- [x] Fallback
+- [x] Stale
+- [x] Focus Freeze
+- [x] Scene/Page 변경
 - [ ] Lens 표시/제거
 - [ ] Anchor/Fallback
 - [ ] Resize/Zoom/Scroll
