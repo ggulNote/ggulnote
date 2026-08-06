@@ -342,7 +342,7 @@
 - [ ] 임시 파일/Audio/Transcript Fixture 정리
 - [ ] `STAGE2_STATUS.md` 최종 갱신
 - [x] 관련 파일만 Stage
-- [ ] Commit 생성
+- [x] Phase A 논리 커밋 생성 (`a0a02a0`)
 
 권장 Commit:
 

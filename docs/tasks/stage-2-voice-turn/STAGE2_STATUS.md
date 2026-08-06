@@ -13,6 +13,7 @@
 | 작업 브랜치 | `feat/stage-2-voice-turn` |
 | 기준 브랜치 | `feat/unified-scene-core` |
 | 기준 Commit | `354c76e` (`feat(scene): add unified PDF and canvas scene core`) |
+| Phase A Commit | `a0a02a0` (`feat(voice): add speech recognition provider contract`) |
 | 최종 Commit | 없음 |
 | 담당 | Codex |
 | MVP Browser | Desktop Chrome |
