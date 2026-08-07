@@ -392,6 +392,25 @@ Voice Turn Log는 Editor Operation Log와 분리한다.
 
 ---
 
+### D-018. Debug diagnostics는 read-only best-effort observer
+
+**선택한 방식**
+
+- `VoiceTurnController`는 optional diagnostics observer로 accepted provider event, control event, state transition만 전달한다.
+- observer 실패는 catch하고 Voice Turn lifecycle을 계속한다.
+- Debug Snapshot은 Phase A~D 타입을 참조하는 read-only view model이며 Production state의 source of truth가 아니다.
+- Event Timeline은 sequence 기반 최대 200개, Turn History는 최대 20개의 메모리 전용 store다.
+- Browser raw event와 audio data는 저장하지 않는다.
+- 기존 Fake Provider는 `/debug/voice` route에서만 harness로 조합하고 Production Editor 기본 Provider는 Web Speech로 유지한다.
+
+**선택 이유**
+
+Core state machine을 복제하거나 Debug UI 요구를 Production state 계약에 섞지 않으면서, 실제 pipeline의 순서와 context freeze를 관찰하기 위해서다.
+
+**후속 영향**
+
+Phase F에서는 debug route가 닫힌 일반 Editor 경로의 bundle/subscription leakage와 public export를 최종 점검한다.
+
 ## 3. MVP 지원 정책
 
 ### 필수 지원

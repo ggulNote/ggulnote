@@ -172,7 +172,7 @@
 - [x] None 처리
 - [x] Canonical Bounds 저장
 - [x] Scene Object 존재 검증
-- [ ] Revision mismatch `stale`
+- [x] Revision mismatch `stale`
 - [x] 발화 중 Gaze 이동에도 불변
 - [x] Scene 변경 기록
 - [x] Page 변경 기록
@@ -213,35 +213,35 @@
 
 ## M. Turn Store와 Privacy
 
-- [ ] 최근 N개 Turn 메모리 Store
-- [ ] Active Turn 조회
-- [ ] 완료 Turn 조회
-- [ ] Debug Clear
-- [ ] Audio Binary 저장 없음
-- [ ] Editor Operation Log와 분리
-- [ ] Event Log Ring Buffer
-- [ ] Raw Transcript 장기 보관 안 함
-- [ ] 개인정보/로그 정책 문서화
+- [x] 최근 N개 Turn 메모리 Store
+- [x] Active Turn 조회
+- [x] 완료 Turn 조회
+- [x] Debug Clear
+- [x] Audio Binary 저장 없음
+- [x] Editor Operation Log와 분리
+- [x] Event Log Ring Buffer
+- [x] Raw Transcript 장기 보관 안 함
+- [x] 개인정보/로그 정책 문서화
 
 ## N. Debug
 
-- [ ] Provider 지원 여부
-- [ ] Constructor
+- [x] Provider 지원 여부
+- [x] Constructor
 - [ ] Local/Biasing Availability
-- [ ] Provider Session ID
+- [x] Provider Session ID
 - [ ] Start/End/Restart Count
 - [ ] Voice Mode State
-- [ ] Active Turn
-- [ ] Segment 목록
-- [ ] Focus/Scene 정보
-- [ ] Voice Lens 상태/좌표
-- [ ] Event Timeline
-- [ ] Metric
-- [ ] Fake Interim/Final
-- [ ] Fake Error
-- [ ] Fake Focus
-- [ ] Fake Scene Change
-- [ ] Debug Control이 Production에서 제외됨
+- [x] Active Turn
+- [x] Segment 목록
+- [x] Focus/Scene 정보
+- [x] Voice Lens 상태/좌표
+- [x] Event Timeline
+- [x] Metric
+- [x] Fake Interim/Final
+- [x] Fake Error
+- [x] Fake Focus
+- [x] Fake Scene Change
+- [x] Debug Control이 Production Editor 일반 경로에서 제외됨
 
 ## O. 자동 테스트
 
@@ -318,15 +318,15 @@
 
 ## Q. 계측
 
-- [ ] Speech Start → First Interim
-- [ ] Speech Start → First Final
+- [x] Speech Start → First Interim
+- [x] Speech Start → First Final
 - [ ] Speech End → Complete
 - [ ] Interim Update Count
 - [ ] Final Segment Count
 - [ ] Restart Count
 - [ ] 10 Turn 성공률
 - [ ] Raw 결과를 `STAGE2_STATUS.md`에 기록
-- [ ] 측정하지 못한 경우 미측정으로 명시
+- [x] 측정하지 못한 경우 미측정으로 명시
 
 ## R. 회귀 검증
 
@@ -360,3 +360,35 @@
 ```bash
 git commit -m "feat(voice): add web speech voice turns and lens"
 ```
+
+## T. Phase E Debug와 Integration Diagnostics
+
+- [x] 기존 `/debug` App Router 구조 재사용
+- [x] `/debug/voice` route와 route-scoped subscription
+- [x] 실제 Phase A~D 타입을 재사용하는 read-only Debug Snapshot
+- [x] Provider/Turn/Transcript/Error/Completed Result 표시
+- [x] TranscriptAccumulator read-only segment snapshot
+- [x] 단조 증가 sequence와 stable ID를 사용하는 Event Timeline
+- [x] Event 상한 200개와 최근 Turn 상한 20개
+- [x] Debug observer 실패가 Voice Turn을 방해하지 않음
+- [x] Frozen/Current Context와 Page/Scene/Focus 변경 비교
+- [x] object revision mismatch stale 판정
+- [x] Canonical Bounds 표시와 pointer-events 없는 Debug Overlay
+- [x] Voice Lens anchor/fallback/clamp metadata
+- [x] 공통 timestamp 기반 latency metrics와 missing 값 안전 처리
+- [x] Start/Stop/Cancel/Retry/Clear controls가 실제 Controller API 사용
+- [x] 기존 Fake Provider Happy/Self Correction/Error/Cancel harness
+- [x] Browser Web Speech가 Production Editor 기본 Provider로 유지됨
+- [x] Raw Browser Event와 Audio 저장 없음
+- [x] Voice/Debug/Integration 테스트 통과
+- [x] Typecheck, Voice/Debug/전체 ESLint, Package Lint 통과
+- [x] Editor Core 테스트 통과
+- [x] Web Build 통과
+- [ ] Web 전체 테스트 완전 통과
+  - 기존 Raw Gaze `duplicateFrameCount` 1건만 실패한다.
+- [x] Fake Provider 기반 Chrome Debug Route 확인
+- [ ] 실제 Chrome 마이크/Web Speech 수동 테스트
+- [x] 실제 STT latency 미측정 명시
+- [x] Phase E STATUS 갱신
+- [x] Phase E 구현 커밋 (`3e42375`)
+- [x] Phase E 문서 커밋
