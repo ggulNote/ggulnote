@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { DebugDashboard } from "@/features/debug/components/debug-dashboard";
+import { SceneCoreDebugPanel } from "@/features/debug/components/scene-core-debug-panel";
 
 const moduleStatus = [
   { name: "Document Engine", status: "준비 중" as const },
   { name: "Editor Engine", status: "미구현" as const },
   { name: "Gaze Engine", status: "준비 중" as const },
-  { name: "Voice Engine", status: "미구현" as const },
+  { name: "Voice Engine", status: "준비 중" as const },
   { name: "Intent Engine", status: "미구현" as const },
 ];
 
@@ -15,6 +16,12 @@ export default function DebugPage() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-semibold text-slate-900">디버그 대시보드</h1>
         <div className="flex gap-2 text-sm">
+          <Link
+            href={{ pathname: "/debug/voice" }}
+            className="rounded-md border border-slate-300 px-3 py-2 text-slate-700 hover:bg-slate-100"
+          >
+            /debug/voice로 이동
+          </Link>
           <Link
             href={{ pathname: "/debug/gaze" }}
             className="rounded-md border border-slate-300 px-3 py-2 text-slate-700 hover:bg-slate-100"
@@ -56,6 +63,10 @@ export default function DebugPage() {
             pdfWorkerLoaded: "not loaded",
           }}
         />
+      </div>
+
+      <div className="mt-6">
+        <SceneCoreDebugPanel />
       </div>
     </main>
   );
