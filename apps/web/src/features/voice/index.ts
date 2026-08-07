@@ -1,6 +1,20 @@
-export { DEFAULT_COMMAND_RECOGNITION_CONFIG } from "./domain";
+export {
+  DEFAULT_COMMAND_RECOGNITION_CONFIG,
+  DIRECT_COMMAND_NAMES,
+  DirectPlannerResultValidationError,
+  parseDirectPlannerResult,
+  safeParseDirectPlannerResult,
+} from "./domain";
 export type {
+  CommandRelation,
   CompletedVoiceTurn,
+  DirectCommandName,
+  DirectCommandPlannerInput,
+  DirectCommandRouteErrorCode,
+  DirectCommandRouteResult,
+  DirectEditorCommand,
+  DirectPlannerResult,
+  DirectTargetRef,
   FrozenVoiceTurnContext,
   SpeechProviderAvailability,
   SpeechRecognitionConfig,
@@ -12,7 +26,11 @@ export type {
   VoiceTurnSceneReference,
   VoiceTurnTimingConfig,
 } from "./domain";
-export type { SpeechRecognitionProvider } from "./providers";
+export type {
+  DirectCommandPlannerOptions,
+  DirectCommandPlannerProvider,
+  SpeechRecognitionProvider,
+} from "./providers";
 export {
   DEFAULT_VOICE_TURN_TIMING_CONFIG,
   SceneVoiceTurnContextSource,
