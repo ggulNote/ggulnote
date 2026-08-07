@@ -1,4 +1,8 @@
 export type { SpeechRecognitionProvider } from "./speech-recognition-provider";
+export type {
+  DirectCommandPlannerOptions,
+  DirectCommandPlannerProvider,
+} from "./direct-command-planner-provider";
 export {
   WebSpeechRecognitionProvider,
   WebSpeechRecognitionStartError,

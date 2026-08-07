@@ -31,6 +31,49 @@ export type {
   SpeechRecognitionQuality,
 } from "./speech-types";
 export type { VoiceModeSnapshot, VoiceModeState } from "./voice-mode-types";
+export type {
+  AnnotationHighlightDirectCommand,
+  AnnotationUnderlineDirectCommand,
+  CancelledDirectPlan,
+  CommandRelation,
+  DeferredSpatialPlan,
+  DirectCapabilityId,
+  DirectCommandName,
+  DirectCommandOperation,
+  DirectCommandOperationId,
+  DirectCommandPlanId,
+  DirectCommandPlannerFocus,
+  DirectCommandPlannerFrozenContext,
+  DirectCommandPlannerInput,
+  DirectCommandPlannerLastOperation,
+  DirectCommandPlannerTurnInput,
+  DirectCommandRouteErrorCode,
+  DirectCommandRouteResult,
+  DirectCommandSceneRevision,
+  DirectCommandTurnId,
+  DirectCurrentPageTargetRef,
+  DirectEditorCommand,
+  DirectFocusTargetRef,
+  DirectLastOperationTargetRef,
+  DirectPlannerResult,
+  DirectTargetRef,
+  EmptyDirectCommandPayload,
+  ExecutableCommandRelation,
+  ExecutableDirectPlan,
+  HistoryUndoDirectCommand,
+  NavigationDirectCommand,
+  NeedsClarificationPlan,
+  TextReplaceContentDirectCommand,
+  UnsupportedDirectPlan,
+} from "./direct-command-types";
+export { DIRECT_COMMAND_NAMES } from "./direct-command-types";
+export {
+  DirectPlannerResultValidationError,
+  parseDirectEditorCommand,
+  parseDirectPlannerResult,
+  safeParseDirectPlannerResult,
+} from "./direct-planner-schema";
+export type { SafeDirectPlannerResultParse } from "./direct-planner-schema";
 export { isTerminalVoiceTurnStatus, reduceVoiceTurnLifecycle } from "./voice-turn-reducer";
 export type { VoiceTurnLifecycleAction } from "./voice-turn-reducer";
 export type {
