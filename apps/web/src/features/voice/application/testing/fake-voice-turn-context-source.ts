@@ -18,10 +18,13 @@ export class FakeVoiceTurnContextSource implements VoiceTurnContextSource {
     };
   }
 
-  public capture(_capturedAt: number): VoiceTurnContextCapture {
+  public capture(capturedAt: number): VoiceTurnContextCapture {
     this.captureCalls += 1;
     if (this.captureError) throw this.captureError;
-    return cloneCapture(this.captureValue);
+    const capture = cloneCapture(this.captureValue);
+    capture.frozenContext.capturedAt = capturedAt;
+    capture.focusSnapshot.capturedAt = capturedAt;
+    return capture;
   }
 
   public getCurrentSceneReference(): VoiceCurrentSceneReference {

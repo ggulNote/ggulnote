@@ -35,6 +35,27 @@ export interface VoiceLensSafeRectInput {
   margin: number;
 }
 
+export type VoiceLensFallbackReason =
+  | "NO_FROZEN_FOCUS"
+  | "FROZEN_PAGE_NOT_VISIBLE"
+  | "FOCUS_OFFSCREEN"
+  | "INVALID_BOUNDS";
+
+export interface VoiceLensPositionDebugInput extends VoiceLensPositionInput {
+  fallbackReason?: VoiceLensFallbackReason;
+}
+
+export interface VoiceLensPositionDebugMetadata {
+  anchorType: "frozen-focus" | "fallback";
+  preferredPlacement: VoiceLensPlacement;
+  anchorScreenRect?: Rect;
+  lensSize: Size;
+  safeRect: Rect;
+  finalScreenPosition: Rect;
+  clampOccurred: boolean;
+  fallbackReason?: VoiceLensFallbackReason;
+}
+
 export function canonicalFocusToScreenRect(
   bounds: Rect,
   page: CanonicalPageDimensions,
@@ -126,6 +147,80 @@ export function resolveVoiceLensPosition(
     placement: preferred.placement,
     isFallback: false,
   };
+}
+
+export function resolveVoiceLensPositionDebug(
+  input: VoiceLensPositionDebugInput,
+): VoiceLensPositionDebugMetadata {
+  const safeRect = normalizeRect(input.safeRect);
+  const lensSize = {
+    width: finiteNonNegative(input.lensSize.width),
+    height: finiteNonNegative(input.lensSize.height),
+  };
+  const anchor = input.anchorRect ? normalizeRect(input.anchorRect) : undefined;
+  const hasValidAnchor = anchor !== undefined && anchor.width > 0 && anchor.height > 0;
+  const anchorIsVisible = hasValidAnchor && rectsIntersect(anchor, safeRect);
+  const forcedFallback = input.fallbackReason !== undefined;
+  const resolved = resolveVoiceLensPosition({
+    ...input,
+    anchorRect: forcedFallback || !anchorIsVisible ? undefined : anchor,
+  });
+  const fallbackReason = forcedFallback
+    ? input.fallbackReason
+    : !anchor
+      ? "NO_FROZEN_FOCUS"
+      : !hasValidAnchor
+        ? "INVALID_BOUNDS"
+        : !anchorIsVisible
+          ? "FOCUS_OFFSCREEN"
+          : undefined;
+  const preferred = anchorIsVisible && !forcedFallback
+    ? resolvePreferredCandidate(anchor, lensSize, safeRect, finiteNonNegative(input.gap))
+    : { x: resolved.x, y: resolved.y, placement: resolved.placement };
+
+  return {
+    anchorType: resolved.isFallback ? "fallback" : "frozen-focus",
+    preferredPlacement: preferred.placement,
+    ...(anchor ? { anchorScreenRect: { ...anchor } } : {}),
+    lensSize,
+    safeRect,
+    finalScreenPosition: {
+      x: resolved.x,
+      y: resolved.y,
+      width: lensSize.width,
+      height: lensSize.height,
+    },
+    clampOccurred: preferred.x !== resolved.x || preferred.y !== resolved.y,
+    ...(fallbackReason ? { fallbackReason } : {}),
+  };
+}
+
+function resolvePreferredCandidate(
+  anchor: Rect,
+  lensSize: Size,
+  safeRect: Rect,
+  gap: number,
+): { x: number; y: number; placement: VoiceLensPlacement } {
+  const candidates: Array<{ x: number; y: number; placement: VoiceLensPlacement }> = [
+    { placement: "right", x: anchor.x + anchor.width + gap, y: anchor.y },
+    { placement: "left", x: anchor.x - lensSize.width - gap, y: anchor.y },
+    {
+      placement: "above",
+      x: anchor.x + (anchor.width - lensSize.width) / 2,
+      y: anchor.y - lensSize.height - gap,
+    },
+    {
+      placement: "below",
+      x: anchor.x + (anchor.width - lensSize.width) / 2,
+      y: anchor.y + anchor.height + gap,
+    },
+  ];
+  return candidates.find((candidate) => fitsInRect(
+    candidate.x,
+    candidate.y,
+    lensSize,
+    safeRect,
+  )) ?? candidates[0];
 }
 
 function resolveBottomCenter(

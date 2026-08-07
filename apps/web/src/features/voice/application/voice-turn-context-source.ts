@@ -8,6 +8,7 @@ import type {
 export interface VoiceFocusCandidate {
   source: Exclude<VoiceFocusSource, "none">;
   objectId?: string;
+  objectRevision?: number;
   bounds?: Rect;
   capturedAt: number;
   gazeSampleId?: string;
@@ -102,9 +103,13 @@ export function resolveVoiceFocusSnapshot(
     };
   }
 
-  const objectExists = candidate.objectId === undefined
-    || scene.objectById[candidate.objectId] !== undefined;
-  const stale = !objectExists;
+  const sceneObject = candidate.objectId === undefined
+    ? undefined
+    : scene.objectById[candidate.objectId];
+  const objectExists = candidate.objectId === undefined || sceneObject !== undefined;
+  const revisionMatches = candidate.objectRevision === undefined
+    || sceneObject?.objectRevision === candidate.objectRevision;
+  const stale = !objectExists || !revisionMatches;
   const snapshot: VoiceFocusSnapshot = {
     source: candidate.source,
     capturedAt,

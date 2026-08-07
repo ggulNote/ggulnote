@@ -285,8 +285,9 @@ export class WebSpeechRecognitionProvider implements SpeechRecognitionProvider {
       return;
     }
 
-    const startIndex = normalizeResultIndex(event.resultIndex);
-    for (let index = startIndex; index < event.results.length; index += 1) {
+    const resultCount = event.results.length;
+    const startIndex = normalizeResultStartIndex(event.resultIndex, resultCount);
+    for (let index = startIndex; index < resultCount; index += 1) {
       const result = event.results[index] ?? event.results.item?.(index);
       if (!result || session.finalSegmentIndexes.has(index)) {
         continue;
@@ -322,7 +323,6 @@ export class WebSpeechRecognitionProvider implements SpeechRecognitionProvider {
       this.emit(transcriptEvent);
     }
   }
-
   private handleError(
     session: ActiveWebSpeechSession,
     event: WebSpeechRecognitionErrorEventLike,
@@ -574,11 +574,24 @@ function createErrorDetail(
   return detail;
 }
 
-function normalizeResultIndex(value: number): number {
-  if (!Number.isFinite(value)) {
+function normalizeResultStartIndex(
+  rawIndex: number,
+  resultCount: number,
+): number {
+  if (resultCount <= 0) {
     return 0;
   }
-  return Math.max(0, Math.trunc(value));
+
+  if (!Number.isFinite(rawIndex)) {
+    return 0;
+  }
+
+  const index = Math.trunc(rawIndex);
+  if (!Number.isFinite(index)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(0, index), resultCount);
 }
 
 function clearEventHandlers(recognition: WebSpeechRecognitionLike): void {

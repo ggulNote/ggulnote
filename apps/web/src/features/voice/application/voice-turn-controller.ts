@@ -11,6 +11,7 @@ import {
   type SpeechProviderEvent,
   type SpeechRecognitionConfig,
   type TranscriptAccumulatorSnapshot,
+  type TranscriptAccumulatorSegmentSnapshot,
   type VoiceFocusSnapshot,
   type VoiceTurnCancelReason,
   type VoiceTurnControllerError,
@@ -21,6 +22,10 @@ import {
 } from "../domain";
 import type { SpeechRecognitionProvider } from "../providers";
 import type { VoiceCurrentSceneReference, VoiceTurnContextSource } from "./voice-turn-context-source";
+import type {
+  VoiceTurnControlDiagnosticEvent,
+  VoiceTurnDiagnostics,
+} from "./voice-turn-diagnostics";
 
 export interface VoiceTurnScheduler {
   setTimeout(callback: () => void, delayMs: number): unknown;
@@ -35,6 +40,7 @@ export interface VoiceTurnControllerOptions {
   config?: SpeechRecognitionConfig;
   timing?: Partial<VoiceTurnTimingConfig>;
   scheduler?: VoiceTurnScheduler;
+  diagnostics?: VoiceTurnDiagnostics;
 }
 
 export type VoiceTurnStateListener = (state: VoiceTurnControllerState) => void;
@@ -85,6 +91,7 @@ export class VoiceTurnController {
   private readonly config: SpeechRecognitionConfig;
   private readonly timing: VoiceTurnTimingConfig;
   private readonly scheduler: VoiceTurnScheduler;
+  private readonly diagnostics: VoiceTurnDiagnostics | undefined;
   private readonly listeners = new Set<VoiceTurnStateListener>();
   private readonly unsubscribeProvider: () => void;
   private readonly retiredSessionIds = new Set<string>();
@@ -103,6 +110,7 @@ export class VoiceTurnController {
     this.config = cloneSpeechRecognitionConfig(options.config ?? DEFAULT_COMMAND_RECOGNITION_CONFIG);
     this.timing = { ...DEFAULT_VOICE_TURN_TIMING_CONFIG, ...options.timing };
     this.scheduler = options.scheduler ?? createDefaultScheduler();
+    this.diagnostics = options.diagnostics;
     this.unsubscribeProvider = this.provider.subscribe((event) => this.handleProviderEvent(event));
   }
 
@@ -142,6 +150,21 @@ export class VoiceTurnController {
     return cloneTranscript(EMPTY_TRANSCRIPT);
   }
 
+  public getTranscriptSegmentsSnapshot(): readonly TranscriptAccumulatorSegmentSnapshot[] {
+    if (this.runtime?.accumulator) {
+      return this.runtime.accumulator.getSegmentsSnapshot();
+    }
+    const record = this.state.status === "completed"
+      ? this.state.result
+      : this.state.status === "discarded"
+        ? this.state.record
+        : undefined;
+    return record?.finalSegments.map((segment) => ({
+      ...segment,
+      isFinal: true,
+    })) ?? [];
+  }
+
   public async start(): Promise<void> {
     if (this.disposed || !canStartFrom(this.state.status)) return;
     this.clearTimers();
@@ -151,6 +174,7 @@ export class VoiceTurnController {
       transcript: cloneTranscript(EMPTY_TRANSCRIPT),
       interimUpdateCount: 0,
     };
+    this.emitControlDiagnostic({ type: "turn-requested", at: requestedAt });
     this.transitionTo({
       status: "starting",
       providerId: this.provider.id,
@@ -177,7 +201,13 @@ export class VoiceTurnController {
 
   public stop(): void {
     if (this.disposed || !isActiveStatus(this.state.status) || !this.runtime) return;
-    this.runtime.stopRequestedAt ??= this.readTime();
+    if (this.runtime.stopRequestedAt === undefined) {
+      this.runtime.stopRequestedAt = this.readTime();
+      this.emitControlDiagnostic({
+        type: "stop-requested",
+        at: this.runtime.stopRequestedAt,
+      });
+    }
     if (this.canBuildRecord()) {
       this.transitionTo({ status: "finalizing", turn: this.buildActiveSnapshot("finalizing") });
     }
@@ -187,13 +217,15 @@ export class VoiceTurnController {
   public cancel(reason: VoiceTurnCancelReason = "user"): void {
     if (this.disposed || !isActiveStatus(this.state.status) || !this.runtime) return;
     const runtime = this.runtime;
+    const cancelledAt = this.readTime();
+    this.emitControlDiagnostic({ type: "cancel-requested", at: cancelledAt });
     this.retireActiveSession();
     this.clearTimers();
     const next: Extract<VoiceTurnControllerState, { status: "cancelled" }> = {
       status: "cancelled",
       reason,
       requestedAt: runtime.requestedAt,
-      cancelledAt: this.readTime(),
+      cancelledAt,
       transcript: cloneTranscript(runtime.transcript),
     };
     if (runtime.turnId !== undefined) next.turnId = runtime.turnId;
@@ -224,6 +256,7 @@ export class VoiceTurnController {
   private handleProviderEvent(event: SpeechProviderEvent): void {
     if (this.disposed || !this.runtime || !isActiveStatus(this.state.status)) return;
     if (!this.acceptSession(event.sessionId)) return;
+    this.emitProviderDiagnostic(event);
 
     switch (event.type) {
       case "provider-start":
@@ -471,13 +504,45 @@ export class VoiceTurnController {
 
   private transitionTo(next: VoiceTurnControllerState): void {
     if (!isAllowedControllerTransition(this.state.status, next.status)) return;
+    const previous = cloneControllerState(this.state);
     this.state = cloneControllerState(next);
+    this.emitStateDiagnostic(previous, this.state);
     for (const listener of [...this.listeners]) {
       try {
         listener(this.getState());
       } catch {
         // One observer must not interrupt the Voice Turn lifecycle.
       }
+    }
+  }
+
+  private emitControlDiagnostic(event: VoiceTurnControlDiagnosticEvent): void {
+    try {
+      this.diagnostics?.onControlEvent?.({ ...event });
+    } catch {
+      // Debug diagnostics must never interrupt a Voice Turn.
+    }
+  }
+
+  private emitProviderDiagnostic(event: SpeechProviderEvent): void {
+    try {
+      this.diagnostics?.onProviderEvent?.(cloneProviderEvent(event));
+    } catch {
+      // Debug diagnostics must never interrupt a Voice Turn.
+    }
+  }
+
+  private emitStateDiagnostic(
+    previous: VoiceTurnControllerState,
+    next: VoiceTurnControllerState,
+  ): void {
+    try {
+      this.diagnostics?.onStateChange?.(
+        cloneControllerState(previous),
+        cloneControllerState(next),
+      );
+    } catch {
+      // Debug diagnostics must never interrupt a Voice Turn.
     }
   }
 
@@ -719,4 +784,10 @@ function createDefaultScheduler(): VoiceTurnScheduler {
     setTimeout: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
     clearTimeout: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
   };
+}
+
+function cloneProviderEvent(event: SpeechProviderEvent): SpeechProviderEvent {
+  return event.type === "error"
+    ? { ...event, error: { ...event.error } }
+    : { ...event };
 }

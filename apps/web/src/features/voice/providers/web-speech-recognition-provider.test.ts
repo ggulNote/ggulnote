@@ -175,12 +175,17 @@ function createResult(
 function createResultEvent(
   resultIndex: number,
   values: WebSpeechRecognitionResultLike[],
+  timeStamp?: number,
 ): WebSpeechRecognitionResultEventLike {
   const results = values as unknown as WebSpeechRecognitionResultListLike;
   Object.assign(results, {
     item: (index: number) => values[index] ?? null,
   });
-  return { resultIndex, results };
+  const event: WebSpeechRecognitionResultEventLike = { resultIndex, results };
+  if (timeStamp !== undefined) {
+    Object.assign(event, { timeStamp });
+  }
+  return event;
 }
 
 function commandConfig(
@@ -220,6 +225,62 @@ describe("WebSpeechRecognitionProvider", () => {
     expect(browser.instances[0].start).toHaveBeenCalledTimes(1);
   });
 
+  it("prefers SpeechRecognition over webkitSpeechRecognition", async () => {
+    const speechInstances: MockRecognition[] = [];
+    const webkitInstances: MockRecognition[] = [];
+
+    const SpeechRecognition = class extends MockRecognition {
+      public constructor() {
+        super({});
+        speechInstances.push(this);
+      }
+    } as unknown as WebSpeechRecognitionConstructor;
+    const webkitSpeechRecognition = class extends MockRecognition {
+      public constructor() {
+        super({});
+        webkitInstances.push(this);
+      }
+    } as unknown as WebSpeechRecognitionConstructor;
+
+    const { provider } = createProvider({
+      SpeechRecognition,
+      webkitSpeechRecognition,
+    });
+
+    await provider.start(commandConfig());
+    const availability = await provider.getAvailability(commandConfig());
+
+    expect(availability).toMatchObject({
+      supported: true,
+      constructorName: "SpeechRecognition",
+    });
+    expect(speechInstances).toHaveLength(2);
+    expect(webkitInstances).toHaveLength(0);
+  });
+
+  it("falls back to webkitSpeechRecognition when SpeechRecognition is unavailable", async () => {
+    const webkitInstances: MockRecognition[] = [];
+
+    const webkitSpeechRecognition = class extends MockRecognition {
+      public constructor() {
+        super({});
+        webkitInstances.push(this);
+      }
+    } as unknown as WebSpeechRecognitionConstructor;
+
+    const { provider } = createProvider({
+      webkitSpeechRecognition,
+    });
+
+    await provider.start(commandConfig());
+    const availability = await provider.getAvailability(commandConfig());
+
+    expect(availability).toMatchObject({
+      supported: true,
+      constructorName: "webkitSpeechRecognition",
+    });
+    expect(webkitInstances).toHaveLength(2);
+  });
   it("normalizes lifecycle and transcript events on the injected clock", async () => {
     const browser = createMockBrowser();
     const { provider, setNow } = createProvider(browser.scope);
@@ -310,6 +371,39 @@ describe("WebSpeechRecognitionProvider", () => {
     ]);
   });
 
+
+  it("ignores out-of-range positive resultIndex and starts from 0 for negative", async () => {
+    const browser = createMockBrowser();
+    const { provider } = createProvider(browser.scope);
+    const transcripts: Extract<SpeechProviderEvent, { type: "transcript" }>[] = [];
+    provider.subscribe((event) => {
+      if (event.type === "transcript") {
+        transcripts.push(event);
+      }
+    });
+    await provider.start(commandConfig());
+    const recognition = browser.instances[0];
+
+    recognition.emitResult(
+      createResultEvent(4, [
+        createResult("첫번째", false),
+        createResult("두번째", true),
+      ]),
+    );
+    recognition.emitResult(
+      createResultEvent(-1, [
+        createResult("재시작", false),
+      ]),
+    );
+
+    expect(transcripts).toHaveLength(1);
+    expect(transcripts[0]).toMatchObject({
+      sessionId: "session-1",
+      segmentIndex: 0,
+      text: "재시작",
+      isFinal: false,
+    });
+  });
   it("ignores handlers retained from an ended previous session", async () => {
     const browser = createMockBrowser();
     const { provider } = createProvider(browser.scope);
@@ -376,6 +470,54 @@ describe("WebSpeechRecognitionProvider", () => {
     expect(recognition.onstart).toBeNull();
     expect(listener).not.toHaveBeenCalled();
     await expect(provider.start(commandConfig())).rejects.toThrow("disposed");
+  });
+
+  it("ignores browser event timeStamp and uses injected clock for all provider events", async () => {
+    const browser = createMockBrowser();
+    const { provider, setNow } = createProvider(browser.scope);
+    const events: SpeechProviderEvent[] = [];
+    provider.subscribe((event) => events.push(event));
+
+    await provider.start(commandConfig());
+    const recognition = browser.instances[0];
+    setNow(1_010);
+    recognition.onstart?.({ timeStamp: 1_000_000 });
+    setNow(1_020);
+    recognition.onaudiostart?.({ timeStamp: 2_000_000 });
+    setNow(1_030);
+    recognition.onspeechstart?.({ timeStamp: 3_000_000 });
+    setNow(1_040);
+    recognition.emitResult(
+      createResultEvent(
+        0,
+        [createResult("다음", true)],
+        4_000_000,
+      ),
+    );
+    setNow(1_050);
+    recognition.onspeechend?.({ timeStamp: 5_000_000 });
+    setNow(1_060);
+    recognition.onaudioend?.({ timeStamp: 6_000_000 });
+    setNow(1_070);
+    recognition.onend?.({ timeStamp: 7_000_000 });
+
+    expect(events.map((event) => event.at)).toEqual([
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+    ]);
+    expect(events[3]).toMatchObject({
+      type: "transcript",
+      at: 40,
+      sessionId: "session-1",
+      segmentId: "speech:session-1:result:0",
+      segmentIndex: 0,
+      isFinal: true,
+    });
   });
 
   it.each([

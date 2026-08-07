@@ -17,7 +17,7 @@ export {
   joinVoiceTranscriptText,
   normalizeVoiceTranscriptSegmentText,
 } from "./transcript-accumulator";
-export type { SpeechTranscriptEvent } from "./transcript-accumulator";
+export type { SpeechTranscriptEvent, TranscriptAccumulatorSegmentSnapshot } from "./transcript-accumulator";
 export type {
   LocalRecognitionStatus,
   SpeechBiasPhrase,
@@ -51,4 +51,5 @@ export type {
   VoiceTurnSceneReference,
   VoiceTurnState,
   VoiceTurnTimingConfig,
+  CompletedVoiceTurn,
 } from "./voice-turn-types";

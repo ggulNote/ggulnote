@@ -9,6 +9,10 @@ export type SpeechTranscriptEvent = Extract<
   { type: "transcript" }
 >;
 
+export interface TranscriptAccumulatorSegmentSnapshot extends VoiceTranscriptSegment {
+  isFinal: boolean;
+}
+
 interface AccumulatedTranscriptSegment extends VoiceTranscriptSegment {
   final: boolean;
 }
@@ -54,8 +58,12 @@ export class TranscriptAccumulator {
     return this.getSnapshot();
   }
 
+  public getSegmentsSnapshot(): readonly TranscriptAccumulatorSegmentSnapshot[] {
+    return this.getOrderedSegments().map(toSegmentSnapshot);
+  }
+
   public getSnapshot(): TranscriptAccumulatorSnapshot {
-    const ordered = [...this.segments.values()].sort(compareSegments);
+    const ordered = this.getOrderedSegments();
     const finalSegments = ordered
       .filter((segment) => segment.final)
       .map(toPublicSegment);
@@ -72,6 +80,10 @@ export class TranscriptAccumulator {
       finalSegments,
     };
   }
+
+  private getOrderedSegments(): AccumulatedTranscriptSegment[] {
+    return [...this.segments.values()].sort(compareSegments);
+  }
 }
 
 export function normalizeVoiceTranscriptSegmentText(text: string): string {
@@ -83,6 +95,21 @@ export function joinVoiceTranscriptText(parts: readonly string[]): string {
     .map(normalizeVoiceTranscriptSegmentText)
     .filter((part) => part.length > 0)
     .join(" ");
+}
+
+function toSegmentSnapshot(
+  segment: AccumulatedTranscriptSegment,
+): TranscriptAccumulatorSegmentSnapshot {
+  const value: TranscriptAccumulatorSegmentSnapshot = {
+    id: segment.id,
+    index: segment.index,
+    text: segment.text,
+    isFinal: segment.final,
+  };
+  if (segment.confidence !== undefined) {
+    value.confidence = segment.confidence;
+  }
+  return value;
 }
 
 function compareSegments(

@@ -106,7 +106,12 @@ function buildFocusCandidates(
       )
     : undefined;
   const selection = selected
-    ? toFocusCandidate("selection", selected.id, selected.bounds)
+    ? toFocusCandidate(
+        "selection",
+        selected.id,
+        selected.bounds,
+        selected.objectRevision,
+      )
     : undefined;
   const recentFocus = input.recentSemanticCandidate
     ? semanticCandidateToFocus(input.recentSemanticCandidate, scene, input.pageSize)
@@ -136,6 +141,7 @@ function semanticCandidateToFocus(
     matchingObject?.id,
     matchingObject?.bounds
       ?? normalizedToCanonicalRect(candidate.bounds, pageSize),
+    matchingObject?.objectRevision,
   );
 }
 
@@ -162,10 +168,12 @@ function toFocusCandidate(
   source: "selection" | "recent-focus",
   objectId: string | undefined,
   bounds: Rect,
+  objectRevision?: number,
 ): VoiceFocusCandidate {
   return {
     source,
     ...(objectId ? { objectId } : {}),
+    ...(objectRevision !== undefined ? { objectRevision } : {}),
     bounds: { ...bounds },
     capturedAt: 0,
   };

@@ -94,6 +94,8 @@ export interface VoiceTurnRecord {
   metrics: VoiceTurnMetrics;
 }
 
+export type CompletedVoiceTurn = VoiceTurnRecord & { state: "completed" };
+
 export interface ActiveVoiceTurnSnapshot {
   id: string;
   state: "capturing" | "finalizing";

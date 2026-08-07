@@ -6,6 +6,7 @@ import type {
 
 export interface SpeechRecognitionProvider {
   readonly id: string;
+  readonly activeSessionId?: string;
 
   getAvailability(config: SpeechRecognitionConfig): Promise<SpeechProviderAvailability>;
   start(config: SpeechRecognitionConfig): Promise<void>;

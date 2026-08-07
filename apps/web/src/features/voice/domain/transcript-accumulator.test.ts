@@ -128,4 +128,33 @@ describe("TranscriptAccumulator", () => {
 
     expect(accumulator.getSnapshot().finalText).toBe("원본");
   });
+  it("exposes a read-only segment snapshot for debug", () => {
+    const accumulator = new TranscriptAccumulator("session-1");
+
+    accumulator.update(transcriptEvent("session-1", 1, "둘", false));
+    accumulator.update(transcriptEvent("session-1", 0, "하나", true));
+    accumulator.update(transcriptEvent("session-1", 1, "둘", true));
+
+    const segments = accumulator.getSegmentsSnapshot();
+
+    expect(segments).toEqual([
+      {
+        id: "speech:session-1:result:0",
+        index: 0,
+        text: "하나",
+        isFinal: true,
+      },
+      {
+        id: "speech:session-1:result:1",
+        index: 1,
+        text: "둘",
+        isFinal: true,
+      },
+    ]);
+
+    segments[0].text = "임의 변경";
+
+    expect(accumulator.getSegmentsSnapshot()[0].text).toBe("하나");
+  });
+
 });

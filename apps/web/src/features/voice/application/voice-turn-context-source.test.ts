@@ -73,6 +73,22 @@ describe("resolveVoiceFocusSnapshot", () => {
     expect(result.bounds).toBeUndefined();
   });
 
+  it("marks focus stale when the candidate object revision no longer matches", () => {
+    const result = resolveVoiceFocusSnapshot(scene, {
+      selection: {
+        source: "selection",
+        objectId: focusedText.id,
+        objectRevision: focusedText.objectRevision + 1,
+        bounds: focusedText.bounds,
+        capturedAt: 10,
+      },
+    }, 20);
+
+    expect(result.stale).toBe(true);
+    expect(result.objectId).toBeUndefined();
+    expect(result.bounds).toBeUndefined();
+  });
+
   it("keeps a bounds-only ROI and supports no focus", () => {
     const roi = resolveVoiceFocusSnapshot(scene, {
       recentFocus: {

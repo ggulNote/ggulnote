@@ -32,18 +32,32 @@ class ManualScheduler implements VoiceTurnScheduler {
   }
 }
 
-function createHarness(availability?: SpeechProviderAvailability) {
+interface VoiceTurnHarnessOptions {
+  availability?: SpeechProviderAvailability;
+  createTurnId?: () => string;
+  createSessionId?: () => string;
+}
+
+function createHarness(options: VoiceTurnHarnessOptions = {}) {
   let now = 0;
   let turnSequence = 0;
   let sessionSequence = 0;
+  const {
+    availability,
+    createTurnId = () => {
+      turnSequence += 1;
+      return `turn-${turnSequence}`;
+    },
+    createSessionId = () => {
+      sessionSequence += 1;
+      return `session-${sessionSequence}`;
+    },
+  } = options;
   const clock = { now: () => toSessionTimeMs(now) };
   const provider = new FakeSpeechRecognitionProvider({
     clock,
     availability,
-    createSessionId: () => {
-      sessionSequence += 1;
-      return `session-${sessionSequence}`;
-    },
+    createSessionId,
   });
   const context = new FakeVoiceTurnContextSource({
     frozenContext: {
@@ -72,10 +86,7 @@ function createHarness(availability?: SpeechProviderAvailability) {
     contextSource: context,
     clock,
     scheduler,
-    createTurnId: () => {
-      turnSequence += 1;
-      return `turn-${turnSequence}`;
-    },
+    createTurnId,
     timing: { speechEndGraceMs: 10, finalResultWaitMs: 20 },
   });
   return {
@@ -159,13 +170,21 @@ describe("VoiceTurnController", () => {
     );
   });
 
-  it("uses transcript-first as the defensive turn start path", async () => {
+  it("defensively starts one turn when transcript arrives before speech-start", async () => {
     const harness = createHarness();
     await harness.controller.start();
     harness.provider.emitProviderStart({ at: 5 });
-    harness.provider.emitFinal(0, "먼저 도착한 결과", { at: 20 });
+    harness.provider.emitInterim(0, "너무 빠른 시작", { at: 10 });
+    harness.provider.emitFinal(0, "이전 결과", { at: 12 });
+    expect(harness.context.captureCallCount).toBe(1);
+    expect(harness.controller.getTranscriptSnapshot().finalText).toBe("이전 결과");
+
+    harness.provider.emitSpeechStart({ at: 20 });
+    harness.provider.emitInterim(1, "실제 시작", { at: 21 });
+    harness.provider.emitFinal(1, "최종 결과", { at: 22 });
     expect(harness.context.captureCallCount).toBe(1);
     expect(harness.controller.getState().status).toBe("capturing");
+    expect(harness.controller.getTranscriptSnapshot().finalText).toBe("이전 결과 최종 결과");
   });
 
   it("stops normally, accepts late final, and completes only on provider end", async () => {
@@ -245,9 +264,12 @@ describe("VoiceTurnController", () => {
 
   it("normalizes unsupported, provider errors, and context capture failure into terminal states", async () => {
     const unsupported = createHarness({
-      supported: false,
-      local: { supported: false, status: "unavailable" },
-      contextualBiasingSupported: false,
+      availability: {
+        supported: false,
+        constructorName: "SpeechRecognition",
+        local: { supported: false, status: "unavailable" },
+        contextualBiasingSupported: false,
+      },
     });
     await unsupported.controller.start();
     expect(unsupported.controller.getState().status).toBe("unsupported");
@@ -332,6 +354,65 @@ describe("VoiceTurnController", () => {
     harness.provider.emitFinal(0, "두 번째", { at: 35 });
     harness.setNow(40);
     harness.provider.emitProviderEnd({ at: 40 });
+    expect(harness.controller.getCompletedTurn()?.rawTranscript).toBe("두 번째");
+  });
+
+  it("separates turn id and provider session id per session", async () => {
+    let turnCounter = 0;
+    let sessionCounter = 0;
+
+    const harness = createHarness({
+      createTurnId: () => {
+        turnCounter += 1;
+        return `turn-${turnCounter}`;
+      },
+      createSessionId: () => {
+        sessionCounter += 1;
+        return `session-${sessionCounter}`;
+      },
+    });
+
+    await harness.controller.start();
+    harness.provider.emitSpeechStart({ at: 10 });
+    harness.provider.emitFinal(0, "첫 번째", { at: 15 });
+    harness.setNow(20);
+    harness.provider.emitProviderEnd({ at: 20 });
+
+    const firstTurn = harness.controller.getCompletedTurn();
+    expect(firstTurn?.id).toBe("turn-1");
+    expect(firstTurn?.providerSessionId).toBe("session-1");
+    expect(firstTurn?.id).not.toBe(firstTurn?.providerSessionId);
+
+    await harness.controller.start();
+    harness.provider.emitSpeechStart({ at: 21 });
+    harness.provider.emitFinal(0, "두 번째", { at: 25 });
+    harness.setNow(30);
+    harness.provider.emitProviderEnd({ at: 30 });
+
+    const secondTurn = harness.controller.getCompletedTurn();
+    expect(secondTurn?.id).toBe("turn-2");
+    expect(secondTurn?.providerSessionId).toBe("session-2");
+    expect(secondTurn?.id).not.toBe(secondTurn?.providerSessionId);
+  });
+
+  it("ignores stale session events after active session has started", async () => {
+    const harness = createHarness();
+    await harness.controller.start();
+    harness.provider.emitSpeechStart({ at: 10 });
+    harness.provider.emitFinal(0, "첫 번째", { at: 15 });
+    harness.setNow(20);
+    harness.provider.emitProviderEnd({ at: 20 });
+
+    await harness.controller.start();
+    harness.provider.emitSpeechStart({ sessionId: "session-1", at: 21 });
+    harness.provider.emitSpeechStart({ at: 30 });
+    harness.provider.emitFinal(0, "늦은 이전 결과", { sessionId: "session-1", at: 35 });
+    harness.provider.emitProviderEnd({ sessionId: "session-1", at: 36, intentional: true });
+    harness.provider.emitFinal(0, "두 번째", { at: 45 });
+    harness.setNow(50);
+    harness.provider.emitProviderEnd({ at: 50 });
+
+    expect(harness.controller.getCompletedTurn()?.providerSessionId).toBe("session-2");
     expect(harness.controller.getCompletedTurn()?.rawTranscript).toBe("두 번째");
   });
 
