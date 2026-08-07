@@ -43,11 +43,12 @@ export function VoiceLens({
       data-fallback={position?.isFallback ? "true" : "false"}
       className={[
         "pointer-events-none fixed z-40 max-h-24 w-[min(22rem,calc(100vw-2rem))]",
-        "overflow-hidden rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur-sm",
+        "overflow-hidden rounded-xl border px-4 py-3 text-sm",
+        "shadow-[0_6px_24px_rgba(15,23,42,0.08)] ring-1 backdrop-blur-[2px] backdrop-saturate-150",
         "transition-[left,top,opacity] duration-150 motion-reduce:transition-none",
         viewModel.state === "error"
-          ? "border-red-300 bg-red-50/95 text-red-900"
-          : "border-slate-300 bg-white/95 text-slate-900",
+          ? "border-red-400/35 bg-red-50/20 text-red-950 ring-red-900/10"
+          : "border-white/60 bg-white/15 text-slate-950 ring-slate-900/10",
       ].join(" ")}
       style={{
         left: position ? position.x + "px" : "1rem",
