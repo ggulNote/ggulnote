@@ -100,9 +100,9 @@ describe("VoiceLens", () => {
     );
     expect(screen.getByRole("status")).toHaveClass("pointer-events-none");
     expect(screen.getByRole("status")).toHaveClass(
-      "bg-white/15",
-      "border-white/60",
-      "backdrop-blur-[2px]",
+      "bg-white/[0.05]",
+      "border-slate-400/[0.16]",
+      "backdrop-blur-[1px]",
     );
     transcribing.unmount();
 
@@ -163,8 +163,8 @@ describe("VoiceLens", () => {
     });
     expect(screen.getByText("마이크 권한을 허용해 주세요.")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveClass(
-      "bg-red-50/20",
-      "border-red-400/35",
+      "bg-red-50/[0.07]",
+      "border-red-400/[0.18]",
     );
     failed.unmount();
 
