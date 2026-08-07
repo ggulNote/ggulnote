@@ -162,7 +162,11 @@ export class VoiceDebugStore {
     } else {
       this.observed.cancelRequestedAt = event.at;
       this.intentionalAbort = true;
-      this.provider = { ...this.provider, intentionalAbort: true };
+      this.provider = {
+        ...this.provider,
+        isRunning: false,
+        intentionalAbort: true,
+      };
       this.appendEvent("CANCEL_REQUESTED", event.at);
       this.appendEvent("PROVIDER_ABORT", event.at);
     }

@@ -13,8 +13,14 @@ export type {
   VoiceTurnControlDiagnosticEvent,
   VoiceTurnDiagnostics,
 } from "./voice-turn-diagnostics";
+export { VoiceModeControllerImpl } from "./voice-mode-controller";
 export type {
   VoiceTurnControllerOptions,
   VoiceTurnScheduler,
   VoiceTurnStateListener,
 } from "./voice-turn-controller";
+export type {
+  VoiceModeController,
+  VoiceModeControllerOptions,
+  VoiceModeControllerScheduler,
+} from "./voice-mode-controller";

@@ -104,6 +104,7 @@ describe("VoiceDebugRuntime fake provider integration", () => {
     await runtime.runScenario("cancel");
     const snapshot = runtime.getSnapshot();
     expect(snapshot.turn.resultKind).toBe("Cancelled");
+    expect(snapshot.provider.isRunning).toBe(false);
     expect(snapshot.events.map((event) => event.type)).toEqual(expect.arrayContaining([
       "CANCEL_REQUESTED",
       "PROVIDER_ABORT",

@@ -44,11 +44,11 @@ export function VoiceLens({
       className={[
         "pointer-events-none fixed z-40 max-h-24 w-[min(22rem,calc(100vw-2rem))]",
         "overflow-hidden rounded-xl border px-4 py-3 text-sm",
-        "shadow-[0_4px_18px_rgba(15,23,42,0.04)] ring-1 backdrop-blur-[1px] backdrop-saturate-110",
+        "shadow-[0_2px_8px_rgba(15,23,42,0.03)] ring-1 backdrop-blur-[2px] backdrop-saturate-125",
         "transition-[left,top,opacity] duration-150 motion-reduce:transition-none",
         viewModel.state === "error"
-          ? "border-red-400/[0.18] bg-red-50/[0.07] text-red-950 ring-red-900/[0.05]"
-          : "border-slate-400/[0.16] bg-white/[0.05] text-slate-950 ring-white/[0.12]",
+          ? "border-red-300/[0.15] bg-red-50/[0.05] text-red-950 ring-red-900/[0.05]"
+          : "border-slate-300/[0.10] bg-white/[0.015] text-slate-950 ring-white/[0.06]",
       ].join(" ")}
       style={{
         left: position ? position.x + "px" : "1rem",

@@ -428,7 +428,7 @@ describe("WebSpeechRecognitionProvider", () => {
     });
   });
 
-  it("keeps stop, abort, intentional end, and unexpected end distinct", async () => {
+  it("releases abort without waiting for browser end and ignores a late end", async () => {
     const browser = createMockBrowser();
     const { provider } = createProvider(browser.scope);
     const endEvents: Extract<SpeechProviderEvent, { type: "provider-end" }>[] = [];
@@ -441,16 +441,26 @@ describe("WebSpeechRecognitionProvider", () => {
     await provider.start(commandConfig());
     provider.stop();
     provider.stop();
-    provider.abort();
-    provider.abort();
     expect(browser.instances[0].stop).toHaveBeenCalledTimes(1);
-    expect(browser.instances[0].abort).toHaveBeenCalledTimes(1);
     browser.instances[0].emitEnd();
 
     await provider.start(commandConfig());
-    browser.instances[1].emitEnd();
+    const lateAbortedEnd = browser.instances[1].onend;
+    provider.abort();
+    provider.abort();
+    expect(browser.instances[1].abort).toHaveBeenCalledTimes(1);
+    expect(provider.activeSessionId).toBeUndefined();
 
-    expect(endEvents.map((event) => event.intentional)).toEqual([true, false]);
+    await provider.start(commandConfig());
+    lateAbortedEnd?.({});
+    expect(provider.activeSessionId).toBe("session-3");
+    browser.instances[2].emitEnd();
+
+    expect(endEvents.map((event) => event.intentional)).toEqual([
+      true,
+      true,
+      false,
+    ]);
   });
 
   it("detaches handlers, aborts once, and ignores events after idempotent dispose", async () => {

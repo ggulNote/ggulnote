@@ -176,6 +176,10 @@ export class WebSpeechRecognitionProvider implements SpeechRecognitionProvider {
       session.recognition.abort();
     } catch (error) {
       this.emitSessionError(session, normalizeWebSpeechStartFailure(error));
+    } finally {
+      // Chrome may omit end after abort. Release the logical session now so
+      // cancellation never blocks a later explicit start; a late end is stale.
+      this.handleEnd(session);
     }
   }
 
