@@ -411,6 +411,47 @@ Core state machine을 복제하거나 Debug UI 요구를 Production state 계약
 
 Phase F에서는 debug route가 닫힌 일반 Editor 경로의 bundle/subscription leakage와 public export를 최종 점검한다.
 
+### D-019. Abort는 브라우저 `end`를 기다리지 않고 논리 세션을 종료한다
+
+**문제**
+
+Desktop Chrome 실제 검증에서 `SpeechRecognition.abort()` 후 native `end`가 발생하지 않아 Provider가 running/session 상태를 유지하고 다음 명시적 Start를 막는 사례가 재현됐다.
+
+**선택한 방식**
+
+- `abort()` 호출의 `finally`에서 현재 Provider 세션을 즉시 논리 종료한다.
+- intentional `provider-end`를 한 번 발행하고 handler와 active session을 해제한다.
+- 이후 도착하는 native `end`는 stale session event로 무시한다.
+- Debug read model도 Cancel 즉시 `isRunning = false`로 표시한다.
+
+**선택 이유**
+
+Cancel은 완료 결과를 만들지 않으면서 다음 Turn을 즉시 시작할 수 있어야 하고, 브라우저별 native `end` 전달 차이에 의존하면 안 된다.
+
+**후속 영향**
+
+Provider unit test는 native `end` 없는 abort, 다음 session 시작, late `end` 격리를 검증한다.
+
+---
+
+### D-020. VoiceModeController는 내부 모듈로 완성하되 Production 연결은 보류한다
+
+**선택한 방식**
+
+- 제한된 recoverable restart, backoff, restart 상한을 가진 기존 모듈과 테스트를 Stage 2 변경으로 보존한다.
+- 사용자 Stop, Cancel, Disable은 mode를 `off`로 바꾸고 pending restart를 제거한다.
+- permission denied, unsupported, fatal error, dispose 후에는 restart하지 않는다.
+- Feature root에서는 export하지 않고 Production Editor에도 연결하지 않는다.
+
+**선택 이유**
+
+모듈은 D-011의 상위 restart 책임을 구현하지만 실제 Chrome 검증에서 단일 Turn 동작을 위해 자동 restart가 필요하다는 근거는 확보되지 않았다. Production 연결은 무한 restart와 의도치 않은 마이크 재활성화 위험을 만든다.
+
+**후속 영향**
+
+Stage 3 전에도 Production은 명시적 Voice Trigger Start를 사용한다. 자동 Voice Mode가 실제 제품 요구가 될 때 별도 검증 후 composition에 연결한다.
+
+---
 ## 3. MVP 지원 정책
 
 ### 필수 지원

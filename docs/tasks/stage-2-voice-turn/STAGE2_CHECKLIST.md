@@ -126,22 +126,24 @@
 
 ## I. Voice Mode Controller
 
-- [ ] `off`
-- [ ] `starting`
-- [ ] `ready`
-- [ ] `speech-active`
-- [ ] `recovering`
-- [ ] `permission-denied`
-- [ ] `unsupported`
-- [ ] `error`
-- [ ] 사용자 Action에서만 Enable
-- [ ] Disable은 Intentional Stop
-- [ ] Fatal Error 자동 Restart 없음
-- [ ] Recoverable Restart 상한
-- [ ] Backoff
-- [ ] 무한 Restart 없음
-- [ ] Turn 완료 후 다음 발화 준비
-- [ ] 중복 Enable/Disable 안전
+- [x] `off`
+- [x] `starting`
+- [x] `ready`
+- [x] `speech-active`
+- [x] `recovering`
+- [x] `permission-denied`
+- [x] `unsupported`
+- [x] `error`
+- [x] 사용자 Action에서만 Enable
+- [x] Disable은 Intentional Stop
+- [x] Fatal Error 자동 Restart 없음
+- [x] Recoverable Restart 상한
+- [x] Backoff
+- [x] 무한 Restart 없음
+- [x] Turn 완료 후 다음 발화 준비
+- [x] 중복 Enable/Disable 안전
+
+> `VoiceModeController`는 내부 future-ready 모듈로 검증했으며 D-020에 따라 Production composition 연결은 보류한다.
 
 ## J. Voice Turn Session
 
@@ -227,9 +229,10 @@
 
 - [x] Provider 지원 여부
 - [x] Constructor
-- [ ] Local/Biasing Availability
+- [x] Local/Biasing Availability
 - [x] Provider Session ID
 - [ ] Start/End/Restart Count
+  - Start/End count는 구현했다. Production restart를 연결하지 않아 Restart count UI는 보류한다.
 - [ ] Voice Mode State
 - [x] Active Turn
 - [x] Segment 목록
@@ -266,7 +269,7 @@
 
 ### Mode/Turn
 
-- [ ] Enable/Disable
+- [x] Enable/Disable
 - [x] speech-start
 - [x] Transcript-first
 - [x] Finalizing
@@ -275,8 +278,8 @@
 - [x] Discard
 - [x] Fail
 - [x] Fatal Error
-- [ ] Network Recovery
-- [ ] Restart 상한
+- [x] Network Recovery
+- [x] Restart 상한
 - [x] Intentional Stop
 - [x] 다음 Turn 초기화
 
@@ -313,7 +316,7 @@
 - [ ] PDF Mode
 - [ ] Blank Mode
 - [ ] Bias Phrase
-- [ ] Local Availability
+- [x] Local Availability
 - [ ] Disable 후 마이크 종료
 
 ## Q. 계측
@@ -321,23 +324,23 @@
 - [x] Speech Start → First Interim
 - [x] Speech Start → First Final
 - [ ] Speech End → Complete
-- [ ] Interim Update Count
-- [ ] Final Segment Count
-- [ ] Restart Count
+- [x] Interim Update Count
+- [x] Final Segment Count
+- [x] Restart Count
 - [ ] 10 Turn 성공률
-- [ ] Raw 결과를 `STAGE2_STATUS.md`에 기록
+- [x] Raw 결과를 `STAGE2_STATUS.md`에 기록
 - [x] 측정하지 못한 경우 미측정으로 명시
 
 ## R. 회귀 검증
 
-- [ ] PDF 렌더링
-- [ ] Semantic Layer
-- [ ] Scene Core
+- [x] PDF 렌더링
+- [x] Semantic Layer
+- [x] Scene Core
 - [ ] Gaze
-- [ ] Persistence
-- [ ] Autosave
-- [ ] Undo/Redo
-- [ ] Editor 기본 기능
+- [x] Persistence
+- [x] Autosave
+- [x] Undo/Redo
+- [x] Editor 기본 기능
 
 ## S. 검증과 종료
 
@@ -392,3 +395,25 @@ git commit -m "feat(voice): add web speech voice turns and lens"
 - [x] Phase E STATUS 갱신
 - [x] Phase E 구현 커밋 (`3e42375`)
 - [x] Phase E 문서 커밋
+
+## U. Phase F 최종화
+
+- [x] Phase A~E 구현 및 최종 의존 방향 재검토
+- [x] 기존 미커밋 VoiceModeController/Lens 변경 분석 및 Stage 2 범위 확정
+- [x] VoiceMode Stop/Cancel restart 차단
+- [x] Chrome abort 후 native `end` 미발생 방어
+- [x] Feature root Public API 최소화
+- [x] Dead code, Debug leakage, SSR, StrictMode, Privacy 점검
+- [x] Voice 자동 테스트
+- [x] Editor Core 자동 테스트
+- [x] Web 전체 테스트 실행
+- [ ] Web 전체 테스트 완전 통과
+  - 기존 Raw Gaze `duplicateFrameCount` 1건이 남아 있다.
+- [x] Typecheck, ESLint, Package Lint, Build
+- [ ] Node 22 검증
+  - 로컬에 Node 22 runtime이 없어 `20.19.4`에서만 실행했다.
+- [ ] Desktop Chrome 전체 Web Speech 수동 매트릭스
+  - 실제 Provider start/audio/speech, Stop, Cancel은 확인했다. 한국어 transcript, focus/zoom/page/PDF/Blank 등은 미실행이다.
+- [x] 실제 측정값만 STATUS에 기록
+- [x] Stage 3 기능 미구현 유지
+- [x] 최종 상태를 `IMPLEMENTATION_COMPLETE / VALIDATION_PENDING`으로 판정
