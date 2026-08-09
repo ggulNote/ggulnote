@@ -5,11 +5,29 @@
 ```text
 Stage: 3 — Direct Command Route
 Status: PHASE A COMPLETE
-Current Milestone: Phase B — Context Builder / Target Resolver / Eligibility Guard
+Current Milestone: Phase B — Command Context / Frozen Target Grounding / Eligibility Guard
 ```
 
 Phase A의 Domain / Provider 계약과 Fake Provider, strict runtime validation을 완료했다.
-Stage 2 Voice Turn / Voice Lens와 Stage 1 Scene Core는 변경하지 않았다.
+
+Phase B 시작 시 최종 Grounding Architecture에 맞춰
+Phase A의 `DirectTargetRef` 중심 target contract를 최소 범위로 확장한다.
+
+이는 Phase A를 재구현하는 것이 아니라:
+
+```text
+FROZEN_FOCUS / LAST_TARGET
+→ RelativeTargetQuery
+
+CURRENT_PAGE / LAST_OPERATION
+→ control target 유지
+
++ TextSpan / SemanticUnit / Object / Subrange TargetQuery 추가
+```
+
+하는 contract alignment다.
+
+Stage 2 Voice Turn / Voice Lens와 Stage 1 Scene Core는 변경하지 않는다.
 
 ---
 
@@ -21,21 +39,21 @@ Stage 2 Voice Turn / Voice Lens와 Stage 1 Scene Core는 변경하지 않았다.
 feat/stage-3-direct-command-route
 ```
 
-규칙:
-
-- 이미 branch가 존재하면 계속 사용한다.
-- 없으면 Stage 2 완료 HEAD에서 생성한다.
-- 기존 미커밋 변경이 있으면 보존한다.
-- `git reset --hard`, `git clean`, 무단 `git stash` 금지.
-
 기준점:
 
 ```text
-base: e9f62e3 (Stage 2 merge on develop)
-Phase A implementation HEAD: 82998f0
-Phase A docs HEAD: this STATUS / CHECKLIST update commit
-working tree: clean after docs commit
+base: e9f62e3
+Phase A implementation commit: 82998f0
+Phase A docs commit: 41f2b88
+current HEAD before Phase B: 41f2b88
+working tree: clean
 ```
+
+규칙:
+
+- 현재 branch를 계속 사용한다.
+- 기존 미커밋 변경이 있으면 보존한다.
+- `git reset --hard`, `git clean`, 무단 `git stash` 금지.
 
 ---
 
@@ -49,29 +67,126 @@ AGENTS.md
 > docs/tasks/stage-3-direct-command-route/STATUS.md
 ```
 
-Stage 2 관련 문서는 dependency 확인용으로 함께 읽었다. 저장소의 실제 파일명은
-`STAGE2_DECISIONS.md`, `STAGE2_SPEC.md`, `STAGE2_CHECKLIST.md`,
-`STAGE2_STATUS.md`다.
+Stage 2 관련 문서는 dependency 확인용으로 함께 읽는다.
+
+저장소의 실제 Stage 2 파일명:
+
+```text
+STAGE2_DECISIONS.md
+STAGE2_SPEC.md
+STAGE2_CHECKLIST.md
+STAGE2_STATUS.md
+```
 
 ---
 
-# 4. Stage 3 범위 요약
+# 4. 최종 Stage 3 아키텍처
+
+```text
+CompletedVoiceTurn
+        ↓
+Frozen Context
+        ↓
+DirectCommandContextBuilder
+        ↓
+PageTargetCatalog + Recent Operations
+        ↓
+Text Planner
+        ↓
+CommandPlan + TargetQuery
+        ↓
+FrozenTargetResolver
+        ↓
+ResolvedTarget
+        ↓
+Guard
+        ↓
+Capability Compiler
+        ↓
+Existing Editor Runtime
+        ↓
+CommandManager / Operation Log
+        ↓
+Apply / Undo / Redo
+```
+
+핵심 권한 분리:
+
+```text
+Planner
+→ 의미적 TargetQuery만 생성
+
+Resolver
+→ 실제 Scene target 결정
+
+Guard
+→ PDF read-only / editability / revision 검증
+
+Editor
+→ 실제 mutation
+```
+
+---
+
+# 5. Scene Permission Model
+
+```text
+Page Scene
+├─ Base Document Layer
+│  └─ PDF / semantic document objects
+│     READ ONLY
+│
+└─ Ggulnote Editable Layer
+   └─ annotations / canvas objects
+      EDITABLE
+```
+
+PDF는 Resolver 검색 대상이지만 원문은 수정하지 않는다.
+
+허용:
+
+```text
+PDF TextSpan
+→ underline / highlight annotation 생성
+```
+
+금지:
+
+```text
+PDF source text
+→ replace / delete / move
+```
+
+---
+
+# 6. Stage 3 범위 요약
 
 구현:
 
 ```text
 CompletedVoiceTurn 입력
 Direct Planner Provider
-Refine + Intent 단일 호출
+Refine + Intent + TargetQuery 최초 단일 호출
 Strict Direct CommandPlan
-Frozen Focus target resolve
+PageTargetCatalog
+Frozen Target Resolver
+Candidate Ranking
+ResolvedTarget
 Scene Revision validation
+PDF read-only guard
 Direct capability allowlist
 Deterministic compile
 Existing Editor Runtime commit
 Undo / Revise / Continue
 turnId idempotency
 Latency diagnostics
+```
+
+조건부:
+
+```text
+Resolver AMBIGUOUS
+→ bounded candidate-only Text Disambiguator
 ```
 
 제외:
@@ -83,13 +198,15 @@ Screenshot / VLM
 Spatial Placement
 Free-space Candidate
 Table / Math / Graph 생성
+새 embedding service
+새 Ink/Math recognition
 Gaze targeting
 새 production UI
 ```
 
 ---
 
-# 5. 필수 Direct Commands
+# 7. 필수 Direct Commands
 
 ```text
 annotation.underline
@@ -97,12 +214,64 @@ annotation.highlight
 navigation.next_page
 navigation.previous_page
 history.undo
-text.replace_content   // editable text only
+text.replace_content   // Ggulnote editable text only
+```
+
+Target 표현:
+
+```text
+annotation/text
+→ TargetQuery
+
+navigation
+→ CURRENT_PAGE
+
+history.undo
+→ LAST_OPERATION
 ```
 
 ---
 
-# 6. Stage 4로 미루는 항목
+# 8. Target Grounding Contract
+
+Planner가 생성할 수 있는 TargetQuery:
+
+```text
+TextSpanTargetQuery
+SemanticUnitTargetQuery
+ObjectTargetQuery
+RelativeTargetQuery
+SubrangeTargetQuery
+```
+
+Planner가 생성하면 안 되는 것:
+
+```text
+arbitrary objectId
+candidateId
+x/y coordinate
+```
+
+Resolver 결과:
+
+```text
+RESOLVED
+AMBIGUOUS
+NOT_FOUND
+```
+
+ResolvedTarget:
+
+```text
+ResolvedTextSpan
+ResolvedObject
+ResolvedMathSpan          // future/available model only
+ResolvedObjectSubrange    // future/available model only
+```
+
+---
+
+# 9. Stage 4로 미루는 항목
 
 다음은 의도적으로 Stage 3에서 구현하지 않는다.
 
@@ -124,7 +293,7 @@ Stage 4에서 Multimodal Spatial Placement Route가 이어받는다.
 
 ---
 
-# 7. Phase 상태
+# 10. Phase 상태
 
 ## Phase 0 — Preflight
 
@@ -140,25 +309,31 @@ COMPLETE
 branch: feat/stage-3-direct-command-route
 base: e9f62e3
 working tree before work: clean
-Stage 2 completion: implementation complete; merged by e9f62e3
+Stage 2 completion: merged by e9f62e3
 runtime: Node 20.19.4, pnpm 10.9.0
 ```
 
 재사용 경계:
 
 - Voice: `apps/web/src/features/voice/domain/voice-turn-types.ts`
-  - `CompletedVoiceTurn`, `FrozenVoiceTurnContext`, turn ID, raw transcript
-- Scene: `packages/editor-core/src/scene-core/types.ts`,
-  `scene-snapshot.ts`, `revision.ts`
-  - `SceneSnapshot`, scene revision, `SceneMode`, `Rect`, `objectById`
-- Editor: `packages/editor-core/src/engine/editor-engine.ts`,
-  `commands/command-manager.ts`, `operations/editor-operation.ts`,
-  `scene-core/canvas-object-store.ts`
-  - annotation create/update, operation event, undo, editable canvas object update
-- Navigation: `apps/web/src/features/document/hooks/use-document-session.ts`
-  - `goToPage`
-- AI/provider: 기존 OpenAI/LLM provider와 server route/action 없음
-- Runtime schema: 직접 사용하는 Zod dependency가 없어 strict 수동 parser 사용
+  - `CompletedVoiceTurn`, `FrozenVoiceTurnContext`
+- Scene: `packages/editor-core/src/scene-core/types.ts`
+  - Scene revision / object lookup
+- Editor:
+  - `CreateAnnotationInput`
+  - `EditorEngine.createAnnotation/updateSelected`
+  - `CanvasObjectStore.updateObject()`
+- Navigation:
+  - `useDocumentSession().goToPage`
+- History:
+  - `EditorEngine.subscribeToOperations()`
+  - `EditorEngine.undo()`
+  - `CommandManager`
+- AI/provider:
+  - 기존 OpenAI/LLM provider 및 server route/action 없음
+- Runtime schema:
+  - 직접 사용하는 Zod 없음
+  - strict 수동 parser 사용
 
 ---
 
@@ -170,12 +345,11 @@ Status:
 COMPLETE
 ```
 
-완료 후 기록:
+기록:
 
 ```text
-implementation commit: 82998f0
-docs commit: this STATUS / CHECKLIST update commit
-next milestone: Phase B
+implementation commit: 82998f0 feat(voice): add direct command route contracts
+docs commit: 41f2b88 docs(voice): record stage 3 phase A status
 ```
 
 구현 파일:
@@ -184,7 +358,7 @@ next milestone: Phase B
 - `apps/web/src/features/voice/domain/direct-planner-schema.ts`
 - `apps/web/src/features/voice/providers/direct-command-planner-provider.ts`
 - `apps/web/src/features/voice/providers/testing/fake-direct-command-planner-provider.ts`
-- 위 계약의 colocated unit tests와 Voice public exports
+- 관련 unit tests / public exports
 
 검증:
 
@@ -196,16 +370,28 @@ next milestone: Phase B
 - Targeted ESLint / Web package lint: PASS
 - `git diff --check`: PASS
 
-Known failure:
+Known environment notes:
 
 - 현재 자동 테스트 실패 없음
 - Stage 2 문서의 기존 Raw Gaze 실패는 현재 HEAD에서 재현되지 않음
-- 저장소 요구 Node `>=22`와 달리 Node `20.19.4`에서 검증해 engine warning 발생
-- Web regression 중 jsdom canvas 미구현 stderr가 출력됐지만 전체 테스트는 PASS
+- 저장소 요구 Node `>=22`, 실제 검증 Node `20.19.4` → engine warning
+- Web regression 중 jsdom canvas 미구현 stderr가 1회 출력됐지만 테스트 PASS
+
+Phase B contract alignment:
+
+```text
+Phase A 완료 상태는 유지한다.
+
+다만 최종 Grounding Architecture를 위해:
+DirectTargetRef 중심 target schema
+→ TargetQuery 중심 schema로 확장한다.
+
+Provider / Fake Provider / strict parser의 기본 구조는 재사용한다.
+```
 
 ---
 
-## Phase B — Context / Target / Eligibility
+## Phase B — Command Context / Frozen Target Grounding / Eligibility
 
 Status:
 
@@ -213,18 +399,47 @@ Status:
 NEXT MILESTONE
 ```
 
+범위:
+
+```text
+Phase A target contract alignment
+Existing semantic/editable grounding source 조사
+TargetQuery
+PageTargetCatalog
+DirectCommandContextBuilder
+Candidate Evidence / Ranking
+FrozenTargetResolver
+ResolvedTarget
+Scene Revision Guard
+PDF read-only / Editable Guard
+```
+
+절대 포함하지 않음:
+
+```text
+실제 LLM network call
+VLM / screenshot
+Editor mutation
+Spatial placement
+```
+
 완료 후 기록:
 
 ```text
+contract alignment commit:
 implementation commit:
 docs commit:
+supported document candidates:
+supported editable candidates:
+supported evidence:
+unsupported semantic/math mappings:
 tests:
 notes:
 ```
 
 ---
 
-## Phase C — Single Text Planner
+## Phase C — Text Planner / Conditional Disambiguation
 
 Status:
 
@@ -232,15 +447,19 @@ Status:
 PENDING
 ```
 
-완료 후 기록:
+예정:
 
 ```text
-implementation commit:
-docs commit:
-tests:
-provider/model boundary:
-notes:
+Raw Final Transcript
++ Frozen Planner Context
+→ 최초 Planner 1회
+→ refine + intent + relation + command + TargetQuery
+
+Resolver AMBIGUOUS only
+→ candidate-only Text Disambiguator
 ```
+
+VLM은 사용하지 않는다.
 
 ---
 
@@ -252,15 +471,16 @@ Status:
 PENDING
 ```
 
-완료 후 기록:
+예정:
 
 ```text
-implementation commit:
-docs commit:
-tests:
-reused runtime:
-notes:
+ResolvedTarget
+→ Capability Compiler
+→ Existing Editor Runtime
+→ Operation Log
 ```
+
+PDF 원문은 변경하지 않는다.
 
 ---
 
@@ -270,15 +490,6 @@ Status:
 
 ```text
 PENDING
-```
-
-완료 후 기록:
-
-```text
-implementation commit:
-docs commit:
-tests:
-notes:
 ```
 
 ---
@@ -291,73 +502,90 @@ Status:
 PENDING
 ```
 
-완료 후 기록:
-
-```text
-implementation commit:
-docs commit:
-lint:
-typecheck:
-tests:
-git diff --check:
-known issues:
-deferred to Stage 4:
-```
-
 ---
 
-# 8. Known Constraints
+# 11. Known Constraints
 
 현재 설계상 고정:
 
 ```text
 Gaze 미사용
-Direct Route에는 이미지 미사용
+Direct Route 이미지 미사용
+LLM objectId 생성 금지
 LLM 좌표 출력 금지
-PDF source text는 read-only
+PDF source 완전 read-only
+PDF는 Resolver 검색 대상
+Ggulnote object는 editable capability 범위에서 수정 가능
 Spatial request는 no commit
-Planner 결과는 strict validation 필수
+Ambiguous target 추측 실행 금지
+Planner 결과 strict validation 필수
+Mutation은 기존 Editor History 경로 사용
 ```
 
 ---
 
-# 9. 완료 시 최종 기록 형식
+# 12. Phase B 완료 시 반드시 기록할 것
 
 ```text
-## Final
+implementation start HEAD:
+contract alignment commit:
+Phase B implementation commit:
+docs commit:
+current HEAD:
 
-branch:
-base:
-final HEAD:
+Frozen Snapshot source:
+PageTargetCatalog source adapters:
 
-implementation commits:
-- ...
+PDF candidates:
+Editable candidates:
 
-docs commits:
-- ...
+TargetQuery supported:
+ResolvedTarget supported:
 
-validation:
-- lint:
+Evidence implemented:
+- type:
+- lexical:
+- fuzzy:
+- temporal:
+- structural:
+- focus:
+- semantic:
+- math:
+
+Current limitations:
+- exact text span mapping:
+- sentence/paragraph mapping:
+- math subrange:
+- ink recognition:
+
+Validation:
+- targeted:
+- voice regression:
+- web:
+- editor-core:
 - typecheck:
-- test:
+- lint:
 - git diff --check:
+```
 
-E2E:
-- underline:
-- highlight:
-- self correction:
-- revise:
-- next/previous page:
-- undo:
-- editable text replace:
-- PDF text edit blocked:
-- spatial deferred:
-- duplicate turn:
-- stale scene:
+---
 
-known issues:
-- ...
+# 13. Stage 3 최종 완료 시 E2E
 
-Stage 4 handoff:
-- ...
+```text
+"여기 밑줄 쳐줘"
+"세종대왕의부터 업적까지 밑줄 쳐줘"
+"노란색으로 하이라이트해줘"
+"AI의 문제점을 설명하는 문장 하이라이트"
+"밑줄 아니 밑줄 말고 노란색 하이라이트"
+"노란색 말고 파란색으로"
+"다음 페이지"
+"이전 페이지"
+"방금 거 취소해"
+editable text replace
+PDF source text replace blocked
+ambiguous target no blind commit
+spatial command deferred
+duplicate turn exactly once
+stale scene no commit
 ```
