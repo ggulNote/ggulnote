@@ -46,6 +46,7 @@ export type {
   DirectCommandGuardResult,
 } from "./direct-command-guard";
 export type {
+  DirectCommandContextBuildOptions,
   DirectCommandContextBuilderOptions,
   DirectRecentOperationsSource,
   FrozenSceneSnapshotSource,
@@ -61,7 +62,27 @@ export {
 export type {
   DirectTargetDisambiguationContext,
 } from "./direct-target-disambiguation-context";
-export { compileDirectCommandCapability } from "./direct-command-capability-compiler";
+export {
+  compileDirectCommandCapability,
+  compileDirectCommandRevision,
+} from "./direct-command-capability-compiler";
+export { DirectCommandHistoryContext } from "./direct-command-history-context";
+export type {
+  DirectCommandHistoryContextOptions,
+} from "./direct-command-history-context";
+export {
+  DirectCommandExecutionRegistry,
+} from "./direct-command-execution-registry";
+export type {
+  DirectCommandExecutionRegistryOptions,
+} from "./direct-command-execution-registry";
+export { DirectCommandRoute } from "./direct-command-route";
+export type {
+  DirectCommandExecutionPort,
+  DirectCommandPlanningPort,
+  DirectCommandRouteExecuteOptions,
+  DirectCommandRouteOptions,
+} from "./direct-command-route";
 export type {
   DirectCommandCompileContext,
 } from "./direct-command-capability-compiler";
