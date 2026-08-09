@@ -11,6 +11,16 @@ export {
 } from "./editor-voice-context";
 export type { EditorVoiceContextInput } from "./editor-voice-context";
 export {
+  createDocumentSessionDirectCommandNavigationPort,
+  EditorDirectCommandExecutor,
+} from "./editor-direct-command-executor";
+export type {
+  DirectCommandExecutor,
+  DirectCommandNavigationPort,
+  DocumentSessionDirectCommandNavigationOptions,
+  EditorDirectCommandExecutorOptions,
+} from "./editor-direct-command-executor";
+export {
   useOwnedBrowserVoiceTurnController,
 } from "./use-owned-browser-voice-turn-controller";
 export { VoiceLensOverlay } from "./voice-lens-overlay";

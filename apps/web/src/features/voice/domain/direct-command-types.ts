@@ -202,27 +202,42 @@ export type DirectCommandRouteErrorCode =
   | "COMPILE_FAILED"
   | "COMMIT_FAILED"
   | "REVISE_NOT_AVAILABLE"
+  | "UNSUPPORTED_RELATION"
   | "UNDO_NOT_AVAILABLE"
   | "ABORTED";
 
-export type DirectCommandRouteResult =
+export type DirectCommandExecutionResult =
   | {
-      status: "COMMITTED" | "REVISED";
+      status: "COMMITTED";
       turnId: DirectCommandTurnId;
       planId: DirectCommandPlanId;
       operationId: DirectCommandOperationId;
+    }
+  | {
+      status: "NAVIGATED";
+      turnId: DirectCommandTurnId;
+      direction: "next_page" | "previous_page";
     }
   | {
       status: "UNDONE";
       turnId: DirectCommandTurnId;
       operationId?: DirectCommandOperationId;
     }
-  | { status: "DEFERRED_SPATIAL"; turnId: DirectCommandTurnId }
-  | { status: "NEEDS_CLARIFICATION"; turnId: DirectCommandTurnId }
-  | { status: "UNSUPPORTED"; turnId: DirectCommandTurnId }
-  | { status: "CANCELLED"; turnId: DirectCommandTurnId }
   | {
       status: "ERROR";
       turnId: DirectCommandTurnId;
       errorCode: DirectCommandRouteErrorCode;
     };
+
+export type DirectCommandRouteResult =
+  | DirectCommandExecutionResult
+  | {
+      status: "REVISED";
+      turnId: DirectCommandTurnId;
+      planId: DirectCommandPlanId;
+      operationId: DirectCommandOperationId;
+    }
+  | { status: "DEFERRED_SPATIAL"; turnId: DirectCommandTurnId }
+  | { status: "NEEDS_CLARIFICATION"; turnId: DirectCommandTurnId }
+  | { status: "UNSUPPORTED"; turnId: DirectCommandTurnId }
+  | { status: "CANCELLED"; turnId: DirectCommandTurnId };
