@@ -230,26 +230,26 @@ TargetQuery
 
 # Phase C. Single Text Planner + Conditional Text Disambiguation
 
-- [ ] Stage 3 전용 server-side AI boundary 설계
-- [ ] 브라우저 secret 노출 없음 확인
-- [ ] 최초 Planner 한 번으로 refine + intent + relation + command + TargetQuery 생성
-- [ ] Planner prompt에서 document text를 untrusted data로 분리
-- [ ] allowed capability / operation 명시
-- [ ] arbitrary objectId 생성 금지
-- [ ] coordinate 생성 금지
-- [ ] spatial request는 `DEFER_SPATIAL`
-- [ ] self-correction 처리
-- [ ] "방금 거 취소" → `history.undo`
-- [ ] timeout / abort / network error normalize
-- [ ] malformed model output reject
-- [ ] provider/model을 domain 코드에 하드코딩하지 않음
-- [ ] Resolver `AMBIGUOUS` 시에만 candidate-only Text Disambiguator 연결
-- [ ] Disambiguator는 `C1..Cn | NONE`만 반환
-- [ ] candidate 밖 objectId 생성 금지
-- [ ] VLM 사용하지 않음
-- [ ] provider unit test
-- [ ] mocked integration test
-- [ ] Phase C 문서 상태 갱신
+- [x] Stage 3 전용 server-side AI boundary 설계
+- [x] 브라우저 secret 노출 없음 확인
+- [x] 최초 Planner 한 번으로 refine + intent + relation + command + TargetQuery 생성
+- [x] Planner prompt에서 document text를 untrusted data로 분리
+- [x] allowed capability / operation 명시
+- [x] arbitrary objectId 생성 금지
+- [x] coordinate 생성 금지
+- [x] spatial request는 `DEFER_SPATIAL`
+- [x] self-correction 처리
+- [x] "방금 거 취소" → `history.undo`
+- [x] timeout / abort / network error normalize
+- [x] malformed model output reject
+- [x] provider/model을 domain 코드에 하드코딩하지 않음
+- [x] Resolver `AMBIGUOUS` 시에만 candidate-only Text Disambiguator 연결
+- [x] Disambiguator는 `C1..Cn | NONE`만 반환
+- [x] candidate 밖 objectId 생성 금지
+- [x] VLM 사용하지 않음
+- [x] provider unit test
+- [x] mocked integration test
+- [x] Phase C 문서 상태 갱신
 
 완료 조건:
 

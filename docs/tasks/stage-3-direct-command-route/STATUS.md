@@ -4,208 +4,149 @@
 
 ```text
 Stage: 3 — Direct Command Route
-Status: PHASE B COMPLETE
-Current Milestone: Phase C — Single Text Planner / Conditional Text Disambiguation
+Status: PHASE C COMPLETE
+Current Milestone: Phase D — Capability Compile / Editor Runtime Integration
 ```
 
-Phase A의 provider/fake/strict parser 기반을 유지하면서 target 표현을
-최종 Grounding Architecture에 맞게 정렬하고, Phase B의 frozen context,
-catalog, resolver, deterministic guard를 완료했다.
-
-```text
-FROZEN_FOCUS / LAST_TARGET
-→ RelativeTargetQuery
-
-CURRENT_PAGE / LAST_OPERATION
-→ control target 유지
-
-+ TextSpan / SemanticUnit / Object / Subrange TargetQuery 추가
-```
-
-실제 LLM 호출, Editor mutation, screenshot/VLM/placement는 시작하지 않았다.
-Stage 2 Voice Turn / Voice Lens와 Stage 1 Scene Core의 기존 구현도 변경하지 않았다.
-
----
-
-# 2. Branch
-
-현재 branch:
-
-```text
-feat/stage-3-direct-command-route
-```
-
-기준점:
-
-```text
-base: e9f62e3
-Phase A implementation commit: 82998f0
-Phase A docs commit: 41f2b88
-current HEAD before Phase B: 41f2b88
-Phase B implementation commit: 9e014cb
-Grounding Architecture docs preservation commit: cded9af
-working tree at session start:
-  modified CHECKLIST.md / STATUS.md (preserved separately)
-```
-
-규칙:
-
-- 현재 branch를 계속 사용한다.
-- 기존 미커밋 변경이 있으면 보존한다.
-- `git reset --hard`, `git clean`, 무단 `git stash` 금지.
-
----
-
-# 3. Source of Truth
-
-```text
-AGENTS.md
-> docs/tasks/stage-3-direct-command-route/DECISIONS.md
-> docs/tasks/stage-3-direct-command-route/SPEC.md
-> docs/tasks/stage-3-direct-command-route/CHECKLIST.md
-> docs/tasks/stage-3-direct-command-route/STATUS.md
-```
-
-Stage 2 관련 문서는 dependency 확인용으로 함께 읽는다.
-
-저장소의 실제 Stage 2 파일명:
-
-```text
-STAGE2_DECISIONS.md
-STAGE2_SPEC.md
-STAGE2_CHECKLIST.md
-STAGE2_STATUS.md
-```
-
----
-
-# 4. 최종 Stage 3 아키텍처
+Phase A의 strict planner contract와 Phase B의 frozen grounding/guard 위에
+Single Text Planner, resolver `AMBIGUOUS` 전용 candidate-only Text
+Disambiguator, no-mutation planning pipeline을 연결했다.
 
 ```text
 CompletedVoiceTurn
-        ↓
-Frozen Context
-        ↓
-DirectCommandContextBuilder
-        ↓
-PageTargetCatalog + Recent Operations
-        ↓
-Text Planner
-        ↓
-CommandPlan + TargetQuery
-        ↓
-FrozenTargetResolver
-        ↓
-ResolvedTarget
-        ↓
-Guard
-        ↓
-Capability Compiler
-        ↓
-Existing Editor Runtime
-        ↓
-CommandManager / Operation Log
-        ↓
-Apply / Undo / Redo
+→ DirectCommandContextBuilder
+→ bounded Frozen Planner Context
+→ Single Text Planner
+→ strict DirectPlannerResult
+→ FrozenTargetResolver
+   ├─ RESOLVED
+   ├─ AMBIGUOUS → candidate-only Text Disambiguator
+   └─ NOT_FOUND
+→ DirectCommandGuard
+→ READY_FOR_EXECUTION
 ```
 
-핵심 권한 분리:
-
-```text
-Planner
-→ 의미적 TargetQuery만 생성
-
-Resolver
-→ 실제 Scene target 결정
-
-Guard
-→ PDF read-only / editability / revision 검증
-
-Editor
-→ 실제 mutation
-```
+Phase D의 Capability Compiler와 Editor mutation은 시작하지 않았다.
+Screenshot, VLM, spatial placement도 구현하지 않았다.
 
 ---
 
-# 5. Scene Permission Model
+## 2. Branch / Commits
 
 ```text
-Page Scene
-├─ Base Document Layer
-│  └─ PDF / semantic document objects
-│     READ ONLY
-│
-└─ Ggulnote Editable Layer
-   └─ annotations / canvas objects
-      EDITABLE
+branch: feat/stage-3-direct-command-route
+base: e9f62e3
+
+Phase A implementation: 82998f0
+Phase A docs: 41f2b88
+
+Phase B implementation: 9e014cb
+Grounding Architecture docs preservation: cded9af
+Phase B docs: 568f083
+
+Phase C start HEAD: 568f083
+Phase C planner + disambiguation + pipeline: bd543b9
+Phase C docs: this STATUS/CHECKLIST update commit
 ```
 
-PDF는 Resolver 검색 대상이지만 원문은 수정하지 않는다.
-
-허용:
-
-```text
-PDF TextSpan
-→ underline / highlight annotation 생성
-```
-
-금지:
-
-```text
-PDF source text
-→ replace / delete / move
-```
+구현 규모상 planner와 disambiguation/pipeline은 하나의 implementation
+commit으로 묶었다.
 
 ---
 
-# 6. Stage 3 범위 요약
+## 3. Phase C AI / Server Boundary
 
-구현:
-
-```text
-CompletedVoiceTurn 입력
-Direct Planner Provider
-Refine + Intent + TargetQuery 최초 단일 호출
-Strict Direct CommandPlan
-PageTargetCatalog
-Frozen Target Resolver
-Candidate Ranking
-ResolvedTarget
-Scene Revision validation
-PDF read-only guard
-Direct capability allowlist
-Deterministic compile
-Existing Editor Runtime commit
-Undo / Revise / Continue
-turnId idempotency
-Latency diagnostics
-```
-
-조건부:
+브라우저 경계:
 
 ```text
-Resolver AMBIGUOUS
-→ bounded candidate-only Text Disambiguator
+Browser/Application
+→ same-origin Route Handler
+→ server-only configuration/service
+→ OpenAI Responses API
 ```
 
-제외:
+Route Handler:
+
+- `apps/web/src/app/api/voice/direct-command/planner/route.ts`
+- `apps/web/src/app/api/voice/direct-command/disambiguate/route.ts`
+
+Server provider:
+
+- `features/voice/server/direct-command-ai-server.ts`
+- `features/voice/server/openai-responses-direct-text-transport.ts`
+- `features/voice/server/direct-ai-route-response.ts`
+
+Browser provider:
+
+- `features/voice/providers/http-direct-command-planner-provider.ts`
+- `features/voice/providers/http-direct-target-disambiguator-provider.ts`
+- `features/voice/providers/http-direct-ai-client.ts`
+
+실제 LLM adapter:
+
+- `LlmDirectCommandPlannerProvider`
+- `LlmDirectTargetDisambiguatorProvider`
+- vendor-neutral `DirectTextModelTransport`
+
+설정:
 
 ```text
-Voice Turn 재구현
-Voice Lens 재구현
-Screenshot / VLM
-Spatial Placement
-Free-space Candidate
-Table / Math / Graph 생성
-새 embedding service
-새 Ink/Math recognition
-Gaze targeting
-새 production UI
+OPENAI_API_KEY                 required, server only
+DIRECT_COMMAND_MODEL           required, server only
+DIRECT_COMMAND_AI_TIMEOUT_MS   optional, default 15000
 ```
+
+`NEXT_PUBLIC_*` secret은 사용하지 않는다. Model/API key/vendor request는
+domain과 application contract에 포함되지 않는다. 서버는 Responses API에
+`store: false`와 JSON object output을 요청하고, 최종 신뢰 경계는 기존
+strict `DirectPlannerResult` parser로 유지한다.
+
+현재 환경에는 `OPENAI_API_KEY`와 `DIRECT_COMMAND_MODEL`이 없어 실제
+network smoke test는 실행하지 않았다. 설정 부재는
+`PLANNER_UNAVAILABLE / MISSING_CONFIGURATION`으로 정규화한다.
 
 ---
 
-# 7. 필수 Direct Commands
+## 4. Single Text Planner
+
+입력:
+
+- raw final transcript를 변형 없이 보존한 `CompletedVoiceTurn`
+- frozen page/mode/revision/focus metadata
+- bounded planner document context
+- bounded recent operation summary
+- Stage 3 allowed direct commands
+
+Planner에 보내지 않는 정보:
+
+```text
+PageTargetCatalog raw dump
+candidateId
+sceneObjectId
+operationId
+focus bounds
+screenshot
+전체 PDF
+```
+
+Prompt policy는 다음 블록을 논리적으로 분리한다.
+
+```text
+SYSTEM POLICY
+ALLOWED COMMAND SCHEMA
+REQUEST AUTHORITY
+USER UTTERANCE
+FROZEN CONTEXT
+UNTRUSTED DOCUMENT CONTEXT
+RECENT OPERATION CONTEXT
+OUTPUT CONTRACT
+```
+
+최초 Planner 한 번에서 filler/self-correction 해석, normalized intent,
+`CommandRelation`, command/payload, `TargetQuery`를 함께 생성한다.
+별도 STT Refiner API는 없다.
+
+지원 command:
 
 ```text
 annotation.underline
@@ -213,406 +154,230 @@ annotation.highlight
 navigation.next_page
 navigation.previous_page
 history.undo
-text.replace_content   // Ggulnote editable text only
+text.replace_content
 ```
 
-Target 표현:
+지원 TargetQuery:
 
 ```text
-annotation/text
-→ TargetQuery
+text_span
+semantic_unit
+object
+relative
+subrange
+```
 
-navigation
-→ CURRENT_PAGE
+Prompt는 다음 정책을 포함한다.
 
-history.undo
-→ LAST_OPERATION
+- 마지막 자기 정정을 최종 명령으로 해석한다.
+- “방금 거 취소”는 이미 commit된 작업에 대한 `history.undo`다.
+- 현재 발화의 명령 철회만 semantic `CANCEL`이다.
+- recent yellow highlight 수정은 `REVISE_LAST`와 `last_target`으로 표현한다.
+- 새 object placement가 필요하면 `DEFER_SPATIAL`이다.
+- object/candidate/annotation ID, text offset, 좌표/크기는 생성하지 않는다.
+
+응답 처리는 JSON object 또는 단일 fenced JSON object만 추출한다.
+empty/malformed/prose 응답과 unknown field/capability/operation, invalid
+payload/query, ID/coordinate injection은 자동 수리하지 않고
+`PLANNER_INVALID_OUTPUT`으로 거절한다.
+
+오류:
+
+```text
+PLANNER_UNAVAILABLE
+PLANNER_TIMEOUT
+PLANNER_INVALID_OUTPUT
+ABORTED
+```
+
+HTTP/network, configuration, timeout, abort, invalid model output을 구분하며
+provider-specific 오류 본문은 application/domain 밖으로 노출하지 않는다.
+`AbortSignal`은 실제 fetch까지 전달되고 abort 뒤 늦은 응답은 결과로
+승격하지 않는다.
+
+---
+
+## 5. Candidate-only Text Disambiguator
+
+호출 조건:
+
+```text
+FrozenTargetResolver.status === AMBIGUOUS
+```
+
+`RESOLVED`, `NOT_FOUND`, `DEFER_SPATIAL`에서는 호출하지 않는다.
+
+입력은 resolver가 반환한 최대 4개 bounded candidate의 안전한
+type/text/source/semantic summary다. Application layer가 내부 후보를
+`C1..C4`에 매핑하며 LLM에는 candidateId, sceneObjectId, objectId를
+보내지 않는다.
+
+허용 출력:
+
+```text
+SELECTED: C1 | C2 | C3 | C4
+NONE
+```
+
+실제 후보 수보다 큰 label, object ID, 좌표, prose, 새 target/operation
+제안은 strict parser에서 거절한다. `NONE`은 `TARGET_AMBIGUOUS` no-commit
+결과로 끝나며 임의 top1 fallback은 없다.
+
+구현:
+
+- `direct-target-disambiguator-provider.ts`
+- `llm-direct-target-disambiguator-provider.ts`
+- `direct-target-disambiguator-prompt.ts`
+- `direct-target-disambiguation-context.ts`
+- `fake-direct-target-disambiguator-provider.ts`
+
+---
+
+## 6. Planning Pipeline
+
+`DirectCommandPlanningPipeline`은 다음 흐름만 담당한다.
+
+```text
+Context build
+→ Planner
+→ Resolver
+→ optional Disambiguator
+→ Guard
+→ READY_FOR_EXECUTION
+```
+
+결과:
+
+- guard 통과: `READY_FOR_EXECUTION`
+- resolver not found: `TARGET_NOT_FOUND`
+- ambiguous + NONE: `TARGET_AMBIGUOUS`
+- spatial plan: `DEFERRED_SPATIAL`
+- context/guard/provider failure: typed no-commit error
+
+`READY_FOR_EXECUTION`은 validated command plan, resolved target 또는
+control target, frozen context를 전달하는 Phase D 직전 경계다.
+EditorEngine, CommandManager, navigation, undo, CanvasObjectStore는 호출하지
+않는다.
+
+Lifecycle timestamp:
+
+```text
+routeReceivedAt
+plannerRequestedAt
+plannerCompletedAt
+resolverStartedAt
+resolverCompletedAt
+disambiguatorRequestedAt?
+disambiguatorCompletedAt?
+validatedAt
+```
+
+시간은 주입된 `InteractionClock`을 사용한다. 최종 metric 집계와 logging은
+Phase F 범위로 남겼다.
+
+---
+
+## 7. Validation
+
+```text
+Phase C targeted:
+  6 files / 44 tests PASS
+
+Voice feature:
+  38 files / 235 tests PASS
+
+Web regression:
+  69 files / 495 tests PASS
+
+Editor Core regression:
+  6 files / 47 tests PASS
+
+Web typecheck:
+  PASS
+
+Editor Core typecheck:
+  PASS
+
+Voice + Route targeted ESLint:
+  PASS
+
+Web package lint:
+  PASS
+
+git diff --check:
+  PASS
+```
+
+검증 범위:
+
+- focused/text-span/semantic/editable replace/navigation/undo/self-correction
+- `REVISE_LAST`, semantic `CANCEL`, `DEFER_SPATIAL`
+- malformed/fenced/empty/prose model output
+- unknown command/query, objectId/candidateId/coordinate injection
+- valid/HTTP/network/timeout/pre-abort/in-flight abort transport
+- candidate C1 selection/internal mapping, NONE, out-of-range/invalid output
+- P1–P6 planning pipeline, PDF replace guard, editable text replace guard
+- disambiguator가 RESOLVED/NOT_FOUND에서 호출되지 않음
+- 실제 외부 network 호출 없이 mock transport 사용
+
+Environment:
+
+- repository requires Node `>=22`
+- validation runtime: Node `20.19.4`, pnpm `10.9.0`
+- Web regression의 기존 jsdom canvas `getContext` stderr가 출력됐으나
+  테스트는 PASS
+- 자동 테스트 failure 없음
+
+---
+
+## 8. Current Limitations
+
+Phase B에서 확인한 제한을 그대로 유지한다.
+
+- historical `SceneSnapshot` store가 없다. current snapshot이 frozen
+  page/revision과 exact match하지 않으면 `STALE_SCENE`이다.
+- exact text offset을 합성하지 않는다. 실제 sentence/paragraph/line/word
+  candidate를 resolve하며 synthetic offset/multi-fragment bounds는 없다.
+- sentence candidate는 optional `PageSemanticModel`이 있을 때만 제공된다.
+- `SubrangeTargetQuery`는 contract만 있고 resolver는
+  `SUBRANGE_UNSUPPORTED`다.
+- `ResolvedMathSpan`, math subrange, Ink recognition은 지원하지 않는다.
+- semantic/math similarity adapter가 없어 해당 evidence는
+  `null / unavailable`이다.
+- production voice adapter의 graph/math composition은 없다.
+- last successful direct operation persistence/idempotency는 Phase E 범위다.
+- clarification UI와 Text Disambiguator 이후 대화 재개는 구현하지 않는다.
+
+Phase C는 위 제한을 가짜 offset, embedding, math/ink model로 우회하지 않는다.
+
+---
+
+## 9. Stage 3 Boundary
+
+```text
+별도 STT Refiner: 없음
+최초 Planner: refine + intent + relation + command + TargetQuery 단일 호출
+Planner objectId/candidateId/좌표 권한: 없음
+Text Disambiguator: resolver AMBIGUOUS의 bounded candidate 선택 전용
+VLM/Screenshot/Placement: 없음
+Editor mutation/Capability Compiler: 시작하지 않음
+Stage 2 Voice Turn/Voice Lens 변경: 없음
 ```
 
 ---
 
-# 8. Target Grounding Contract
-
-Planner가 생성할 수 있는 TargetQuery:
+## 10. 다음 Milestone
 
 ```text
-TextSpanTargetQuery
-SemanticUnitTargetQuery
-ObjectTargetQuery
-RelativeTargetQuery
-SubrangeTargetQuery
+Phase D — Capability Compile / Editor Runtime Integration
+
+Resolved CommandPlan
++ ResolvedTarget
++ Guard PASS
+→ existing Editor capability
+→ CommandManager / Operation Log
+→ actual mutation
 ```
 
-Planner가 생성하면 안 되는 것:
-
-```text
-arbitrary objectId
-candidateId
-x/y coordinate
-```
-
-Resolver 결과:
-
-```text
-RESOLVED
-AMBIGUOUS
-NOT_FOUND
-```
-
-ResolvedTarget:
-
-```text
-ResolvedTextSpan
-ResolvedObject
-ResolvedMathSpan          // future/available model only
-ResolvedObjectSubrange    // future/available model only
-```
-
----
-
-# 9. Stage 4로 미루는 항목
-
-다음은 의도적으로 Stage 3에서 구현하지 않는다.
-
-```text
-"오른쪽 여백에 메모"
-"아래 빈 공간에 표"
-"수식 아래 그래프"
-"내용을 가리지 않게 배치"
-```
-
-처리:
-
-```text
-DEFER_SPATIAL
-→ no commit
-```
-
-Stage 4에서 Multimodal Spatial Placement Route가 이어받는다.
-
----
-
-# 10. Phase 상태
-
-## Phase 0 — Preflight
-
-Status:
-
-```text
-COMPLETE
-```
-
-기록:
-
-```text
-branch: feat/stage-3-direct-command-route
-base: e9f62e3
-working tree before work: clean
-Stage 2 completion: merged by e9f62e3
-runtime: Node 20.19.4, pnpm 10.9.0
-```
-
-재사용 경계:
-
-- Voice: `apps/web/src/features/voice/domain/voice-turn-types.ts`
-  - `CompletedVoiceTurn`, `FrozenVoiceTurnContext`
-- Scene: `packages/editor-core/src/scene-core/types.ts`
-  - Scene revision / object lookup
-- Editor:
-  - `CreateAnnotationInput`
-  - `EditorEngine.createAnnotation/updateSelected`
-  - `CanvasObjectStore.updateObject()`
-- Navigation:
-  - `useDocumentSession().goToPage`
-- History:
-  - `EditorEngine.subscribeToOperations()`
-  - `EditorEngine.undo()`
-  - `CommandManager`
-- AI/provider:
-  - 기존 OpenAI/LLM provider 및 server route/action 없음
-- Runtime schema:
-  - 직접 사용하는 Zod 없음
-  - strict 수동 parser 사용
-
----
-
-## Phase A — Domain / Provider Contracts
-
-Status:
-
-```text
-COMPLETE
-```
-
-기록:
-
-```text
-implementation commit: 82998f0 feat(voice): add direct command route contracts
-docs commit: 41f2b88 docs(voice): record stage 3 phase A status
-```
-
-구현 파일:
-
-- `apps/web/src/features/voice/domain/direct-command-types.ts`
-- `apps/web/src/features/voice/domain/direct-planner-schema.ts`
-- `apps/web/src/features/voice/providers/direct-command-planner-provider.ts`
-- `apps/web/src/features/voice/providers/testing/fake-direct-command-planner-provider.ts`
-- 관련 unit tests / public exports
-
-검증:
-
-- Phase A targeted: 2 files, 10 tests PASS
-- Web regression: 58 files, 424 tests PASS
-- Editor Core regression: 6 files, 47 tests PASS
-- Web typecheck: PASS
-- Editor Core typecheck: PASS
-- Targeted ESLint / Web package lint: PASS
-- `git diff --check`: PASS
-
-Known environment notes:
-
-- 현재 자동 테스트 실패 없음
-- Stage 2 문서의 기존 Raw Gaze 실패는 현재 HEAD에서 재현되지 않음
-- 저장소 요구 Node `>=22`, 실제 검증 Node `20.19.4` → engine warning
-- Web regression 중 jsdom canvas 미구현 stderr가 1회 출력됐지만 테스트 PASS
-
-Phase B contract alignment:
-
-```text
-Phase A 완료 상태는 유지한다.
-
-다만 최종 Grounding Architecture를 위해:
-DirectTargetRef 중심 target schema
-→ TargetQuery 중심 schema로 확장한다.
-
-Provider / Fake Provider / strict parser의 기본 구조는 재사용한다.
-```
-
----
-
-## Phase B — Command Context / Frozen Target Grounding / Eligibility
-
-Status:
-
-```text
-COMPLETE
-```
-
-Commit:
-
-```text
-contract alignment + implementation:
-9e014cb feat(voice): add frozen target grounding
-
-pre-existing Source of Truth preservation:
-cded9af docs(voice): align stage 3 grounding architecture
-
-Phase B docs:
-this STATUS/CHECKLIST update commit
-```
-
-구현 파일:
-
-- Domain:
-  - `domain/target-query.ts`
-  - `domain/target-grounding-types.ts`
-  - `domain/direct-command-types.ts`
-  - `domain/direct-planner-schema.ts`
-- Application:
-  - `application/page-target-catalog-builder.ts`
-  - `application/direct-command-context-builder.ts`
-  - `application/candidate-ranker.ts`
-  - `application/frozen-target-resolver.ts`
-  - `application/direct-command-guard.ts`
-- Provider:
-  - Phase A `DirectCommandPlannerProvider`와
-    `FakeDirectCommandPlannerProvider`를 그대로 재사용하고 input clone만
-    bounded recent-operation summary에 맞춰 확장했다.
-
----
-
-## Phase C — Text Planner / Conditional Disambiguation
-
-Status:
-
-```text
-NEXT MILESTONE
-```
-
-예정:
-
-```text
-Raw Final Transcript
-+ Frozen Planner Context
-→ 최초 Planner 1회
-→ refine + intent + relation + command + TargetQuery
-
-Resolver AMBIGUOUS only
-→ candidate-only Text Disambiguator
-```
-
-VLM은 사용하지 않는다.
-
----
-
-## Phase D — Editor Runtime Integration
-
-Status:
-
-```text
-PENDING
-```
-
-예정:
-
-```text
-ResolvedTarget
-→ Capability Compiler
-→ Existing Editor Runtime
-→ Operation Log
-```
-
-PDF 원문은 변경하지 않는다.
-
----
-
-## Phase E — Relation / History / Idempotency
-
-Status:
-
-```text
-PENDING
-```
-
----
-
-## Phase F — Diagnostics / Completion
-
-Status:
-
-```text
-PENDING
-```
-
----
-
-# 11. Known Constraints
-
-현재 설계상 고정:
-
-```text
-Gaze 미사용
-Direct Route 이미지 미사용
-LLM objectId 생성 금지
-LLM 좌표 출력 금지
-PDF source 완전 read-only
-PDF는 Resolver 검색 대상
-Ggulnote object는 editable capability 범위에서 수정 가능
-Spatial request는 no commit
-Ambiguous target 추측 실행 금지
-Planner 결과 strict validation 필수
-Mutation은 기존 Editor History 경로 사용
-현재 runtime은 historical SceneSnapshot store를 제공하지 않음
-exact frozen page/revision을 current source에서 얻을 수 없으면 STALE_SCENE
-PageSemanticModel이 함께 제공될 때만 sentence candidate 추가
-semanticMatch / mathMatch는 null(unavailable)
-Subrange / MathSpan / Ink recognition은 unsupported
-```
-
----
-
-# 12. Phase B 완료 기록
-
-```text
-implementation start HEAD: 41f2b88
-contract alignment commit: 9e014cb (Phase B implementation과 결합)
-Phase B implementation commit: 9e014cb
-Grounding Architecture docs preservation: cded9af
-docs commit: this STATUS/CHECKLIST update commit
-
-Frozen Snapshot source:
-- CurrentRevisionSceneSnapshotSource
-- current SceneSnapshot이 frozen page/revision과 exact match할 때만 반환
-- historical revision store는 없음
-
-PageTargetCatalog source adapters:
-- SceneSnapshot.objects
-- optional PageSemanticModel sentence
-- EditorOperation summary / canvas createdAt
-
-PDF candidates:
-- paragraph / line / word
-- pdf-region / image / table
-- sentence (PageSemanticModel이 함께 제공될 때)
-
-Editable candidates:
-- SceneSnapshot의 실제 canvas kinds
-- 현재 editor-voice adapter가 제공하는 text/annotation/table/shape
-- generic Scene Core snapshot이 제공하면 math/graph/image/group도 catalog 가능
-
-TargetQuery supported:
-- text_span / semantic_unit / object / relative
-- subrange는 strict contract accept 후 resolver unsupported
-
-ResolvedTarget supported:
-- ResolvedTextSpan / ResolvedObject
-
-Evidence implemented:
-- type: deterministic kind/unit match
-- lexical: normalized exact/anchor/token match
-- fuzzy: NFKC/case/punctuation/whitespace/Korean-spacing + Levenshtein
-- temporal: recent operation/createdAt rank
-- structural: semantic unit / anchor order / object kind
-- focus: frozen focusObjectId match
-- semantic: null (local semantic similarity 없음)
-- math: null (local math matcher 없음)
-
-Current limitations:
-- exact text span mapping:
-  enclosing real sentence/paragraph/line/word candidate를 반환한다.
-  synthetic offset 또는 multi-fragment bounds를 만들지 않는다.
-- sentence/paragraph mapping:
-  sentence는 optional PageSemanticModel, paragraph/line은 PDF Scene adapter 사용.
-- operation target:
-  EditorOperation은 annotationId를 제공한다. Canvas graph/math history operation은 없음.
-- math subrange: SUBRANGE_UNSUPPORTED
-- ink recognition: 모델/Scene kind 없음
-- current editor-voice adapter:
-  annotation-backed canvas object만 제공하며 graph/math production composition은 없음.
-
-Validation:
-- targeted: 7 files / 38 tests PASS
-- voice regression: 32 files / 192 tests PASS
-- web regression: 63 files / 452 tests PASS
-- editor-core regression: 6 files / 47 tests PASS
-- typecheck: Web PASS / Editor Core PASS
-- lint: Voice targeted PASS / Web package PASS
-- git diff --check: PASS
-
-Environment notes:
-- repository requires Node >=22; validation runtime was Node 20.19.4 / pnpm 10.9.0
-- Web regression emitted the existing jsdom canvas getContext stderr; tests PASS
-- automated test failures: none
-```
-
----
-
-# 13. Stage 3 최종 완료 시 E2E
-
-```text
-"여기 밑줄 쳐줘"
-"세종대왕의부터 업적까지 밑줄 쳐줘"
-"노란색으로 하이라이트해줘"
-"AI의 문제점을 설명하는 문장 하이라이트"
-"밑줄 아니 밑줄 말고 노란색 하이라이트"
-"노란색 말고 파란색으로"
-"다음 페이지"
-"이전 페이지"
-"방금 거 취소해"
-editable text replace
-PDF source text replace blocked
-ambiguous target no blind commit
-spatial command deferred
-duplicate turn exactly once
-stale scene no commit
-```
+PDF 원문 read-only 정책, 기존 Editor Runtime/Undo 경계, no-commit-on-compile
+failure를 유지한다.
