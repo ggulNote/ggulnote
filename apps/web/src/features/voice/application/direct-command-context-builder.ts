@@ -1,7 +1,9 @@
 import type {
   CompletedVoiceTurn,
   DirectCommandContextBuildResult,
+  DirectCommandHistorySnapshot,
   DirectCommandName,
+  DirectCommandPlannerLastOperation,
   DirectCommandPlannerFocus,
   DirectRecentOperation,
   FrozenPageGroundingSnapshot,
@@ -28,6 +30,10 @@ export interface DirectCommandContextBuilderOptions {
   maxRecentOperations?: number;
 }
 
+export interface DirectCommandContextBuildOptions {
+  historySnapshot?: DirectCommandHistorySnapshot;
+}
+
 export class DirectCommandContextBuilder {
   private readonly allowedCommands: readonly DirectCommandName[];
   private readonly maxRecentOperations: number;
@@ -37,7 +43,10 @@ export class DirectCommandContextBuilder {
     this.maxRecentOperations = positiveInteger(options.maxRecentOperations ?? 8);
   }
 
-  public build(turn: CompletedVoiceTurn): DirectCommandContextBuildResult {
+  public build(
+    turn: CompletedVoiceTurn,
+    buildOptions: DirectCommandContextBuildOptions = {},
+  ): DirectCommandContextBuildResult {
     if (turn.rawTranscript.trim().length === 0) {
       return { status: "ERROR", errorCode: "EMPTY_TRANSCRIPT" };
     }
@@ -115,6 +124,14 @@ export class DirectCommandContextBuilder {
           ...(targetType === undefined ? {} : { targetType }),
         };
       }),
+      ...(buildOptions.historySnapshot?.lastSuccessfulOperation === null
+        || buildOptions.historySnapshot?.lastSuccessfulOperation === undefined
+        ? {}
+        : {
+            lastOperation: toPlannerLastOperation(
+              buildOptions.historySnapshot.lastSuccessfulOperation,
+            ),
+          }),
       allowedCommands: [...this.allowedCommands],
     } as const;
 
@@ -126,9 +143,35 @@ export class DirectCommandContextBuilder {
         pageTargetCatalog,
         recentOperations,
         plannerContext,
+        ...(buildOptions.historySnapshot === undefined
+          ? {}
+          : { historySnapshot: buildOptions.historySnapshot }),
       },
     };
   }
+}
+
+function toPlannerLastOperation(
+  record: NonNullable<
+    DirectCommandHistorySnapshot["lastSuccessfulOperation"]
+  >,
+): DirectCommandPlannerLastOperation {
+  const targetSummary = record.target.kind === "grounded"
+    ? {
+        source: record.target.source,
+        type: record.target.type,
+        ...(record.target.textSummary === undefined
+          ? {}
+          : { text: record.target.textSummary }),
+      }
+    : undefined;
+  return {
+    ...(record.editorOperationId === undefined
+      ? {}
+      : { operationId: record.editorOperationId }),
+    command: record.command,
+    ...(targetSummary === undefined ? {} : { targetSummary }),
+  };
 }
 
 export class CurrentRevisionSceneSnapshotSource

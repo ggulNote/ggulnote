@@ -9,6 +9,10 @@ import type {
 import type { PageSemanticModel } from "@ggulnote/document-core";
 import type { DirectCommandPlannerInput } from "./direct-command-types";
 import type {
+  DirectCommandHistorySnapshot,
+  DirectReusableTargetRecord,
+} from "./direct-command-history-types";
+import type {
   DirectSemanticUnit,
   DirectTargetObjectType,
   TargetQuery,
@@ -71,6 +75,7 @@ export interface DirectCommandContext {
   pageTargetCatalog: PageTargetCatalog;
   recentOperations: readonly DirectRecentOperation[];
   plannerContext: DirectCommandPlannerInput;
+  historySnapshot?: DirectCommandHistorySnapshot;
 }
 
 export type DirectCommandContextBuildResult =
@@ -162,6 +167,7 @@ export interface TargetResolutionInput {
   catalog: PageTargetCatalog;
   frozenContext: FrozenVoiceTurnContext;
   recentOperations: readonly DirectRecentOperation[];
+  lastReusableTarget?: DirectReusableTargetRecord;
 }
 
 export function isDirectTargetObjectType(

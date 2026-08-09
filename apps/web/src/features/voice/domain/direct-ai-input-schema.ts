@@ -95,16 +95,31 @@ export function parseDirectCommandPlannerInput(
 
   if (input.lastOperation !== undefined) {
     const operation = readRecord(input.lastOperation, "input.lastOperation");
-    assertOnlyKeys(operation, ["operationId", "command"], "input.lastOperation");
+    assertOnlyKeys(
+      operation,
+      ["operationId", "command", "targetSummary"],
+      "input.lastOperation",
+    );
+    const targetSummary = operation.targetSummary === undefined
+      ? undefined
+      : readPlannerTargetSummary(
+          operation.targetSummary,
+          "input.lastOperation.targetSummary",
+        );
     result.lastOperation = {
-      operationId: readNonEmptyString(
-        operation.operationId,
-        "input.lastOperation.operationId",
-      ),
+      ...(operation.operationId === undefined
+        ? {}
+        : {
+            operationId: readNonEmptyString(
+              operation.operationId,
+              "input.lastOperation.operationId",
+            ),
+          }),
       command: parseDirectEditorCommand(
         operation.command,
         "input.lastOperation.command",
       ),
+      ...(targetSummary === undefined ? {} : { targetSummary }),
     };
   }
   if (input.recentOperations !== undefined) {
@@ -117,6 +132,18 @@ export function parseDirectCommandPlannerInput(
     ));
   }
   return result;
+}
+
+function readPlannerTargetSummary(value: unknown, path: string) {
+  const summary = readRecord(value, path);
+  assertOnlyKeys(summary, ["source", "type", "text"], path);
+  return {
+    source: readSource(summary.source, `${path}.source`),
+    type: readCandidateType(summary.type, `${path}.type`),
+    ...(summary.text === undefined
+      ? {}
+      : { text: readString(summary.text, `${path}.text`) }),
+  };
 }
 
 export function parseDirectTargetDisambiguationInput(

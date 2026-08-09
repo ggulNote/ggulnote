@@ -99,6 +99,45 @@ export class FrozenTargetResolver {
   private resolveLastTarget(
     input: TargetResolutionInput,
   ): TargetResolutionResult {
+    const reusableTarget = input.lastReusableTarget;
+    if (reusableTarget !== undefined) {
+      if (reusableTarget.pageId !== input.frozenContext.pageId) {
+        return { status: "NOT_FOUND", reasonCode: "LAST_TARGET_NOT_AVAILABLE" };
+      }
+      const candidate = input.catalog.candidates.find(
+        (entry) =>
+          entry.candidateId === reusableTarget.candidateId
+          && entry.pageId === reusableTarget.pageId
+          && entry.source === reusableTarget.source
+          && entry.type === reusableTarget.type
+          && (
+            reusableTarget.objectId === undefined
+            || entry.sceneObjectId === reusableTarget.objectId
+          ),
+      );
+      if (
+        candidate === undefined
+        || !candidateMatchesExplicitType(candidate, input.query)
+      ) {
+        return { status: "NOT_FOUND", reasonCode: "LAST_TARGET_NOT_AVAILABLE" };
+      }
+      return resolvedCandidate(
+        candidate,
+        input.query,
+        {
+          ...emptyEvidence(),
+          typeMatch: 1,
+          temporalMatch: 1,
+          structuralMatch: 1,
+          focusMatch: input.frozenContext.focusObjectId === undefined
+            ? null
+            : candidate.sceneObjectId === input.frozenContext.focusObjectId
+              ? 1
+              : 0,
+        },
+        input.catalog.sceneRevision,
+      );
+    }
     const operation = [...input.recentOperations]
       .sort((left, right) => right.createdAt - left.createdAt)
       .find((entry) => entry.targetSceneObjectId !== undefined);

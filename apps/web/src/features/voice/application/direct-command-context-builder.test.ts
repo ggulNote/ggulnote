@@ -3,7 +3,11 @@ import {
   type PdfSceneObject,
 } from "@ggulnote/editor-core";
 import { describe, expect, it } from "vitest";
-import type { CompletedVoiceTurn, DirectRecentOperation } from "../domain";
+import type {
+  CompletedVoiceTurn,
+  DirectCommandHistorySnapshot,
+  DirectRecentOperation,
+} from "../domain";
 import {
   CurrentRevisionSceneSnapshotSource,
   DirectCommandContextBuilder,
@@ -146,5 +150,69 @@ describe("DirectCommandContextBuilder", () => {
       status: "ERROR",
       errorCode: "STALE_SCENE",
     });
+  });
+
+  it("adds only a bounded safe last-operation summary to planner context", () => {
+    const builder = new DirectCommandContextBuilder({
+      frozenSceneSource: new CurrentRevisionSceneSnapshotSource(() => ({
+        scene: createScene(),
+      })),
+      recentOperationsSource: { getRecentOperations: () => [] },
+    });
+    const historySnapshot: DirectCommandHistorySnapshot = {
+      lastSuccessfulOperation: {
+        turnId: "turn-previous",
+        planId: "plan-previous",
+        relation: "NEW",
+        command: {
+          capability: "annotation",
+          operation: "highlight",
+          target: { kind: "relative", relation: "focused" },
+          payload: { color: "yellow" },
+        },
+        target: {
+          kind: "grounded",
+          candidateId: "internal-candidate",
+          pageId: "page-1",
+          sceneRevision: 6,
+          source: "pdf",
+          type: "line",
+          objectId: FROZEN_LINE.id,
+          textSummary: "AI 문제 문장",
+        },
+        resultStatus: "COMMITTED",
+        editorOperationId: "op-previous",
+        editorAnnotationId: "annotation-previous",
+        committedAt: 10,
+      },
+      lastReusableTarget: {
+        kind: "grounded",
+        candidateId: "internal-candidate",
+        pageId: "page-1",
+        sceneRevision: 6,
+        source: "pdf",
+        type: "line",
+        objectId: FROZEN_LINE.id,
+        textSummary: "AI 문제 문장",
+      },
+    };
+
+    const result = builder.build(createTurn(), { historySnapshot });
+
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") throw new Error("Expected READY context.");
+    expect(result.context.plannerContext.lastOperation).toEqual({
+      operationId: "op-previous",
+      command: historySnapshot.lastSuccessfulOperation?.command,
+      targetSummary: {
+        source: "pdf",
+        type: "line",
+        text: "AI 문제 문장",
+      },
+    });
+    const plannerJson = JSON.stringify(result.context.plannerContext);
+    expect(plannerJson).not.toContain("internal-candidate");
+    expect(plannerJson).not.toContain(FROZEN_LINE.id);
+    expect(plannerJson).not.toContain("annotation-previous");
   });
 });

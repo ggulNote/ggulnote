@@ -7,6 +7,7 @@ import type {
   DirectCommandCompileResult,
   DirectCommandRouteErrorCode,
   DirectEditorCommand,
+  DirectOperationRecord,
   ReadyForDirectCommandExecution,
   ResolvedTarget,
 } from "../domain";
@@ -52,6 +53,63 @@ export function compileDirectCommandCapability(
         instruction: { kind: "UNDO" },
       };
   }
+}
+
+export function compileDirectCommandRevision(
+  ready: ReadyForDirectCommandExecution,
+  previous: DirectOperationRecord,
+): DirectCommandCompileResult {
+  if (ready.plan.relation !== "REVISE_LAST") {
+    return failed("REVISE_NOT_AVAILABLE");
+  }
+  const target = ready.target;
+  if (
+    target === undefined
+    || previous.target.kind !== "grounded"
+    || !sameReusableTarget(previous.target, target)
+  ) {
+    return failed("INVALID_TARGET");
+  }
+  const authorityError = targetAuthorityError(target, ready);
+  if (authorityError !== null) {
+    return failed(authorityError);
+  }
+
+  const command = ready.plan.command;
+  if (
+    command.capability === "annotation"
+    && command.operation === "highlight"
+    && previous.command.capability === "annotation"
+    && previous.command.operation === "highlight"
+  ) {
+    const color = command.payload.color;
+    if (
+      previous.editorAnnotationId === undefined
+      || color === undefined
+      || color.trim().length === 0
+      || !target.annotatable
+      || !ANNOTATABLE_TARGET_TYPES.has(target.type)
+    ) {
+      return failed("REVISE_NOT_AVAILABLE");
+    }
+    return {
+      status: "COMPILED",
+      instruction: {
+        kind: "UPDATE_HIGHLIGHT_COLOR",
+        pageId: target.pageId,
+        annotationId: previous.editorAnnotationId,
+        color,
+      },
+    };
+  }
+
+  if (
+    command.capability === "text"
+    && previous.command.capability === "text"
+  ) {
+    return compileTextReplacement(command, ready);
+  }
+  return failed("REVISE_NOT_AVAILABLE");
 }
 
 function compileAnnotation(
@@ -180,6 +238,17 @@ function targetAuthorityError(
     return "INVALID_TARGET";
   }
   return null;
+}
+
+function sameReusableTarget(
+  previous: Extract<DirectOperationRecord["target"], { kind: "grounded" }>,
+  current: ResolvedTarget,
+): boolean {
+  return previous.candidateId === current.candidateId
+    && previous.pageId === current.pageId
+    && previous.source === current.source
+    && previous.type === current.type
+    && previous.objectId === current.objectId;
 }
 
 function singleTargetBounds(target: ResolvedTarget): Rect | null {

@@ -70,6 +70,12 @@ export type {
 } from "./direct-command-types";
 export { DIRECT_COMMAND_NAMES } from "./direct-command-types";
 export type {
+  DirectCommandHistorySnapshot,
+  DirectOperationRecord,
+  DirectOperationTargetRecord,
+  DirectReusableTargetRecord,
+} from "./direct-command-history-types";
+export type {
   DirectAnnotationRuntimeInput,
   DirectCommandCompileResult,
   DirectCommandRuntimeInstruction,

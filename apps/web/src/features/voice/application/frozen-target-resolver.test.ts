@@ -4,6 +4,7 @@ import type {
   FrozenVoiceTurnContext,
   PageTargetCandidate,
   PageTargetCatalog,
+  DirectReusableTargetRecord,
   TargetQuery,
 } from "../domain";
 import { FrozenTargetResolver } from "./frozen-target-resolver";
@@ -45,12 +46,14 @@ function resolve(
   query: TargetQuery,
   candidates: readonly PageTargetCandidate[],
   recentOperations: readonly DirectRecentOperation[] = [],
+  lastReusableTarget?: DirectReusableTargetRecord,
 ) {
   return new FrozenTargetResolver().resolve({
     query,
     catalog: catalog(candidates),
     frozenContext: FROZEN_CONTEXT,
     recentOperations,
+    ...(lastReusableTarget === undefined ? {} : { lastReusableTarget }),
   });
 }
 
@@ -132,6 +135,76 @@ describe("FrozenTargetResolver", () => {
     )).toMatchObject({
       status: "RESOLVED",
       target: { kind: "object", objectId: recent.sceneObjectId },
+    });
+  });
+
+  it("reconciles last_target only by its deterministic catalog identity", () => {
+    const current = candidate({
+      candidateId: "candidate:pdf:line:stable",
+      sceneObjectId: "pdf:line:stable",
+      text: "같은 문장",
+    });
+    const previous: DirectReusableTargetRecord = {
+      kind: "grounded",
+      candidateId: current.candidateId,
+      pageId: "page-1",
+      sceneRevision: 6,
+      source: "pdf",
+      type: "line",
+      objectId: current.sceneObjectId,
+      textSummary: "같은 문장",
+    };
+
+    expect(resolve(
+      { kind: "relative", relation: "last_target" },
+      [current],
+      [],
+      previous,
+    )).toMatchObject({
+      status: "RESOLVED",
+      target: {
+        candidateId: current.candidateId,
+        sceneRevision: 7,
+      },
+    });
+
+    const similarButDifferent = candidate({
+      candidateId: "candidate:pdf:line:different",
+      sceneObjectId: "pdf:line:different",
+      text: "같은 문장",
+    });
+    expect(resolve(
+      { kind: "relative", relation: "last_target" },
+      [similarButDifferent],
+      [],
+      previous,
+    )).toEqual({
+      status: "NOT_FOUND",
+      reasonCode: "LAST_TARGET_NOT_AVAILABLE",
+    });
+  });
+
+  it("does not reuse a last target from another page", () => {
+    const current = candidate({
+      candidateId: "candidate:pdf:line:stable",
+      sceneObjectId: "pdf:line:stable",
+    });
+    expect(resolve(
+      { kind: "relative", relation: "last_target" },
+      [current],
+      [],
+      {
+        kind: "grounded",
+        candidateId: current.candidateId,
+        pageId: "page-2",
+        sceneRevision: 7,
+        source: "pdf",
+        type: "line",
+        objectId: current.sceneObjectId,
+      },
+    )).toEqual({
+      status: "NOT_FOUND",
+      reasonCode: "LAST_TARGET_NOT_AVAILABLE",
     });
   });
 
