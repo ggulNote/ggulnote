@@ -23,6 +23,7 @@ export interface AnnotationStyleDefaults {
   lineStrokeWidth: number;
   tableStrokeWidth: number;
   underlineThickness: number;
+  highlightColor: string;
   highlightOpacity: number;
 }
 
@@ -37,6 +38,7 @@ export const DEFAULT_ANNOTATION_STYLE_PROPS: AnnotationStyleDefaults = {
   lineStrokeWidth: 2,
   tableStrokeWidth: 1,
   underlineThickness: 2,
+  highlightColor: "#facc15",
   highlightOpacity: 0.35,
 };
 

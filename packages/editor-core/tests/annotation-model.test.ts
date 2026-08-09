@@ -89,6 +89,7 @@ describe("Annotation behavior", () => {
     expect(restored.serialize()).toMatchObject({
       type: "HIGHLIGHT",
       properties: {
+        color: "#facc15",
         opacity: 0.35,
       },
     });
