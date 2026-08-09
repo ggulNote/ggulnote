@@ -262,27 +262,27 @@ AMBIGUOUS인 경우에만 제한된 후보 선택용 Text LLM을 조건부 호�
 
 # Phase D. Capability Compile / Editor Runtime Integration
 
-- [ ] `annotation.underline` existing editor action으로 compile
-- [ ] `annotation.highlight` existing editor action으로 compile
-- [ ] PDF 원문 변경 없이 Editable Layer annotation 생성
-- [ ] highlight default color는 existing editor setting 사용
-- [ ] `navigation.next_page` 연결
-- [ ] `navigation.previous_page` 연결
-- [ ] `history.undo` existing history에 연결
-- [ ] `text.replace_content` Ggulnote editable text에 연결
-- [ ] PDF source text replace compile 차단
-- [ ] 별도 undo stack 생성하지 않음
-- [ ] 별도 editor runtime 생성하지 않음
-- [ ] compile 실패 시 no commit
-- [ ] commit 실패 시 error normalize
-- [ ] operation에 source turnId 추적 가능
-- [ ] underline integration test
-- [ ] text span underline integration test
-- [ ] highlight integration test
-- [ ] navigation integration test
-- [ ] undo integration test
-- [ ] text replace integration test
-- [ ] Phase D 문서 상태 갱신
+- [x] `annotation.underline` existing editor action으로 compile
+- [x] `annotation.highlight` existing editor action으로 compile
+- [x] PDF 원문 변경 없이 Editable Layer annotation 생성
+- [x] highlight default color는 existing editor setting 사용
+- [x] `navigation.next_page` 연결
+- [x] `navigation.previous_page` 연결
+- [x] `history.undo` existing history에 연결
+- [x] `text.replace_content` Ggulnote editable text에 연결
+- [x] PDF source text replace compile 차단
+- [x] 별도 undo stack 생성하지 않음
+- [x] 별도 editor runtime 생성하지 않음
+- [x] compile 실패 시 no commit
+- [x] commit 실패 시 error normalize
+- [x] operation에 source turnId 추적 가능
+- [x] underline integration test
+- [x] text span underline integration test
+- [x] highlight integration test
+- [x] navigation integration test
+- [x] undo integration test
+- [x] text replace integration test
+- [x] Phase D 문서 상태 갱신
 
 완료 조건:
 
