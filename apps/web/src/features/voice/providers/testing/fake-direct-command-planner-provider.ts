@@ -115,6 +115,11 @@ function clonePlannerInput(input: DirectCommandPlannerInput): DirectCommandPlann
       command: parseDirectEditorCommand(input.lastOperation.command),
     };
   }
+  if (input.recentOperations !== undefined) {
+    cloned.recentOperations = input.recentOperations.map((operation) => ({
+      ...operation,
+    }));
+  }
   return cloned;
 }
 
