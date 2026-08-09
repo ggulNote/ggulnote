@@ -80,139 +80,139 @@ Phase A의 provider/fake/strict parser 기반은 그대로 재사용
 
 ## B0. Architecture Contract Alignment
 
-- [ ] DECISIONS / SPEC의 TargetQuery 구조 확인
-- [ ] 기존 `DirectTargetRef`를 최소 변경으로 TargetQuery 구조에 정렬
-- [ ] `FROZEN_FOCUS` → `RelativeTargetQuery(focused)` 의미 정렬
-- [ ] `LAST_TARGET` → `RelativeTargetQuery(last_target)` 의미 정렬
-- [ ] `CURRENT_PAGE` / `LAST_OPERATION` control target 유지 여부 결정 및 문서화
-- [ ] Phase A strict parser를 새 TargetQuery union에 맞게 확장
-- [ ] arbitrary objectId reject 유지
-- [ ] coordinate x/y reject 유지
-- [ ] Phase A provider/fake provider 재사용
+- [x] DECISIONS / SPEC의 TargetQuery 구조 확인
+- [x] 기존 `DirectTargetRef`를 최소 변경으로 TargetQuery 구조에 정렬
+- [x] `FROZEN_FOCUS` → `RelativeTargetQuery(focused)` 의미 정렬
+- [x] `LAST_TARGET` → `RelativeTargetQuery(last_target)` 의미 정렬
+- [x] `CURRENT_PAGE` / `LAST_OPERATION` control target 유지 여부 결정 및 문서화
+- [x] Phase A strict parser를 새 TargetQuery union에 맞게 확장
+- [x] arbitrary objectId reject 유지
+- [x] coordinate x/y reject 유지
+- [x] Phase A provider/fake provider 재사용
 
 ## B1. Existing Grounding Sources 조사
 
-- [ ] Frozen revision의 SceneSnapshot을 얻는 실제 경로 확인
-- [ ] historical snapshot 미지원 시 stale 처리 정책 구현
-- [ ] PDF Scene object/source 타입 확인
-- [ ] Semantic paragraph/sentence/line 표현 확인
-- [ ] text offset/range/bounds 표현 확인
-- [ ] Canvas / Annotation object 타입 확인
-- [ ] editable/source 판별 경로 확인
-- [ ] operation timestamp / created object / target 추적 가능 여부 확인
-- [ ] 없는 semantic type을 새로 invent하지 않음
+- [x] Frozen revision의 SceneSnapshot을 얻는 실제 경로 확인
+- [x] historical snapshot 미지원 시 stale 처리 정책 구현
+- [x] PDF Scene object/source 타입 확인
+- [x] Semantic paragraph/sentence/line 표현 확인
+- [x] text offset/range/bounds 표현 확인
+- [x] Canvas / Annotation object 타입 확인
+- [x] editable/source 판별 경로 확인
+- [x] operation timestamp / created object / target 추적 가능 여부 확인
+- [x] 없는 semantic type을 새로 invent하지 않음
 
 ## B2. TargetQuery / ResolvedTarget Domain
 
-- [ ] `TextSpanTargetQuery` 구현
-- [ ] `SemanticUnitTargetQuery` 구현
-- [ ] `ObjectTargetQuery` 구현
-- [ ] `RelativeTargetQuery` 구현
-- [ ] `SubrangeTargetQuery` 확장 계약 구현
-- [ ] `ResolvedTextSpan` 구현
-- [ ] `ResolvedObject` 구현
-- [ ] `ResolvedMathSpan` / `ResolvedObjectSubrange`는 실제 모델 지원 수준에 맞춰 contract 또는 unsupported path 정의
-- [ ] TargetResolutionResult: `RESOLVED`
-- [ ] TargetResolutionResult: `AMBIGUOUS`
-- [ ] TargetResolutionResult: `NOT_FOUND`
+- [x] `TextSpanTargetQuery` 구현
+- [x] `SemanticUnitTargetQuery` 구현
+- [x] `ObjectTargetQuery` 구현
+- [x] `RelativeTargetQuery` 구현
+- [x] `SubrangeTargetQuery` 확장 계약 구현
+- [x] `ResolvedTextSpan` 구현
+- [x] `ResolvedObject` 구현
+- [x] `ResolvedMathSpan` / `ResolvedObjectSubrange`는 실제 모델 지원 수준에 맞춰 contract 또는 unsupported path 정의
+- [x] TargetResolutionResult: `RESOLVED`
+- [x] TargetResolutionResult: `AMBIGUOUS`
+- [x] TargetResolutionResult: `NOT_FOUND`
 
 ## B3. PageTargetCatalog
 
-- [ ] `PageTargetCatalog` 구현
-- [ ] Frozen Page의 PDF/document candidate adapter
-- [ ] Frozen Page의 Ggulnote editable candidate adapter
-- [ ] `source: pdf | ggulnote` 표현
-- [ ] `editable` 표현
-- [ ] `annotatable` 표현 가능한 경우 연결
-- [ ] text/type/bounds metadata 연결
-- [ ] recent operation metadata 연결 가능한 경우 연결
-- [ ] 다른 page candidate 제외
-- [ ] internal candidateId를 Planner authority로 사용하지 않음
+- [x] `PageTargetCatalog` 구현
+- [x] Frozen Page의 PDF/document candidate adapter
+- [x] Frozen Page의 Ggulnote editable candidate adapter
+- [x] `source: pdf | ggulnote` 표현
+- [x] `editable` 표현
+- [x] `annotatable` 표현 가능한 경우 연결
+- [x] text/type/bounds metadata 연결
+- [x] recent operation metadata 연결 가능한 경우 연결
+- [x] 다른 page candidate 제외
+- [x] internal candidateId를 Planner authority로 사용하지 않음
 
 ## B4. DirectCommandContextBuilder
 
-- [ ] `DirectCommandContextBuilder` 구현
-- [ ] Raw Final Transcript 그대로 보존
-- [ ] Frozen Context 그대로 authority로 사용
-- [ ] Frozen page/revision snapshot 사용
-- [ ] 최신 page로 drift하지 않음
-- [ ] 최신 focus로 drift하지 않음
-- [ ] PageTargetCatalog 포함
-- [ ] recent operations 포함
-- [ ] Planner용 bounded context 분리
-- [ ] Planner context에 internal objectId/candidateId 미노출
-- [ ] screenshot/image 미생성
-- [ ] frozen snapshot unavailable 시 `STALE_SCENE`
+- [x] `DirectCommandContextBuilder` 구현
+- [x] Raw Final Transcript 그대로 보존
+- [x] Frozen Context 그대로 authority로 사용
+- [x] Frozen page/revision snapshot 사용
+- [x] 최신 page로 drift하지 않음
+- [x] 최신 focus로 drift하지 않음
+- [x] PageTargetCatalog 포함
+- [x] recent operations 포함
+- [x] Planner용 bounded context 분리
+- [x] Planner context에 internal objectId/candidateId 미노출
+- [x] screenshot/image 미생성
+- [x] frozen snapshot unavailable 시 `STALE_SCENE`
 
 ## B5. Candidate Evidence / Ranking
 
-- [ ] `CandidateEvidence` 정의
-- [ ] `typeMatch`
-- [ ] `lexicalMatch`
-- [ ] `fuzzyMatch`
-- [ ] `temporalMatch`
-- [ ] `structuralMatch`
-- [ ] `focusMatch`
-- [ ] `semanticMatch` optional/unavailable 정책
-- [ ] `mathMatch` optional/unavailable 정책
-- [ ] Unicode/text normalization
-- [ ] 한국어 spacing 차이 완화
-- [ ] 경미한 STT mismatch용 deterministic fuzzy similarity
-- [ ] 외부 embedding service 추가하지 않음
-- [ ] threshold/margin을 단일 policy/config로 관리
+- [x] `CandidateEvidence` 정의
+- [x] `typeMatch`
+- [x] `lexicalMatch`
+- [x] `fuzzyMatch`
+- [x] `temporalMatch`
+- [x] `structuralMatch`
+- [x] `focusMatch`
+- [x] `semanticMatch` optional/unavailable 정책
+- [x] `mathMatch` optional/unavailable 정책
+- [x] Unicode/text normalization
+- [x] 한국어 spacing 차이 완화
+- [x] 경미한 STT mismatch용 deterministic fuzzy similarity
+- [x] 외부 embedding service 추가하지 않음
+- [x] threshold/margin을 단일 policy/config로 관리
 
 ## B6. FrozenTargetResolver
 
-- [ ] Relative focused target resolve
-- [ ] Relative last target resolve
-- [ ] Relative recent target ranking
-- [ ] TextSpan target resolve
-- [ ] SemanticUnit target resolve — 현재 semantic layer 지원 범위
-- [ ] Object target resolve — 현재 editable object 지원 범위
-- [ ] Subrange target은 실제 지원 수준에 맞게 resolve/unsupported
-- [ ] `RESOLVED` high confidence 처리
-- [ ] `AMBIGUOUS` 후보 반환
-- [ ] `NOT_FOUND` 처리
-- [ ] `AMBIGUOUS`에서 임의 top1 선택 금지
-- [ ] 가짜 offset/token/stroke mapping 생성 금지
+- [x] Relative focused target resolve
+- [x] Relative last target resolve
+- [x] Relative recent target ranking
+- [x] TextSpan target resolve
+- [x] SemanticUnit target resolve — 현재 semantic layer 지원 범위
+- [x] Object target resolve — 현재 editable object 지원 범위
+- [x] Subrange target은 실제 지원 수준에 맞게 resolve/unsupported
+- [x] `RESOLVED` high confidence 처리
+- [x] `AMBIGUOUS` 후보 반환
+- [x] `NOT_FOUND` 처리
+- [x] `AMBIGUOUS`에서 임의 top1 선택 금지
+- [x] 가짜 offset/token/stroke mapping 생성 금지
 
 ## B7. Direct Eligibility / Guard
 
-- [ ] Scene Revision validation
-- [ ] target 존재 validation
-- [ ] capability allowlist
-- [ ] operation allowlist
-- [ ] payload schema validation
-- [ ] target type compatibility
-- [ ] PDF source read-only guard
-- [ ] PDF text + underline 허용
-- [ ] PDF text + highlight 허용
-- [ ] PDF source + `text.replace_content` 차단
-- [ ] Ggulnote editable text + `text.replace_content` 허용
-- [ ] spatial-required typed plan no-commit guard
-- [ ] 실제 Editor mutation은 아직 하지 않음
+- [x] Scene Revision validation
+- [x] target 존재 validation
+- [x] capability allowlist
+- [x] operation allowlist
+- [x] payload schema validation
+- [x] target type compatibility
+- [x] PDF source read-only guard
+- [x] PDF text + underline 허용
+- [x] PDF text + highlight 허용
+- [x] PDF source + `text.replace_content` 차단
+- [x] Ggulnote editable text + `text.replace_content` 허용
+- [x] spatial-required typed plan no-commit guard
+- [x] 실제 Editor mutation은 아직 하지 않음
 
 ## B8. Tests / Docs
 
-- [ ] RelativeTargetQuery schema 테스트
-- [ ] TextSpanTargetQuery schema 테스트
-- [ ] SemanticUnitTargetQuery schema 테스트
-- [ ] ObjectTargetQuery schema 테스트
-- [ ] SubrangeTargetQuery schema 테스트
-- [ ] arbitrary objectId reject regression
-- [ ] coordinate x/y reject regression
-- [ ] Frozen page/revision context test
-- [ ] PageTargetCatalog PDF + editable source test
-- [ ] focus resolution test
-- [ ] text span resolution test
-- [ ] fuzzy ranking test
-- [ ] recent/last target test
-- [ ] ambiguous no-auto-select test
-- [ ] not found test
-- [ ] stale scene test
-- [ ] PDF read-only guard test
-- [ ] editable text guard test
-- [ ] Phase B 문서 상태 갱신
+- [x] RelativeTargetQuery schema 테스트
+- [x] TextSpanTargetQuery schema 테스트
+- [x] SemanticUnitTargetQuery schema 테스트
+- [x] ObjectTargetQuery schema 테스트
+- [x] SubrangeTargetQuery schema 테스트
+- [x] arbitrary objectId reject regression
+- [x] coordinate x/y reject regression
+- [x] Frozen page/revision context test
+- [x] PageTargetCatalog PDF + editable source test
+- [x] focus resolution test
+- [x] text span resolution test
+- [x] fuzzy ranking test
+- [x] recent/last target test
+- [x] ambiguous no-auto-select test
+- [x] not found test
+- [x] stale scene test
+- [x] PDF read-only guard test
+- [x] editable text guard test
+- [x] Phase B 문서 상태 갱신
 
 완료 조건:
 

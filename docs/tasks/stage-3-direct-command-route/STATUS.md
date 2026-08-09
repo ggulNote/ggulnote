@@ -4,16 +4,13 @@
 
 ```text
 Stage: 3 — Direct Command Route
-Status: PHASE A COMPLETE
-Current Milestone: Phase B — Command Context / Frozen Target Grounding / Eligibility Guard
+Status: PHASE B COMPLETE
+Current Milestone: Phase C — Single Text Planner / Conditional Text Disambiguation
 ```
 
-Phase A의 Domain / Provider 계약과 Fake Provider, strict runtime validation을 완료했다.
-
-Phase B 시작 시 최종 Grounding Architecture에 맞춰
-Phase A의 `DirectTargetRef` 중심 target contract를 최소 범위로 확장한다.
-
-이는 Phase A를 재구현하는 것이 아니라:
+Phase A의 provider/fake/strict parser 기반을 유지하면서 target 표현을
+최종 Grounding Architecture에 맞게 정렬하고, Phase B의 frozen context,
+catalog, resolver, deterministic guard를 완료했다.
 
 ```text
 FROZEN_FOCUS / LAST_TARGET
@@ -25,9 +22,8 @@ CURRENT_PAGE / LAST_OPERATION
 + TextSpan / SemanticUnit / Object / Subrange TargetQuery 추가
 ```
 
-하는 contract alignment다.
-
-Stage 2 Voice Turn / Voice Lens와 Stage 1 Scene Core는 변경하지 않는다.
+실제 LLM 호출, Editor mutation, screenshot/VLM/placement는 시작하지 않았다.
+Stage 2 Voice Turn / Voice Lens와 Stage 1 Scene Core의 기존 구현도 변경하지 않았다.
 
 ---
 
@@ -46,7 +42,10 @@ base: e9f62e3
 Phase A implementation commit: 82998f0
 Phase A docs commit: 41f2b88
 current HEAD before Phase B: 41f2b88
-working tree: clean
+Phase B implementation commit: 9e014cb
+Grounding Architecture docs preservation commit: cded9af
+working tree at session start:
+  modified CHECKLIST.md / STATUS.md (preserved separately)
 ```
 
 규칙:
@@ -396,46 +395,39 @@ Provider / Fake Provider / strict parser의 기본 구조는 재사용한다.
 Status:
 
 ```text
-NEXT MILESTONE
+COMPLETE
 ```
 
-범위:
+Commit:
 
 ```text
-Phase A target contract alignment
-Existing semantic/editable grounding source 조사
-TargetQuery
-PageTargetCatalog
-DirectCommandContextBuilder
-Candidate Evidence / Ranking
-FrozenTargetResolver
-ResolvedTarget
-Scene Revision Guard
-PDF read-only / Editable Guard
+contract alignment + implementation:
+9e014cb feat(voice): add frozen target grounding
+
+pre-existing Source of Truth preservation:
+cded9af docs(voice): align stage 3 grounding architecture
+
+Phase B docs:
+this STATUS/CHECKLIST update commit
 ```
 
-절대 포함하지 않음:
+구현 파일:
 
-```text
-실제 LLM network call
-VLM / screenshot
-Editor mutation
-Spatial placement
-```
-
-완료 후 기록:
-
-```text
-contract alignment commit:
-implementation commit:
-docs commit:
-supported document candidates:
-supported editable candidates:
-supported evidence:
-unsupported semantic/math mappings:
-tests:
-notes:
-```
+- Domain:
+  - `domain/target-query.ts`
+  - `domain/target-grounding-types.ts`
+  - `domain/direct-command-types.ts`
+  - `domain/direct-planner-schema.ts`
+- Application:
+  - `application/page-target-catalog-builder.ts`
+  - `application/direct-command-context-builder.ts`
+  - `application/candidate-ranker.ts`
+  - `application/frozen-target-resolver.ts`
+  - `application/direct-command-guard.ts`
+- Provider:
+  - Phase A `DirectCommandPlannerProvider`와
+    `FakeDirectCommandPlannerProvider`를 그대로 재사용하고 input clone만
+    bounded recent-operation summary에 맞춰 확장했다.
 
 ---
 
@@ -444,7 +436,7 @@ notes:
 Status:
 
 ```text
-PENDING
+NEXT MILESTONE
 ```
 
 예정:
@@ -520,52 +512,87 @@ Spatial request는 no commit
 Ambiguous target 추측 실행 금지
 Planner 결과 strict validation 필수
 Mutation은 기존 Editor History 경로 사용
+현재 runtime은 historical SceneSnapshot store를 제공하지 않음
+exact frozen page/revision을 current source에서 얻을 수 없으면 STALE_SCENE
+PageSemanticModel이 함께 제공될 때만 sentence candidate 추가
+semanticMatch / mathMatch는 null(unavailable)
+Subrange / MathSpan / Ink recognition은 unsupported
 ```
 
 ---
 
-# 12. Phase B 완료 시 반드시 기록할 것
+# 12. Phase B 완료 기록
 
 ```text
-implementation start HEAD:
-contract alignment commit:
-Phase B implementation commit:
-docs commit:
-current HEAD:
+implementation start HEAD: 41f2b88
+contract alignment commit: 9e014cb (Phase B implementation과 결합)
+Phase B implementation commit: 9e014cb
+Grounding Architecture docs preservation: cded9af
+docs commit: this STATUS/CHECKLIST update commit
 
 Frozen Snapshot source:
+- CurrentRevisionSceneSnapshotSource
+- current SceneSnapshot이 frozen page/revision과 exact match할 때만 반환
+- historical revision store는 없음
+
 PageTargetCatalog source adapters:
+- SceneSnapshot.objects
+- optional PageSemanticModel sentence
+- EditorOperation summary / canvas createdAt
 
 PDF candidates:
+- paragraph / line / word
+- pdf-region / image / table
+- sentence (PageSemanticModel이 함께 제공될 때)
+
 Editable candidates:
+- SceneSnapshot의 실제 canvas kinds
+- 현재 editor-voice adapter가 제공하는 text/annotation/table/shape
+- generic Scene Core snapshot이 제공하면 math/graph/image/group도 catalog 가능
 
 TargetQuery supported:
+- text_span / semantic_unit / object / relative
+- subrange는 strict contract accept 후 resolver unsupported
+
 ResolvedTarget supported:
+- ResolvedTextSpan / ResolvedObject
 
 Evidence implemented:
-- type:
-- lexical:
-- fuzzy:
-- temporal:
-- structural:
-- focus:
-- semantic:
-- math:
+- type: deterministic kind/unit match
+- lexical: normalized exact/anchor/token match
+- fuzzy: NFKC/case/punctuation/whitespace/Korean-spacing + Levenshtein
+- temporal: recent operation/createdAt rank
+- structural: semantic unit / anchor order / object kind
+- focus: frozen focusObjectId match
+- semantic: null (local semantic similarity 없음)
+- math: null (local math matcher 없음)
 
 Current limitations:
 - exact text span mapping:
+  enclosing real sentence/paragraph/line/word candidate를 반환한다.
+  synthetic offset 또는 multi-fragment bounds를 만들지 않는다.
 - sentence/paragraph mapping:
-- math subrange:
-- ink recognition:
+  sentence는 optional PageSemanticModel, paragraph/line은 PDF Scene adapter 사용.
+- operation target:
+  EditorOperation은 annotationId를 제공한다. Canvas graph/math history operation은 없음.
+- math subrange: SUBRANGE_UNSUPPORTED
+- ink recognition: 모델/Scene kind 없음
+- current editor-voice adapter:
+  annotation-backed canvas object만 제공하며 graph/math production composition은 없음.
 
 Validation:
-- targeted:
-- voice regression:
-- web:
-- editor-core:
-- typecheck:
-- lint:
-- git diff --check:
+- targeted: 7 files / 38 tests PASS
+- voice regression: 32 files / 192 tests PASS
+- web regression: 63 files / 452 tests PASS
+- editor-core regression: 6 files / 47 tests PASS
+- typecheck: Web PASS / Editor Core PASS
+- lint: Voice targeted PASS / Web package PASS
+- git diff --check: PASS
+
+Environment notes:
+- repository requires Node >=22; validation runtime was Node 20.19.4 / pnpm 10.9.0
+- Web regression emitted the existing jsdom canvas getContext stderr; tests PASS
+- automated test failures: none
 ```
 
 ---
