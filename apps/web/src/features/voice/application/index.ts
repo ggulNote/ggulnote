@@ -61,3 +61,7 @@ export {
 export type {
   DirectTargetDisambiguationContext,
 } from "./direct-target-disambiguation-context";
+export { compileDirectCommandCapability } from "./direct-command-capability-compiler";
+export type {
+  DirectCommandCompileContext,
+} from "./direct-command-capability-compiler";

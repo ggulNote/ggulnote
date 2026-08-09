@@ -48,6 +48,7 @@ export type {
   DirectCommandPlannerLastOperation,
   DirectCommandPlannerRecentOperation,
   DirectCommandPlannerTurnInput,
+  DirectCommandExecutionResult,
   DirectCommandRouteErrorCode,
   DirectCommandRouteResult,
   DirectCommandSceneRevision,
@@ -68,6 +69,12 @@ export type {
   UnsupportedDirectPlan,
 } from "./direct-command-types";
 export { DIRECT_COMMAND_NAMES } from "./direct-command-types";
+export type {
+  DirectAnnotationRuntimeInput,
+  DirectCommandCompileResult,
+  DirectCommandRuntimeInstruction,
+  ReadyForDirectCommandExecution,
+} from "./direct-command-execution-types";
 export {
   DirectAiProviderError,
   isAbortError,
