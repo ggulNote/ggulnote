@@ -14,6 +14,8 @@ export type {
   DirectCommandPlannerInput,
   DirectCommandRouteErrorCode,
   DirectCommandRouteResult,
+  DirectCommandPlanningResult,
+  DirectCommandPlanningTimestamps,
   DirectEditorCommand,
   DirectPlannerResult,
   DirectRecentOperation,
@@ -25,6 +27,9 @@ export type {
   ResolvedTarget,
   TargetQuery,
   TargetResolutionResult,
+  DirectTargetCandidateLabel,
+  DirectTargetDisambiguationInput,
+  DirectTargetDisambiguationResult,
   SpeechProviderAvailability,
   SpeechRecognitionConfig,
   VoiceFocusSnapshot,
@@ -38,21 +43,32 @@ export type {
 export type {
   DirectCommandPlannerOptions,
   DirectCommandPlannerProvider,
+  DirectTargetDisambiguatorOptions,
+  DirectTargetDisambiguatorProvider,
+  HttpDirectCommandPlannerProviderOptions,
+  HttpDirectTargetDisambiguatorProviderOptions,
   SpeechRecognitionProvider,
 } from "./providers";
 export {
   CurrentRevisionSceneSnapshotSource,
   DirectCommandContextBuilder,
+  DirectCommandPlanningPipeline,
   DEFAULT_VOICE_TURN_TIMING_CONFIG,
   FrozenTargetResolver,
   guardDirectCommandPlan,
   SceneVoiceTurnContextSource,
   VoiceTurnController,
 } from "./application";
+export {
+  HttpDirectCommandPlannerProvider,
+  HttpDirectTargetDisambiguatorProvider,
+} from "./providers";
 export type {
   DirectCommandContextBuilderOptions,
   DirectCommandGuardInput,
   DirectCommandGuardResult,
+  DirectCommandPlanningOptions,
+  DirectCommandPlanningPipelineOptions,
   DirectRecentOperationsSource,
   FrozenSceneSnapshotSource,
   SceneVoiceTurnContextSourceOptions,

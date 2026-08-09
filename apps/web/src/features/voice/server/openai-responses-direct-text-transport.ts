@@ -1,0 +1,167 @@
+import {
+  DirectAiProviderError,
+  isAbortError,
+} from "../domain";
+import type {
+  DirectTextModelRequest,
+  DirectTextModelTransport,
+  DirectTextModelTransportOptions,
+} from "../providers/direct-text-model-transport";
+
+const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
+
+export type OpenAiResponsesFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export interface OpenAiResponsesDirectTextTransportOptions {
+  apiKey: string;
+  model: string;
+  timeoutMs: number;
+  fetch?: OpenAiResponsesFetch;
+}
+
+/** Route-handler-only adapter. It is intentionally not exported from the Voice feature root. */
+export class OpenAiResponsesDirectTextTransport
+implements DirectTextModelTransport {
+  private readonly fetchImpl: OpenAiResponsesFetch;
+
+  public constructor(private readonly options: OpenAiResponsesDirectTextTransportOptions) {
+    if (options.apiKey.trim().length === 0 || options.model.trim().length === 0) {
+      throw new DirectAiProviderError(
+        "PLANNER_UNAVAILABLE",
+        "MISSING_CONFIGURATION",
+      );
+    }
+    if (!Number.isInteger(options.timeoutMs) || options.timeoutMs <= 0) {
+      throw new DirectAiProviderError(
+        "PLANNER_UNAVAILABLE",
+        "MISSING_CONFIGURATION",
+      );
+    }
+    this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
+  }
+
+  public async generate(
+    request: DirectTextModelRequest,
+    options: DirectTextModelTransportOptions = {},
+  ): Promise<string> {
+    if (options.signal?.aborted) {
+      throw new DirectAiProviderError("ABORTED", "ABORTED");
+    }
+
+    const controller = new AbortController();
+    let callerAborted = false;
+    let timedOut = false;
+    const abortFromCaller = () => {
+      callerAborted = true;
+      controller.abort();
+    };
+    options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.options.timeoutMs);
+
+    try {
+      const response = await this.fetchImpl(OPENAI_RESPONSES_ENDPOINT, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.options.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: this.options.model,
+          instructions: request.instructions,
+          input: request.input,
+          text: { format: { type: "json_object" } },
+          max_output_tokens: request.maxOutputTokens,
+          store: false,
+        }),
+        signal: controller.signal,
+      });
+      if (callerAborted || options.signal?.aborted) {
+        throw new DirectAiProviderError("ABORTED", "ABORTED");
+      }
+      if (timedOut) {
+        throw new DirectAiProviderError("PLANNER_TIMEOUT", "TIMEOUT");
+      }
+      if (!response.ok) {
+        throw new DirectAiProviderError(
+          "PLANNER_UNAVAILABLE",
+          "HTTP_FAILURE",
+          { httpStatus: response.status },
+        );
+      }
+      const payload = await readResponseJson(response);
+      const outputText = extractOpenAiOutputText(payload);
+      if (outputText.trim().length === 0) {
+        throw new DirectAiProviderError(
+          "PLANNER_INVALID_OUTPUT",
+          "INVALID_OUTPUT",
+        );
+      }
+      return outputText;
+    } catch (error) {
+      if (error instanceof DirectAiProviderError) throw error;
+      if (callerAborted || options.signal?.aborted) {
+        throw new DirectAiProviderError("ABORTED", "ABORTED", { cause: error });
+      }
+      if (timedOut) {
+        throw new DirectAiProviderError(
+          "PLANNER_TIMEOUT",
+          "TIMEOUT",
+          { cause: error },
+        );
+      }
+      if (isAbortError(error)) {
+        throw new DirectAiProviderError("ABORTED", "ABORTED", { cause: error });
+      }
+      throw new DirectAiProviderError(
+        "PLANNER_UNAVAILABLE",
+        "NETWORK_FAILURE",
+        { cause: error },
+      );
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortFromCaller);
+    }
+  }
+}
+
+async function readResponseJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json() as unknown;
+  } catch (error) {
+    throw new DirectAiProviderError(
+      "PLANNER_INVALID_OUTPUT",
+      "INVALID_OUTPUT",
+      { cause: error },
+    );
+  }
+}
+
+export function extractOpenAiOutputText(value: unknown): string {
+  if (!isRecord(value) || !Array.isArray(value.output)) return "";
+  const chunks: string[] = [];
+  for (const item of value.output) {
+    if (!isRecord(item) || item.type !== "message" || !Array.isArray(item.content)) {
+      continue;
+    }
+    for (const content of item.content) {
+      if (
+        isRecord(content)
+        && content.type === "output_text"
+        && typeof content.text === "string"
+      ) {
+        chunks.push(content.text);
+      }
+    }
+  }
+  return chunks.join("");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

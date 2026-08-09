@@ -47,6 +47,29 @@ export class FrozenTargetResolver {
     return this.resolveRanked(input);
   }
 
+  public resolveRankedCandidate(
+    input: TargetResolutionInput,
+    rankedCandidate: { candidate: PageTargetCandidate; score: number; evidence: CandidateEvidence },
+  ): TargetResolutionResult {
+    const candidate = input.catalog.candidates.find(
+      (entry) => entry.candidateId === rankedCandidate.candidate.candidateId,
+    );
+    if (
+      candidate === undefined
+      || candidate.pageId !== input.frozenContext.pageId
+      || input.catalog.sceneRevision !== input.frozenContext.sceneRevision
+    ) {
+      return { status: "NOT_FOUND", reasonCode: "NO_MATCH" };
+    }
+    return resolvedCandidate(
+      candidate,
+      input.query,
+      rankedCandidate.evidence,
+      input.catalog.sceneRevision,
+      rankedCandidate.score,
+    );
+  }
+
   private resolveFocused(
     input: TargetResolutionInput,
   ): TargetResolutionResult {

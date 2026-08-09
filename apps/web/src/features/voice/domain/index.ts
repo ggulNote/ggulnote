@@ -69,6 +69,37 @@ export type {
 } from "./direct-command-types";
 export { DIRECT_COMMAND_NAMES } from "./direct-command-types";
 export {
+  DirectAiProviderError,
+  isAbortError,
+  normalizeDirectAiProviderError,
+} from "./direct-ai-provider-error";
+export type {
+  DirectAiProviderErrorCode,
+  DirectAiProviderErrorReason,
+} from "./direct-ai-provider-error";
+export { DirectAiInputValidationError } from "./direct-ai-input-schema";
+export {
+  parseDirectCommandPlannerInput,
+  parseDirectTargetDisambiguationInput,
+} from "./direct-ai-input-schema";
+export type {
+  DirectCommandPlanningResult,
+  DirectCommandPlanningTimestamps,
+} from "./direct-command-planning-types";
+export {
+  DIRECT_TARGET_CANDIDATE_LABELS,
+} from "./direct-target-disambiguation-types";
+export type {
+  DirectTargetCandidateLabel,
+  DirectTargetDisambiguationCandidate,
+  DirectTargetDisambiguationInput,
+  DirectTargetDisambiguationResult,
+} from "./direct-target-disambiguation-types";
+export {
+  DirectTargetDisambiguationValidationError,
+  parseDirectTargetDisambiguationResult,
+} from "./direct-target-disambiguation-schema";
+export {
   DIRECT_SEMANTIC_UNITS,
   DIRECT_TARGET_OBJECT_TYPES,
 } from "./target-query";
