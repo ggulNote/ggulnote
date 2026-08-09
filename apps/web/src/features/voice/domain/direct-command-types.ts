@@ -1,4 +1,5 @@
 import type {
+  AnnotationId,
   CapabilityId,
   EditorOperation,
   Rect,
@@ -121,8 +122,13 @@ export type DirectCommandPlannerFrozenContext = Pick<
 };
 
 export interface DirectCommandPlannerLastOperation {
-  operationId: DirectCommandOperationId;
+  operationId?: DirectCommandOperationId;
   command: DirectEditorCommand;
+  targetSummary?: {
+    source: PageTargetSource;
+    type: PageTargetCandidateType;
+    text?: string;
+  };
 }
 
 export interface DirectCommandPlannerRecentOperation {
@@ -212,6 +218,7 @@ export type DirectCommandExecutionResult =
       turnId: DirectCommandTurnId;
       planId: DirectCommandPlanId;
       operationId: DirectCommandOperationId;
+      annotationId?: AnnotationId;
     }
   | {
       status: "NAVIGATED";
@@ -236,8 +243,11 @@ export type DirectCommandRouteResult =
       turnId: DirectCommandTurnId;
       planId: DirectCommandPlanId;
       operationId: DirectCommandOperationId;
+      annotationId?: AnnotationId;
     }
   | { status: "DEFERRED_SPATIAL"; turnId: DirectCommandTurnId }
   | { status: "NEEDS_CLARIFICATION"; turnId: DirectCommandTurnId }
+  | { status: "TARGET_NOT_FOUND"; turnId: DirectCommandTurnId }
+  | { status: "TARGET_AMBIGUOUS"; turnId: DirectCommandTurnId }
   | { status: "UNSUPPORTED"; turnId: DirectCommandTurnId }
   | { status: "CANCELLED"; turnId: DirectCommandTurnId };

@@ -3,6 +3,7 @@ import {
   DirectAiProviderError,
   type CompletedVoiceTurn,
   type DirectCommandContext,
+  type DirectCommandHistorySnapshot,
   type DirectCommandPlanningResult,
   type DirectCommandPlanningTimestamps,
   type DirectEditorCommand,
@@ -23,6 +24,7 @@ import { FrozenTargetResolver } from "./frozen-target-resolver";
 
 export interface DirectCommandPlanningOptions {
   signal?: AbortSignal;
+  historySnapshot?: DirectCommandHistorySnapshot;
 }
 
 export interface DirectCommandPlanningPipelineOptions {
@@ -44,7 +46,11 @@ export class DirectCommandPlanningPipeline {
     const timestamps: DirectCommandPlanningTimestamps = {
       routeReceivedAt: this.now(),
     };
-    const built = this.options.contextBuilder.build(turn);
+    const built = this.options.contextBuilder.build(turn, {
+      ...(options.historySnapshot === undefined
+        ? {}
+        : { historySnapshot: options.historySnapshot }),
+    });
     if (built.status === "ERROR") {
       return {
         status: "ERROR",
@@ -241,6 +247,12 @@ function toResolutionInput(
     catalog: context.pageTargetCatalog,
     frozenContext: context.frozenContext,
     recentOperations: context.recentOperations,
+    ...(context.historySnapshot?.lastReusableTarget === null
+      || context.historySnapshot?.lastReusableTarget === undefined
+      ? {}
+      : {
+          lastReusableTarget: context.historySnapshot.lastReusableTarget,
+        }),
   };
 }
 

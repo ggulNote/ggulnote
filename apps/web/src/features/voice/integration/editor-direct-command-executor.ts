@@ -6,14 +6,22 @@ import type {
 import type {
   DirectCommandExecutionResult,
   DirectCommandRuntimeInstruction,
+  DirectOperationRecord,
   ReadyForDirectCommandExecution,
 } from "../domain";
-import { compileDirectCommandCapability } from "../application/direct-command-capability-compiler";
+import {
+  compileDirectCommandCapability,
+  compileDirectCommandRevision,
+} from "../application/direct-command-capability-compiler";
 import { editorAnnotationSceneId } from "./editor-voice-context";
 
 export interface DirectCommandExecutor {
   execute(
     ready: ReadyForDirectCommandExecution,
+  ): Promise<DirectCommandExecutionResult>;
+  revise(
+    ready: ReadyForDirectCommandExecution,
+    previous: DirectOperationRecord,
   ): Promise<DirectCommandExecutionResult>;
 }
 
@@ -71,12 +79,45 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
           return this.createAnnotation(ready, instruction);
         case "REPLACE_TEXT_CONTENT":
           return this.replaceTextContent(ready, instruction);
+        case "UPDATE_HIGHLIGHT_COLOR":
+          return this.error(ready, "REVISE_NOT_AVAILABLE");
         case "NAVIGATE": {
           const result = await this.navigate(ready, instruction);
           return result;
         }
         case "UNDO":
           return this.undo(ready);
+      }
+    } catch {
+      return this.error(ready, "COMMIT_FAILED");
+    }
+  }
+
+  public async revise(
+    ready: ReadyForDirectCommandExecution,
+    previous: DirectOperationRecord,
+  ): Promise<DirectCommandExecutionResult> {
+    const compiled = compileDirectCommandRevision(ready, previous);
+    if (compiled.status === "ERROR") {
+      return this.error(ready, compiled.errorCode);
+    }
+    const instruction = compiled.instruction;
+    if (
+      !isSceneMutation(instruction)
+      || !this.canCommitFrozenScene(ready)
+    ) {
+      return this.error(ready, "STALE_SCENE");
+    }
+    try {
+      switch (instruction.kind) {
+        case "UPDATE_HIGHLIGHT_COLOR":
+          return this.updateHighlightColor(ready, instruction);
+        case "REPLACE_TEXT_CONTENT":
+          return this.replaceTextContent(ready, instruction);
+        case "CREATE_ANNOTATION":
+        case "NAVIGATE":
+        case "UNDO":
+          return this.error(ready, "REVISE_NOT_AVAILABLE");
       }
     } catch {
       return this.error(ready, "COMMIT_FAILED");
@@ -104,6 +145,7 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
       turnId: ready.turnId,
       planId: ready.plan.planId,
       operationId: captured.event.operation.operationId,
+      annotationId: captured.value,
     };
   }
 
@@ -151,6 +193,53 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
       turnId: ready.turnId,
       planId: ready.plan.planId,
       operationId: captured.event.operation.operationId,
+      annotationId: target.id,
+    };
+  }
+
+  private updateHighlightColor(
+    ready: ReadyForDirectCommandExecution,
+    instruction: Extract<
+      DirectCommandRuntimeInstruction,
+      { kind: "UPDATE_HIGHLIGHT_COLOR" }
+    >,
+  ): DirectCommandExecutionResult {
+    const pageSnapshot = this.options.editorEngine.exportPageSnapshot(
+      instruction.pageId,
+    );
+    const target = pageSnapshot.annotations.find(
+      (annotation) => annotation.id === instruction.annotationId,
+    );
+    if (target === undefined || target.type !== "HIGHLIGHT") {
+      return this.error(ready, "REVISE_NOT_AVAILABLE");
+    }
+    if (target.properties.color === instruction.color) {
+      return this.error(ready, "REVISE_NOT_AVAILABLE");
+    }
+    const updated: SerializedAnnotation = {
+      ...target,
+      properties: {
+        ...target.properties,
+        color: instruction.color,
+      },
+      updatedAt: Date.now(),
+    };
+    this.options.editorEngine.select(target.id);
+    const captured = this.captureOperation(() =>
+      this.options.editorEngine.updateSelected(updated));
+    if (
+      captured.event?.historyAction !== "execute"
+      || captured.event.operation.type !== "UPDATE_ANNOTATION"
+      || captured.event.operation.annotationId !== target.id
+    ) {
+      return this.error(ready, "COMMIT_FAILED");
+    }
+    return {
+      status: "COMMITTED",
+      turnId: ready.turnId,
+      planId: ready.plan.planId,
+      operationId: captured.event.operation.operationId,
+      annotationId: target.id,
     };
   }
 
@@ -245,5 +334,6 @@ function isSceneMutation(
   instruction: DirectCommandRuntimeInstruction,
 ): boolean {
   return instruction.kind === "CREATE_ANNOTATION"
-    || instruction.kind === "REPLACE_TEXT_CONTENT";
+    || instruction.kind === "REPLACE_TEXT_CONTENT"
+    || instruction.kind === "UPDATE_HIGHLIGHT_COLOR";
 }

@@ -78,7 +78,24 @@ export function buildDirectCommandPlannerModelRequest(
   })) ?? [];
   const lastOperation = input.lastOperation === undefined
     ? null
-    : { command: input.lastOperation.command };
+    : {
+        command: input.lastOperation.command,
+        ...(input.lastOperation.targetSummary === undefined
+          ? {}
+          : {
+              targetSummary: {
+                ...input.lastOperation.targetSummary,
+                ...(input.lastOperation.targetSummary.text === undefined
+                  ? {}
+                  : {
+                      text: boundText(
+                        input.lastOperation.targetSummary.text,
+                        MAX_CONTEXT_TEXT_CHARS,
+                      ),
+                    }),
+              },
+            }),
+      };
 
   return {
     instructions: DIRECT_COMMAND_PLANNER_SYSTEM_POLICY,

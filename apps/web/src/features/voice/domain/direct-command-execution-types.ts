@@ -1,4 +1,5 @@
 import type {
+  AnnotationId,
   CreateAnnotationInput,
   PageId,
 } from "@ggulnote/editor-core";
@@ -25,6 +26,12 @@ export type DirectCommandRuntimeInstruction =
       pageId: PageId;
       sceneObjectId: string;
       text: string;
+    }
+  | {
+      kind: "UPDATE_HIGHLIGHT_COLOR";
+      pageId: PageId;
+      annotationId: AnnotationId;
+      color: string;
     }
   | {
       kind: "NAVIGATE";
