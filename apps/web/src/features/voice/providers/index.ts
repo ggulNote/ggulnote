@@ -3,6 +3,33 @@ export type {
   DirectCommandPlannerOptions,
   DirectCommandPlannerProvider,
 } from "./direct-command-planner-provider";
+export type {
+  DirectTargetDisambiguatorOptions,
+  DirectTargetDisambiguatorProvider,
+} from "./direct-target-disambiguator-provider";
+export { HttpDirectCommandPlannerProvider } from "./http-direct-command-planner-provider";
+export type {
+  HttpDirectCommandPlannerProviderOptions,
+} from "./http-direct-command-planner-provider";
+export {
+  HttpDirectTargetDisambiguatorProvider,
+} from "./http-direct-target-disambiguator-provider";
+export type {
+  HttpDirectTargetDisambiguatorProviderOptions,
+} from "./http-direct-target-disambiguator-provider";
+export { LlmDirectCommandPlannerProvider } from "./llm-direct-command-planner-provider";
+export type {
+  LlmDirectCommandPlannerProviderOptions,
+} from "./llm-direct-command-planner-provider";
+export {
+  LlmDirectTargetDisambiguatorProvider,
+} from "./llm-direct-target-disambiguator-provider";
+export type {
+  DirectTextModelMessage,
+  DirectTextModelRequest,
+  DirectTextModelTransport,
+  DirectTextModelTransportOptions,
+} from "./direct-text-model-transport";
 export {
   WebSpeechRecognitionProvider,
   WebSpeechRecognitionStartError,

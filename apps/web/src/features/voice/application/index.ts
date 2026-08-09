@@ -50,3 +50,14 @@ export type {
   DirectRecentOperationsSource,
   FrozenSceneSnapshotSource,
 } from "./direct-command-context-builder";
+export { DirectCommandPlanningPipeline } from "./direct-command-planning-pipeline";
+export type {
+  DirectCommandPlanningOptions,
+  DirectCommandPlanningPipelineOptions,
+} from "./direct-command-planning-pipeline";
+export {
+  buildDirectTargetDisambiguationContext,
+} from "./direct-target-disambiguation-context";
+export type {
+  DirectTargetDisambiguationContext,
+} from "./direct-target-disambiguation-context";
