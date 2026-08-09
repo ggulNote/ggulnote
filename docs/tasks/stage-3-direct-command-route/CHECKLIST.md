@@ -295,22 +295,22 @@ deterministic mutation으로 commit되어야 한다.
 
 # Phase E. Relation / History / Idempotency
 
-- [ ] `NEW` 처리
-- [ ] `REVISE_LAST` 처리
-- [ ] replacement plan은 full plan으로 생성
-- [ ] `RelativeTargetQuery(last_target)` grounding
-- [ ] replace는 가능한 한 atomic transaction으로 처리
-- [ ] `CONTINUE`의 last target 재사용
-- [ ] `CANCEL`은 no mutation
-- [ ] duplicate turnId commit 방지
-- [ ] duplicate in-flight planner call 방지
-- [ ] last successful Direct Operation record 관리
-- [ ] failed/deferred/ambiguous turn이 last successful operation을 덮어쓰지 않음
-- [ ] revise last integration test
-- [ ] continue target integration test
-- [ ] cancel no-op test
-- [ ] duplicate turn integration test
-- [ ] Phase E 문서 상태 갱신
+- [x] `NEW` 처리
+- [x] `REVISE_LAST` 처리
+- [x] replacement plan은 full plan으로 생성
+- [x] `RelativeTargetQuery(last_target)` grounding
+- [x] replace는 가능한 한 atomic transaction으로 처리
+- [x] `CONTINUE`의 last target 재사용
+- [x] `CANCEL`은 no mutation
+- [x] duplicate turnId commit 방지
+- [x] duplicate in-flight planner call 방지
+- [x] last successful Direct Operation record 관리
+- [x] failed/deferred/ambiguous turn이 last successful operation을 덮어쓰지 않음
+- [x] revise last integration test
+- [x] continue target integration test
+- [x] cancel no-op test
+- [x] duplicate turn integration test
+- [x] Phase E 문서 상태 갱신
 
 완료 조건:
 

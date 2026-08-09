@@ -4,23 +4,25 @@
 
 ```text
 Stage: 3 — Direct Command Route
-Status: PHASE D COMPLETE
-Current Milestone: Phase E — Relation / History Context / Idempotency
+Status: PHASE E COMPLETE
+Current Milestone: Phase F — Diagnostics / Regression / Stage Completion
 ```
 
-Phase C의 no-mutation `READY_FOR_EXECUTION` 경계 뒤에 deterministic
-Capability Compiler와 기존 Editor/DocumentSession adapter를 연결했다.
+Phase D의 `READY_FOR_EXECUTION → Existing Editor Runtime` 경계 위에
+session-scoped history context와 exactly-once route orchestration을 연결했다.
 
 ```text
-READY_FOR_EXECUTION
-→ DirectCommandCapabilityCompiler
-→ EditorDirectCommandExecutor
-→ existing EditorEngine / CommandManager
-→ Operation Log / Undo
+CompletedVoiceTurn
+→ DirectCommandRoute
+→ in-flight/completed turn registry
+→ planning + frozen last-target grounding
+→ NEW | REVISE_LAST | CONTINUE
+→ existing Editor executor
+→ successful operation context update
 ```
 
-Phase E의 `REVISE_LAST`, `CONTINUE`, last-successful-operation persistence,
-turn/in-flight dedupe는 시작하지 않았다.
+Phase F diagnostics, final E2E, production automatic Voice wiring은 시작하지
+않았다.
 
 ---
 
@@ -30,158 +32,126 @@ turn/in-flight dedupe는 시작하지 않았다.
 branch: feat/stage-3-direct-command-route
 base: e9f62e3
 
-Phase D start HEAD: a7b4f50
-Phase D editor-core: e2cfd5b
-Phase D voice implementation: 7f1ffe8
-Phase D docs: this STATUS/CHECKLIST update commit
+Phase E start HEAD: 3017a0f
+Phase E history/relation: bb4371c
+Phase E route/idempotency: cace053
+Phase E docs: this STATUS/CHECKLIST update commit
 ```
 
 ---
 
-## 3. Existing Runtime 조사
+## 3. Operation / History 조사
 
-Annotation:
-
-- `packages/editor-core/src/engine/editor-engine.ts`
-  - `createAnnotation()`은 `CreateAnnotationCommand`와 `CommandManager`를
-    거쳐 `CREATE_ANNOTATION` operation을 발행한다.
-  - 한 annotation 생성은 한 undo unit이다.
-- `CreateAnnotationInput`은 normalized single rect 기반이다.
-- 현재 annotation serialization에는 PDF semantic source object/range
-  anchor field가 없고 geometry overlay만 저장한다.
-
-Editable text:
-
-- `EditorEngine.updateSelected()`는 `UpdateAnnotationCommand`를 통해
-  `UPDATE_ANNOTATION` operation을 발행하고 before/after snapshot으로
-  undo한다.
-- `CanvasObjectStore.updateObject()`는 command history 경로가 아니므로
-  Direct Executor에서 사용하지 않는다.
-
-Navigation:
-
-- `useDocumentSession().goToPage()`는 `GO_TO_PAGE` reducer action을 사용한다.
-- `documentSessionReducer`가 첫/마지막 페이지 clamp를 소유한다.
-- Navigation은 Editor content history에 넣지 않는다.
-
-History:
-
-- `EditorEngine.canUndo()`와 `EditorEngine.undo()`를 재사용한다.
-- `subscribeToOperations()`의 `execute` / `undo` event와 기존 operation ID를
-  실행 결과에 보존한다.
+- `EditorOperation`은 operation ID, type, annotation ID, before/after payload,
+  timestamp를 보존한다.
+- `CommandManager`는 execute마다 한 command를 undo stack에 넣고
+  `UpdateAnnotationCommand`는 before/after snapshot으로 undo한다.
+- `EditorEngine.subscribeToOperations()`의 synchronous execute/undo event에서
+  operation ID와 annotation ID를 확인한다.
+- EditorOperation schema에 Voice 전용 `sourceTurnId`를 추가하지 않았다.
+  application record가 `turnId ↔ planId ↔ operationId`를 연결한다.
+- 새 Voice undo stack이나 Editor history 복제는 없다.
 
 ---
 
-## 4. Phase D 구현
+## 4. Phase E 구현
 
-Domain / compiler:
+History context:
 
-- `features/voice/domain/direct-command-execution-types.ts`
-- `features/voice/application/direct-command-capability-compiler.ts`
+- `features/voice/domain/direct-command-history-types.ts`
+- `features/voice/application/direct-command-history-context.ts`
+- 최대 32개의 successful Direct Operation record를 session memory에 보존한다.
+- `lastSuccessfulOperation`과 `lastReusableTarget`을 분리한다.
+- Navigation/Undo는 last successful operation을 갱신하지만 reusable content
+  target은 덮어쓰지 않는다.
+- Planner에는 command와 bounded target summary만 전달하며 candidate ID,
+  scene object ID, annotation ID는 노출하지 않는다.
 
-`ReadyForDirectCommandExecution`은 Phase C 결과 중
-`status: READY_FOR_EXECUTION`만 추출한다. Compiler 결과는 다음 기존
-runtime instruction으로 제한된다.
+LAST_TARGET:
 
-```text
-CREATE_ANNOTATION
-REPLACE_TEXT_CONTENT
-NAVIGATE
-UNDO
-```
+- `DirectCommandContextBuilder`가 route history snapshot을 planner/resolver
+  context에 전달한다.
+- `FrozenTargetResolver`는 저장 candidate ID/source/type/object identity를
+  현재 frozen catalog에서 exact match로 재검증한다.
+- 동일 text라는 이유로 다른 candidate에 silent retarget하지 않는다.
+- 이전 page이거나 candidate가 사라졌으면 no mutation이다.
 
-Runtime adapter:
+REVISE_LAST:
 
-- `features/voice/integration/editor-direct-command-executor.ts`
-- `EditorDirectCommandExecutor`
-- `createDocumentSessionDirectCommandNavigationPort`
+- 최초 Planner의 full replacement plan을 사용한다.
+- 지원 범위:
+  - `annotation.highlight`의 명시적 color 변경
+  - Ggulnote editable `text.replace_content`
+- Highlight는 기존 annotation ID에 `UpdateAnnotationCommand`를 실행한다.
+  새 highlight를 추가하거나 undo+create 중간 상태를 만들지 않는다.
+- Editable text도 기존 update command를 재사용한다.
+- Underline style 등 현재 capability가 없는 revise는
+  `REVISE_NOT_AVAILABLE`이다.
 
-지원 command:
+CONTINUE:
 
-```text
-annotation.underline
-annotation.highlight
-navigation.next_page
-navigation.previous_page
-history.undo
-text.replace_content
-```
+- exact-valid lastReusableTarget을 새 command에 연결한다.
+- Executor에는 relation을 `NEW`로 정규화한 deterministic add command만
+  전달하고 history record에는 원래 `CONTINUE` relation을 보존한다.
+- Highlight 뒤 underline은 별도 Editor operation/undo unit이다.
 
-Annotation:
+Route / idempotency:
 
-- Resolver의 실제 단일 canonical bounds를
-  `canonicalToNormalizedRect()`로 변환한다.
-- `EditorEngine.createAnnotation()`으로 Editable Layer에 UNDERLINE 또는
-  HIGHLIGHT를 생성한다.
-- highlight payload color가 없으면 compiler가 color를 넣지 않고
-  Editor Core default를 사용한다.
-- UI/serializer와 달랐던 generic `AnnotationFactory` highlight default를
-  `#facc15`로 정렬했다.
-- PDF source object/text는 읽거나 다시 쓰지 않는다.
-
-Editable text:
-
-- resolved canvas scene object ID를 frozen page snapshot의 annotation과
-  `editorAnnotationSceneId()`로 deterministic하게 매핑한다.
-- TEXT annotation만 `updateSelected()` command path로 content를 교체한다.
-- PDF, non-editable, non-text target은 commit 전에 거절한다.
-
-Navigation / History:
-
-- next/previous는 현재 page에 `+1/-1`을 요청하고 기존 DocumentSession
-  reducer가 boundary를 결정한다.
-- undo는 `canUndo()`가 false면 `UNDO_NOT_AVAILABLE`, 가능하면 기존
-  `EditorEngine.undo()`를 호출한다.
-
-Result / trace:
-
-```text
-COMMITTED  turnId + planId + operationId
-NAVIGATED  turnId + direction
-UNDONE     turnId + operationId
-ERROR      turnId + normalized errorCode
-```
-
-EditorOperation schema에는 Voice 전용 metadata를 추가하지 않았다.
-`turnId ↔ operationId`는 execution result에서 추적 가능하며
-last-successful-operation persistence는 Phase E에 남겼다.
+- `features/voice/application/direct-command-route.ts`
+- `features/voice/application/direct-command-execution-registry.ts`
+- 동일 in-flight turn은 하나의 Promise를 공유해 planner와 commit을 한 번만
+  수행한다.
+- 성공/결정적 terminal result는 최대 128 turn bounded cache에서 replay한다.
+- `PLANNER_ERROR`, `PLANNER_UNAVAILABLE`, `PLANNER_TIMEOUT`, `ABORTED`는
+  retry 가능하며 in-flight entry를 항상 정리한다.
+- `COMMIT_FAILED`는 side effect 불확실성 때문에 consumed로 보존해 동일
+  turn 자동 재시도로 인한 중복 mutation을 막는다.
+- failed/deferred/ambiguous/cancelled result는 successful history context를
+  변경하지 않는다.
 
 ---
 
-## 5. Execution Safety
+## 5. Undo / Context 정책
 
-- Executor public input은 `READY_FOR_EXECUTION` 전용 type이다.
-- annotation/text commit 직전에 frozen scene revision과 active page를
-  다시 확인한다.
-- target candidate existence/source/type/object mapping을 compiler에서
-  다시 검증한다.
-- compile failure는 mutation을 만들지 않는다.
-- runtime exception/rejected Promise는 `COMMIT_FAILED`로 정규화한다.
-- empty undo history는 `UNDO_NOT_AVAILABLE`이다.
-- `REVISE_LAST`는 `REVISE_NOT_AVAILABLE`로 no-commit 처리한다.
-- `CONTINUE`는 `UNSUPPORTED_RELATION`으로 no-commit 처리한다.
-- semantic `CANCEL`은 Phase C terminal result라 Executor에 들어오지 않는다.
-- navigation/undo control command에는 target geometry용 execution-time
-  scene revision check를 강제하지 않는다.
-- 새 Editor Runtime, Voice 전용 Undo Stack, direct Canvas store mutation은
-  없다.
+- Highlight color revise 후 undo 한 번은 이전 color를 복원한다.
+- Editable text revise 후 undo 한 번은 직전 replacement text를 복원한다.
+- CONTINUE underline 후 undo 한 번은 underline만 제거하고 이전 highlight는
+  유지한다.
+- Undo 성공은 last successful operation이 되어 제거된 mutation을
+  REVISE_LAST 대상으로 남기지 않는다.
+- PDF annotation undo 뒤 underlying PDF target identity가 current frozen
+  catalog에 계속 존재하면 reusable target은 유지할 수 있다.
+- Editable target이 삭제됐으면 reuse 시 `INVALID_TARGET`으로 no mutation
+  처리한다.
 
 ---
 
-## 6. Validation
+## 6. Production Wiring
+
+- Public application API:
+  - `DirectCommandRoute.execute(CompletedVoiceTurn)`
+  - `getLastOperation()`
+  - `getLastReusableTarget()`
+  - `dispose()`
+- Route/controller는 UI와 독립적이며 Phase C planning과 Phase D executor를
+  structural ports로 조합한다.
+- 기존 production Voice UI에서 CompletedVoiceTurn을 자동으로 route에
+  전달하는 wiring은 아직 없다.
+- Voice Lens/Voice Turn state machine/UI 변경은 없다.
+
+---
+
+## 7. Validation
 
 ```text
-Phase D targeted:
-  2 files / 19 tests PASS
-
-Editor Core highlight default targeted:
-  1 file / 5 tests PASS
+Phase E targeted:
+  7 files / 55 tests PASS
 
 Voice feature:
-  40 files / 255 tests PASS
+  43 files / 279 tests PASS
 
 Web regression:
-  71 files / 515 tests PASS
+  74 files / 539 tests PASS
 
 Editor Core regression:
   6 files / 47 tests PASS
@@ -192,7 +162,7 @@ Web typecheck:
 Editor Core typecheck:
   PASS
 
-Voice + Editor Core targeted ESLint:
+Phase E targeted ESLint:
   PASS
 
 Web package lint:
@@ -207,15 +177,16 @@ git diff --check:
 
 검증 범위:
 
-- PDF underline/highlight 생성, PDF source immutability, operation log, undo
-- highlight explicit/default color
-- editable text replace, update operation, undo restore
-- PDF text replace defense
-- next/previous 및 실제 DocumentSession reducer boundary
-- voice undo / empty history
-- execution-time stale revision no-commit
-- `REVISE_LAST` / `CONTINUE` no-commit
-- compile/runtime failure normalization
+- highlight color / editable text REVISE_LAST + operation log + undo
+- CONTINUE same target + independent undo unit
+- no previous/invalidated/previous-page target no mutation
+- navigation/undo context policy
+- deferred/ambiguous/planner error history pollution 방지
+- completed/concurrent duplicate exactly once
+- transient planner retry와 failure cleanup
+- bounded completed registry와 commit uncertainty 정책
+- Planner history summary internal ID 미노출
+- Phase A-D Voice/Planner/Resolver/Guard/Executor regression
 
 Environment:
 
@@ -229,53 +200,59 @@ Environment:
 
 ---
 
-## 7. Current Limitations
+## 8. Current Limitations
 
-- historical `SceneSnapshot` store가 없다. current snapshot이 frozen
-  page/revision과 exact match하지 않으면 `STALE_SCENE`이다.
+- historical `SceneSnapshot` store가 없다. 현재 frozen snapshot을
+  재구성할 수 없으면 `STALE_SCENE`이다.
 - exact arbitrary text offset을 합성하지 않는다. 실제 semantic candidate의
   최소 bounds만 사용한다.
-- Editor annotation model은 single rect다. Multi-rect target을 여러
-  operation으로 분해하지 않고 `COMPILE_FAILED`로 거절한다.
-- PDF semantic source object/range anchor를 annotation serialization에
-  영속화하는 필드가 없다. 현재 overlay는 resolved bounds에 고정된다.
-- sentence candidate는 optional `PageSemanticModel`이 있을 때만 제공된다.
-- `SubrangeTargetQuery`, `ResolvedMathSpan`, math subrange, Ink recognition은
-  지원하지 않는다.
-- semantic/math similarity adapter는 `null / unavailable`이다.
-- production voice adapter의 graph/math composition은 없다.
-- clarification UI와 Text Disambiguator 이후 대화 재개는 구현하지 않았다.
-- EditorOperation 자체에 `sourceTurnId` metadata는 없다. execution result가
-  `turnId + operationId` correlation을 보존한다.
-- production Voice UI 자동 실행 wiring은 Phase D 범위에서 추가하지 않았다.
-- last-successful-operation, `REVISE_LAST`, `CONTINUE`, duplicate turn/in-flight
-  관리는 Phase E 범위다.
+- Editor annotation model은 single rect다. Multi-rect target은
+  `COMPILE_FAILED`다.
+- PDF semantic source object/range anchor는 annotation serialization에
+  영속화되지 않는다.
+- `SubrangeTargetQuery`, `ResolvedMathSpan`, math subrange, Ink
+  recognition은 지원하지 않는다.
+- semantic/math similarity adapter는 unavailable이다.
+- REVISE_LAST는 highlight color와 editable text content로 제한된다.
+- EditorOperation 자체에 `sourceTurnId` metadata는 없다.
+- Direct operation/history/idempotency는 현재 app/session memory 범위다.
+  refresh 이후 복원 persistence는 없다.
+- commit API가 operation event 전에 mutation하고 예외를 내는 비표준
+  adapter에서는 성공 여부를 완전히 증명할 수 없다. 따라서
+  `COMMIT_FAILED` turn은 자동 retry하지 않는다.
+- production Voice UI automatic route wiring은 Phase F final integration에
+  남아 있다.
 
 ---
 
-## 8. Stage 3 Boundary
+## 9. Stage 3 Boundary
 
 ```text
-Planner/Resolver/Guard 재구현: 없음
-LLM prompt/provider/server route 변경: 없음
+새 capability: 없음
+LLM provider/model/network 변경: 없음
 VLM/Screenshot/Spatial Placement: 없음
 새 Undo Stack/Editor Runtime: 없음
-Voice Turn/Voice Lens 변경: 없음
-Phase E relation persistence/idempotency: 시작하지 않음
+Voice Turn/Voice Lens 대규모 변경: 없음
+Phase F metrics/diagnostics: 시작하지 않음
 ```
 
 ---
 
-## 9. 다음 Milestone
+## 10. 다음 Milestone
 
 ```text
-Phase E — Relation / History Context / Idempotency
+Phase F — Diagnostics / Regression / Stage 3 Completion
 
-REVISE_LAST
-CONTINUE
-last-successful-operation
-LAST_TARGET grounding lifecycle
-duplicate turnId 방지
-duplicate in-flight 방지
-failed/deferred/ambiguous turn은 history context를 덮어쓰지 않음
+plannerMs
+resolverMs
+disambiguatorMs
+validationMs
+compileMs
+commitMs
+directRouteMs
+voiceEndToCommitMs
+debug trace
+final E2E
+production wiring 최종 확인
+Stage 4 handoff
 ```
