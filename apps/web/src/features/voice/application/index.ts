@@ -24,3 +24,29 @@ export type {
   VoiceModeControllerOptions,
   VoiceModeControllerScheduler,
 } from "./voice-mode-controller";
+export {
+  buildPageTargetCatalog,
+  summarizeEditorOperation,
+} from "./page-target-catalog-builder";
+export type { PageTargetCatalogBuilderInput } from "./page-target-catalog-builder";
+export {
+  CurrentRevisionSceneSnapshotSource,
+  DirectCommandContextBuilder,
+} from "./direct-command-context-builder";
+export {
+  compactGroundingText,
+  fuzzyTextSimilarity,
+  normalizeGroundingText,
+  rankTargetCandidates,
+} from "./candidate-ranker";
+export { FrozenTargetResolver } from "./frozen-target-resolver";
+export { guardDirectCommandPlan } from "./direct-command-guard";
+export type {
+  DirectCommandGuardInput,
+  DirectCommandGuardResult,
+} from "./direct-command-guard";
+export type {
+  DirectCommandContextBuilderOptions,
+  DirectRecentOperationsSource,
+  FrozenSceneSnapshotSource,
+} from "./direct-command-context-builder";

@@ -29,7 +29,7 @@ function createExecutableResult(): {
     command: {
       capability: "annotation",
       operation: "highlight",
-      target: { kind: "FROZEN_FOCUS" },
+      target: { kind: "relative", relation: "focused" },
       payload: { color: "#facc15" },
     },
   };
@@ -65,7 +65,7 @@ describe("DirectPlannerResult runtime schema", () => {
     value.command = {
       capability: "text",
       operation: "replace_content",
-      target: { kind: "FROZEN_FOCUS" },
+      target: { kind: "relative", relation: "focused" },
       payload: { text: 42 },
     };
 
@@ -87,7 +87,8 @@ describe("DirectPlannerResult runtime schema", () => {
   it("rejects coordinate fields mixed into an executable command", () => {
     const value = createExecutableResult();
     value.command.target = {
-      kind: "FROZEN_FOCUS",
+      kind: "relative",
+      relation: "focused",
       x: 830,
       y: 412,
     };

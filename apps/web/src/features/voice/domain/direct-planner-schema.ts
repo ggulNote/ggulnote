@@ -2,13 +2,19 @@ import type {
   AnnotationHighlightDirectCommand,
   AnnotationUnderlineDirectCommand,
   DirectEditorCommand,
-  DirectFocusTargetRef,
   DirectPlannerResult,
   ExecutableCommandRelation,
   HistoryUndoDirectCommand,
   NavigationDirectCommand,
   TextReplaceContentDirectCommand,
 } from "./direct-command-types";
+import {
+  DIRECT_SEMANTIC_UNITS,
+  DIRECT_TARGET_OBJECT_TYPES,
+  type DirectSemanticUnit,
+  type DirectTargetObjectType,
+  type TargetQuery,
+} from "./target-query";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -124,6 +130,13 @@ export function parseDirectEditorCommand(
   }
 }
 
+export function parseTargetQuery(
+  value: unknown,
+  path = "target",
+): TargetQuery {
+  return readTargetQuery(value, path, 0);
+}
+
 function parseUnderlineCommand(
   command: UnknownRecord,
   path: string,
@@ -133,7 +146,7 @@ function parseUnderlineCommand(
   return {
     capability: "annotation",
     operation: "underline",
-    target: readFocusTarget(command.target, `${path}.target`),
+    target: parseTargetQuery(command.target, `${path}.target`),
     payload: {},
   };
 }
@@ -149,7 +162,7 @@ function parseHighlightCommand(
   return {
     capability: "annotation",
     operation: "highlight",
-    target: readFocusTarget(command.target, `${path}.target`),
+    target: parseTargetQuery(command.target, `${path}.target`),
     payload: color === undefined
       ? {}
       : { color: readNonEmptyString(color, `${path}.payload.color`) },
@@ -194,21 +207,143 @@ function parseTextReplaceCommand(
   return {
     capability: "text",
     operation: "replace_content",
-    target: readFocusTarget(command.target, `${path}.target`),
+    target: parseTargetQuery(command.target, `${path}.target`),
     payload: {
       text: readString(payload.text, `${path}.payload.text`),
     },
   };
 }
 
-function readFocusTarget(value: unknown, path: string): DirectFocusTargetRef {
-  const target = readRecord(value, path);
-  assertOnlyKeys(target, ["kind"], path);
-  const kind = readString(target.kind, `${path}.kind`);
-  if (kind === "FROZEN_FOCUS" || kind === "LAST_TARGET") {
-    return { kind };
+function readTargetQuery(
+  value: unknown,
+  path: string,
+  depth: number,
+): TargetQuery {
+  if (depth > 4) {
+    return fail(path, "target query nesting is too deep");
   }
-  return fail(`${path}.kind`, `unsupported focus target: ${kind}`);
+  const target = readRecord(value, path);
+  const kind = readString(target.kind, `${path}.kind`);
+
+  switch (kind) {
+    case "text_span": {
+      assertOnlyKeys(target, ["kind", "quote", "startAnchor", "endAnchor"], path);
+      const quote = readOptionalNonEmptyString(target.quote, `${path}.quote`);
+      const startAnchor = readOptionalNonEmptyString(
+        target.startAnchor,
+        `${path}.startAnchor`,
+      );
+      const endAnchor = readOptionalNonEmptyString(
+        target.endAnchor,
+        `${path}.endAnchor`,
+      );
+      if (quote === undefined && (startAnchor === undefined || endAnchor === undefined)) {
+        return fail(path, "text_span requires quote or both startAnchor and endAnchor");
+      }
+      return {
+        kind,
+        ...(quote === undefined ? {} : { quote }),
+        ...(startAnchor === undefined ? {} : { startAnchor }),
+        ...(endAnchor === undefined ? {} : { endAnchor }),
+      };
+    }
+    case "semantic_unit": {
+      assertOnlyKeys(target, ["kind", "unit", "query", "relation"], path);
+      const unit = readSemanticUnit(target.unit, `${path}.unit`);
+      const query = readOptionalNonEmptyString(target.query, `${path}.query`);
+      const relation = target.relation === undefined
+        ? undefined
+        : readFocusedRelation(target.relation, `${path}.relation`);
+      if (query === undefined && relation === undefined) {
+        return fail(path, "semantic_unit requires query or focused relation");
+      }
+      return {
+        kind,
+        unit,
+        ...(query === undefined ? {} : { query }),
+        ...(relation === undefined ? {} : { relation }),
+      };
+    }
+    case "object": {
+      assertOnlyKeys(target, ["kind", "objectType", "query", "relation"], path);
+      const objectType = readObjectType(target.objectType, `${path}.objectType`);
+      const query = readOptionalNonEmptyString(target.query, `${path}.query`);
+      const relation = target.relation === undefined
+        ? undefined
+        : readObjectRelation(target.relation, `${path}.relation`);
+      return {
+        kind,
+        objectType,
+        ...(query === undefined ? {} : { query }),
+        ...(relation === undefined ? {} : { relation }),
+      };
+    }
+    case "relative": {
+      assertOnlyKeys(target, ["kind", "relation", "objectType"], path);
+      const relation = readRelativeRelation(target.relation, `${path}.relation`);
+      const objectType = target.objectType === undefined
+        ? undefined
+        : readObjectType(target.objectType, `${path}.objectType`);
+      return {
+        kind,
+        relation,
+        ...(objectType === undefined ? {} : { objectType }),
+      };
+    }
+    case "subrange":
+      assertOnlyKeys(target, ["kind", "parent", "query"], path);
+      return {
+        kind,
+        parent: readTargetQuery(target.parent, `${path}.parent`, depth + 1),
+        query: readNonEmptyString(target.query, `${path}.query`),
+      };
+    default:
+      return fail(`${path}.kind`, `unsupported target query kind: ${kind}`);
+  }
+}
+
+function readSemanticUnit(value: unknown, path: string): DirectSemanticUnit {
+  const unit = readString(value, path);
+  if ((DIRECT_SEMANTIC_UNITS as readonly string[]).includes(unit)) {
+    return unit as DirectSemanticUnit;
+  }
+  return fail(path, `unsupported semantic unit: ${unit}`);
+}
+
+function readObjectType(value: unknown, path: string): DirectTargetObjectType {
+  const objectType = readString(value, path);
+  if ((DIRECT_TARGET_OBJECT_TYPES as readonly string[]).includes(objectType)) {
+    return objectType as DirectTargetObjectType;
+  }
+  return fail(path, `unsupported target object type: ${objectType}`);
+}
+
+function readFocusedRelation(value: unknown, path: string): "focused" {
+  const relation = readString(value, path);
+  if (relation === "focused") return relation;
+  return fail(path, `unsupported semantic relation: ${relation}`);
+}
+
+function readObjectRelation(
+  value: unknown,
+  path: string,
+): "focused" | "recent" | "last_target" {
+  const relation = readString(value, path);
+  if (relation === "focused" || relation === "recent" || relation === "last_target") {
+    return relation;
+  }
+  return fail(path, `unsupported object relation: ${relation}`);
+}
+
+function readRelativeRelation(
+  value: unknown,
+  path: string,
+): "focused" | "last_target" | "recent" {
+  const relation = readString(value, path);
+  if (relation === "focused" || relation === "last_target" || relation === "recent") {
+    return relation;
+  }
+  return fail(path, `unsupported relative relation: ${relation}`);
 }
 
 function readSingleTarget<TKind extends "CURRENT_PAGE" | "LAST_OPERATION">(
@@ -263,6 +398,13 @@ function readNonEmptyString(value: unknown, path: string): string {
     return fail(path, "expected a non-empty string");
   }
   return result;
+}
+
+function readOptionalNonEmptyString(
+  value: unknown,
+  path: string,
+): string | undefined {
+  return value === undefined ? undefined : readNonEmptyString(value, path);
 }
 
 function assertOnlyKeys(

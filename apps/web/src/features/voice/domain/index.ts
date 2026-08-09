@@ -46,6 +46,7 @@ export type {
   DirectCommandPlannerFrozenContext,
   DirectCommandPlannerInput,
   DirectCommandPlannerLastOperation,
+  DirectCommandPlannerRecentOperation,
   DirectCommandPlannerTurnInput,
   DirectCommandRouteErrorCode,
   DirectCommandRouteResult,
@@ -68,9 +69,47 @@ export type {
 } from "./direct-command-types";
 export { DIRECT_COMMAND_NAMES } from "./direct-command-types";
 export {
+  DIRECT_SEMANTIC_UNITS,
+  DIRECT_TARGET_OBJECT_TYPES,
+} from "./target-query";
+export type {
+  DirectCommandTarget,
+  DirectControlTarget,
+  DirectSemanticUnit,
+  DirectTargetObjectType,
+  ObjectTargetQuery,
+  RelativeTargetQuery,
+  SemanticUnitTargetQuery,
+  SubrangeTargetQuery,
+  TargetQuery,
+  TextSpanTargetQuery,
+} from "./target-query";
+export { DEFAULT_TARGET_RESOLUTION_POLICY } from "./target-grounding-types";
+export type {
+  CandidateEvidence,
+  DirectCommandContext,
+  DirectCommandContextBuildResult,
+  DirectRecentOperation,
+  FrozenPageGroundingSnapshot,
+  FrozenSceneSnapshotReference,
+  PageTargetCandidate,
+  PageTargetCandidateType,
+  PageTargetCatalog,
+  PageTargetSource,
+  RankedTargetCandidate,
+  ResolvedObject,
+  ResolvedTarget,
+  ResolvedTextSpan,
+  TargetResolutionInput,
+  TargetResolutionPolicy,
+  TargetResolutionReasonCode,
+  TargetResolutionResult,
+} from "./target-grounding-types";
+export {
   DirectPlannerResultValidationError,
   parseDirectEditorCommand,
   parseDirectPlannerResult,
+  parseTargetQuery,
   safeParseDirectPlannerResult,
 } from "./direct-planner-schema";
 export type { SafeDirectPlannerResultParse } from "./direct-planner-schema";

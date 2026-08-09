@@ -2,8 +2,13 @@ import type {
   CapabilityId,
   EditorOperation,
   Rect,
-  SceneObject,
 } from "@ggulnote/editor-core";
+import type { PageTargetCandidateType, PageTargetSource } from "./target-grounding-types";
+import type {
+  DirectCommandTarget,
+  DirectControlTarget,
+  TargetQuery,
+} from "./target-query";
 import type {
   CompletedVoiceTurn,
   FrozenVoiceTurnContext,
@@ -11,18 +16,10 @@ import type {
 
 export type CommandRelation = "NEW" | "REVISE_LAST" | "CONTINUE" | "CANCEL";
 
-export type DirectTargetRef =
-  | { kind: "FROZEN_FOCUS" }
-  | { kind: "LAST_TARGET" }
-  | { kind: "CURRENT_PAGE" }
-  | { kind: "LAST_OPERATION" };
-
-export type DirectFocusTargetRef = Extract<
-  DirectTargetRef,
-  { kind: "FROZEN_FOCUS" | "LAST_TARGET" }
->;
-export type DirectCurrentPageTargetRef = Extract<DirectTargetRef, { kind: "CURRENT_PAGE" }>;
-export type DirectLastOperationTargetRef = Extract<DirectTargetRef, { kind: "LAST_OPERATION" }>;
+export type DirectTargetRef = DirectCommandTarget;
+export type DirectFocusTargetRef = TargetQuery;
+export type DirectCurrentPageTargetRef = Extract<DirectControlTarget, { kind: "CURRENT_PAGE" }>;
+export type DirectLastOperationTargetRef = Extract<DirectControlTarget, { kind: "LAST_OPERATION" }>;
 
 export type EmptyDirectCommandPayload = Record<string, never>;
 
@@ -103,10 +100,8 @@ export interface DirectCommandPlannerTurnInput {
 }
 
 export interface DirectCommandPlannerFocus {
-  ref: "FROZEN_FOCUS";
-  objectId: SceneObject["id"];
-  kind: SceneObject["kind"];
-  source: SceneObject["source"];
+  kind: PageTargetCandidateType;
+  source: PageTargetSource;
   text?: string;
   editable: boolean;
   annotatable: boolean;
@@ -130,10 +125,18 @@ export interface DirectCommandPlannerLastOperation {
   command: DirectEditorCommand;
 }
 
+export interface DirectCommandPlannerRecentOperation {
+  operationId: DirectCommandOperationId;
+  operationType: EditorOperation["type"];
+  targetType?: PageTargetCandidateType;
+  createdAt: EditorOperation["createdAt"];
+}
+
 export interface DirectCommandPlannerInput {
   turn: DirectCommandPlannerTurnInput;
   frozenContext: DirectCommandPlannerFrozenContext;
   lastOperation?: DirectCommandPlannerLastOperation;
+  recentOperations?: readonly DirectCommandPlannerRecentOperation[];
   allowedCommands: readonly DirectCommandName[];
 }
 
@@ -186,9 +189,12 @@ export type DirectCommandRouteErrorCode =
   | "PLANNER_TIMEOUT"
   | "PLANNER_INVALID_OUTPUT"
   | "INVALID_PLAN"
+  | "TARGET_NOT_FOUND"
+  | "TARGET_AMBIGUOUS"
   | "INVALID_TARGET"
   | "TARGET_NOT_EDITABLE"
   | "TARGET_NOT_ANNOTATABLE"
+  | "TARGET_KIND_UNSUPPORTED"
   | "STALE_SCENE"
   | "SPATIAL_REQUIRED"
   | "UNSUPPORTED_COMMAND"

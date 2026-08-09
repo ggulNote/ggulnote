@@ -16,7 +16,7 @@ const EXECUTABLE_RESULT = {
   command: {
     capability: "annotation",
     operation: "underline",
-    target: { kind: "FROZEN_FOCUS" },
+    target: { kind: "relative", relation: "focused" },
     payload: {},
   },
 } satisfies DirectPlannerResult;
@@ -36,8 +36,6 @@ function createInput(): DirectCommandPlannerInput {
       focusStale: false,
       capturedAt: 100,
       focus: {
-        ref: "FROZEN_FOCUS",
-        objectId: "pdf:line-1",
         kind: "line",
         source: "pdf",
         text: "중요한 문장",
