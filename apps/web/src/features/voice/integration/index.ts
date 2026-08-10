@@ -1,6 +1,13 @@
 export {
   createBrowserVoiceTurnComposition,
 } from "./browser-voice-turn-composition";
+export {
+  createBrowserDirectCommandComposition,
+} from "./browser-direct-command-composition";
+export type {
+  BrowserDirectCommandComposition,
+  BrowserDirectCommandCompositionOptions,
+} from "./browser-direct-command-composition";
 export type {
   BrowserVoiceTurnComposition,
   BrowserVoiceTurnCompositionOptions,
@@ -10,6 +17,43 @@ export {
   editorAnnotationSceneId,
 } from "./editor-voice-context";
 export type { EditorVoiceContextInput } from "./editor-voice-context";
+export {
+  createEditorDirectCommandComposition,
+} from "./editor-direct-command-composition";
+export type {
+  EditorDirectCommandComposition,
+  EditorDirectCommandCompositionOptions,
+} from "./editor-direct-command-composition";
+export {
+  DirectCommandVoiceTurnBridge,
+} from "./direct-command-voice-turn-bridge";
+export type {
+  CompletedVoiceTurnRoute,
+  CompletedVoiceTurnSource,
+  DirectCommandVoiceTurnBridgeOptions,
+} from "./direct-command-voice-turn-bridge";
+export {
+  EditorDirectRecentOperationsSource,
+} from "./editor-direct-recent-operations-source";
+export type {
+  EditorDirectRecentOperationsSourceOptions,
+} from "./editor-direct-recent-operations-source";
+export {
+  createDocumentSessionDirectCommandNavigationPort,
+  EditorDirectCommandExecutor,
+} from "./editor-direct-command-executor";
+export type {
+  DirectCommandExecutor,
+  DirectCommandNavigationPort,
+  DocumentSessionDirectCommandNavigationOptions,
+  EditorDirectCommandExecutorOptions,
+} from "./editor-direct-command-executor";
+export {
+  useOwnedBrowserDirectCommandComposition,
+} from "./use-owned-browser-direct-command-composition";
+export type {
+  OwnedBrowserDirectCommandCompositionOptions,
+} from "./use-owned-browser-direct-command-composition";
 export {
   useOwnedBrowserVoiceTurnController,
 } from "./use-owned-browser-voice-turn-controller";

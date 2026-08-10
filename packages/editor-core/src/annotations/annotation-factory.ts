@@ -148,7 +148,7 @@ export class AnnotationFactory {
           base.createdAt,
           base.updatedAt,
           ensureOpacity(input.opacity, DEFAULT_ANNOTATION_STYLE_PROPS.highlightOpacity),
-          normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
+          normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.highlightColor),
         );
       }
 
