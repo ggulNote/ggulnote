@@ -299,6 +299,12 @@ type ResolvedTextSpan = {
 
 Underline/Highlight는 `Rect[]`를 하나의 논리 작업으로 처리해야 한다.
 
+실제 Editor Core 표현은 backward compatibility를 위해 `bounds`를 selection용 union
+rect로 유지하고, `UNDERLINE`/`HIGHLIGHT`에 ordered optional `rects`를 추가한다.
+`rects`가 없으면 기존 single-rect annotation이며, 있으면 annotation object 하나가
+모든 line geometry를 소유한다. serialization schema v1과 IndexedDB store는 additive
+field를 그대로 보존하므로 DB migration 없이 legacy snapshot을 hydrate한다.
+
 우선순위:
 
 ```text

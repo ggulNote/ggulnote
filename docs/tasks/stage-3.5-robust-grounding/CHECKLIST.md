@@ -246,65 +246,65 @@ grounded된 LLM fallback으로 안전하게 복구할 수 있어야 한다.
 
 ## F1. Editor Core
 
-- [ ] existing multi-rect/grouped annotation capability 재조사
-- [ ] generic multi-rect annotation model 또는 minimal extension
-- [ ] Voice-specific editor API 만들지 않음
-- [ ] serialization
-- [ ] hydration/refresh restore
-- [ ] update/delete semantics
-- [ ] one logical operation
-- [ ] one Undo unit
-- [ ] Redo 기존 semantics
+- [x] existing multi-rect/grouped annotation capability 재조사
+- [x] generic multi-rect annotation model 또는 minimal extension
+- [x] Voice-specific editor API 만들지 않음
+- [x] serialization
+- [x] hydration/refresh restore
+- [x] update/delete semantics
+- [x] one logical operation
+- [x] one Undo unit
+- [x] Redo 기존 semantics
 
 ## F2. Integration
 
-- [ ] ResolvedTextSpan Rect[] → underline
-- [ ] ResolvedTextSpan Rect[] → highlight
-- [ ] PDF immutable
-- [ ] operation log
-- [ ] turnId exactly-once regression
-- [ ] REVISE_LAST/CONTINUE regression
+- [x] ResolvedTextSpan Rect[] → underline
+- [x] ResolvedTextSpan Rect[] → highlight
+- [x] PDF immutable
+- [x] operation log
+- [x] turnId exactly-once regression
+- [x] REVISE_LAST/CONTINUE regression
 
 ## F3. Final E2E
 
-- [ ] "여기 밑줄"
-- [ ] "AI 문제점 설명한 문장"
-- [ ] "헨타이어 프로세스 들어간 문장 하이라이트"
-- [ ] "모얼오벌부터 인스탠스까지 밑줄"
-- [ ] multi-line range
+- [x] "여기 밑줄"
+- [x] "AI 문제점 설명한 문장"
+- [x] "헨타이어 프로세스 들어간 문장 하이라이트"
+- [x] "모얼오벌부터 인스탠스까지 밑줄"
+- [x] multi-line range
 - [ ] Canvas semantic memo
-- [ ] numeric normalization
-- [ ] supported math normalization
-- [ ] target 없음 → no commit
-- [ ] ambiguous → bounded recovery
-- [ ] stale scene → no commit
-- [ ] spatial → DEFER_SPATIAL
+- [x] numeric normalization
+- [x] supported math normalization
+- [x] target 없음 → no commit
+- [x] ambiguous → bounded recovery
+- [x] stale scene → no commit
+- [x] spatial → DEFER_SPATIAL
 
 ## F4. Evaluation
 
-- [ ] Intent accuracy
-- [ ] Target Hit@1
-- [ ] Anchor accuracy
-- [ ] Range correctness / Rect coverage
-- [ ] Recovery success
-- [ ] False Commit Rate
-- [ ] NONE precision
-- [ ] p50/p95 latency 측정 가능
-- [ ] embedding cache hit diagnostics
-- [ ] LLM fallback rate
-- [ ] Undo integrity
+- [x] Intent accuracy
+- [x] Target Hit@1
+- [x] Anchor accuracy
+- [x] Range correctness / Rect coverage
+- [x] Recovery success
+- [x] False Commit Rate
+- [x] NONE precision
+- [x] p50/p95 latency 측정 가능
+- [x] embedding cache hit diagnostics
+- [x] LLM fallback rate
+- [x] Undo integrity
 
 ## F5. Completion
 
-- [ ] Stage 3.5 full regression
-- [ ] Stage 3 regression
-- [ ] Web full tests
-- [ ] Editor Core full tests
-- [ ] typecheck
-- [ ] lint
-- [ ] `git diff --check`
-- [ ] STATUS COMPLETE
-- [ ] Stage 4 handoff 기록
+- [x] Stage 3.5 full regression
+- [x] Stage 3 regression
+- [x] Web full tests
+- [x] Editor Core full tests
+- [x] typecheck
+- [x] lint
+- [x] `git diff --check`
+- [x] STATUS COMPLETE
+- [x] Stage 4 handoff 기록
 
 Stage 3.5 완료 조건:
 

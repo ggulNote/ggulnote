@@ -4,18 +4,21 @@
 
 ```text
 Stage: 3.5 — Robust Multigranular Grounding
+Status: COMPLETE
 Phase A: COMPLETE
 Phase B: COMPLETE
 Phase C: COMPLETE
 Phase D: COMPLETE
 Phase E: COMPLETE
-Current Milestone: Phase F — Multi-Rect Execution / E2E / Completion
+Phase F: COMPLETE
+Current Milestone: COMPLETE / READY FOR STAGE 4
 ```
 
 `FrozenTargetResolver` facade는 기존 동기 API를 유지하고 production planning용
 async strategy router를 사용한다. Typed speech evidence는 turn context에서 한 번
 생성되며 recoverable `NOT_FOUND`만 bounded candidate-only LLM recovery로 보강한다.
-Phase F Editor multi-rect mutation은 시작하지 않았다.
+`ResolvedTextSpan.bounds`는 generic multi-rect annotation 하나로 commit되어 operation과
+Undo/Redo도 하나의 logical unit을 유지한다.
 
 ## 2. Branch / 기준점
 
@@ -34,6 +37,10 @@ Phase C docs: a84a3d0
 Phase D implementation: e9ff07f
 Phase D docs: 4b86f7c
 Phase D compatibility fix: 3019cf4
+Phase E implementation: cd91576
+Phase E docs: 930fc48
+Phase F editor implementation: edb5faa
+Phase F voice integration/evaluation: 2180383
 ```
 
 ## 3. Phase A
@@ -225,12 +232,18 @@ Editor Core typecheck: PASS
 Phase E targeted lint: PASS
 Web package lint: PASS
 Editor Core package lint: PASS
+Phase F targeted: Editor Core 1 file / 5 tests PASS; Web 5 files / 14 tests PASS
+Web regression: 93 files / 627 tests PASS
+Editor Core regression: 7 files / 52 tests PASS
+Web typecheck: PASS
+Editor Core typecheck: PASS
+Web package lint: PASS
+Editor Core package lint: PASS (existing config warnings only)
+git diff --check: PASS
 ```
 
-Web full regression에서는 기존 `voice-debug-panel` happy-path 1건이 fake speech
-session timing으로 실패했다. 동일 파일 단독 재실행은 1 file / 2 tests PASS였고,
-Phase A/Phase B/Direct Command 테스트는 full run에서도 통과했다. 새 embedding
-regression으로 분류하지 않는다.
+현재 Web full regression에서는 기존 flaky로 기록된 `voice-debug-panel` 2건도
+같은 full run에서 통과했다. 새 failure는 없다.
 
 Environment:
 
@@ -249,18 +262,74 @@ Environment:
 - Semantic/Object recovery threshold의 final product tuning과 actual external LLM smoke는 수행하지 않았다.
 - spaced number sequence는 ambiguity를 유지하며 문맥 판정은 Phase E 이후 책임이다.
 - Math normalization은 기본 expression text/token 범위이며 typed Math AST/subrange는 없다.
-- multi-rect geometry는 resolve되지만 실제 annotation mutation은 single rect limitation을 유지한다.
 - 별도 Memo type이 없어 `memo` granularity record는 생성하지 않는다.
 - server vector DB/full-document default search는 없다.
+- ASR N-best production 연결, 완전한 phoneme model, refresh 후 Voice short-term history persistence는 없다.
+- Table/Math subrange와 Ink recognition은 unsupported다.
+- spatial placement는 Stage 4 범위다.
 
-## 13. Next Milestone
+## 13. Phase F / Final Architecture
+
+- `UNDERLINE`/`HIGHLIGHT`는 optional ordered `rects`를 소유하고 기존 `bounds`는 union bounds로 유지한다.
+- legacy schema v1의 `bounds`-only annotation은 변경 없이 hydrate된다. `rects`는 같은 schema의 additive field라 IndexedDB migration이 필요 없다.
+- renderer는 각 실제 rect를 underline segment/highlight fill로 그리며 annotation object는 하나다.
+- create/update/delete, snapshot/IndexedDB/hydration, operation log, Undo/Redo가 ordered rects를 보존한다.
+- Voice compiler는 canonical `Rect[]`를 normalized `rects`로 변환하고 anchor나 geometry를 재추론하지 않는다.
+- annotation rect count는 Editor Core의 중앙 상수 `256`으로 제한하고 finite positive normalized geometry만 commit한다.
+- Direct Route의 frozen revision guard와 turn registry가 stale no-commit 및 concurrent/sequential exactly-once를 유지한다.
+
+Final flow:
 
 ```text
-Phase F — Multi-Rect Execution / E2E / Completion
+Voice Turn
+→ Planner / TargetQuery / Typed Speech Evidence
+→ Target Strategy Router
+→ Canonical Text / Embedding / Focus / History
+→ RESOLVED or bounded Grounded Recovery
+→ Guard
+→ Capability Compiler
+→ Multi-Rect aware Editor Runtime
+→ one Operation / one Undo-Redo unit
 ```
 
-- `ResolvedTextSpan.bounds: Rect[]` actual underline/highlight execution
-- generic grouped/multi-rect annotation representation
-- serialization/hydration
-- one logical operation / one Undo unit
-- Stage 3.5 final E2E and diagnostics evaluation
+## 14. Evaluation / Production Activation
+
+Deterministic 12-category evaluation fixture 결과:
+
+```text
+Intent Accuracy: 1.0
+Target Hit@1: 1.0
+Anchor Start Accuracy: 1.0
+Anchor End Accuracy: 1.0
+Range Correctness: 1.0
+Recovery Success: 2/3 (2 selected + 1 expected NONE)
+Recovery NONE Precision: 1.0
+False Commit Rate: 0
+Embedding Cache Hit: 1.0 (instrumented semantic fixtures)
+Recovery Rate: 0.25
+Undo Integrity: 1.0
+Synthetic latency p50/p95: 60ms / 120ms
+```
+
+위 수치는 deterministic harness 검증값이며 external model 품질/실 latency baseline이 아니다.
+`plannerMs`, `queryEmbeddingMs`, `embeddingSearchMs`, `resolverMs`, `recoveryMs`,
+`validationMs`, `compileMs`, `commitMs`, `directRouteMs`, `voiceEndToCommitMs`는
+기존 bounded diagnostics에서 측정 가능하다.
+
+Production activation:
+
+- deterministic grounding과 multi-rect execution은 default production path에서 활성이다.
+- embedding indexing/query와 grounded recovery는 외부 payload 전송 동의 및 explicit provider injection 시에만 활성이다.
+- 동의/주입이 없으면 기존 deterministic grounding으로 degrade하며 빈 evidence를 만들지 않는다.
+- actual external LLM smoke는 payload 전송 동의가 없어 `SKIPPED`다.
+
+## 15. Stage 4 Handoff
+
+```text
+Stage 3.5 COMPLETE
+Next: Stage 4 — Structured Scene / VLM / Deterministic Spatial Placement
+```
+
+`DEFER_SPATIAL` 경계를 유지한다. Stage 4는 Structured Scene, Render Snapshot,
+Focus Crop, Occupancy, Free-space Candidates, Multimodal Planner, bounded Placement
+Candidate와 Deterministic Placement를 담당한다. Stage 4 구현은 시작하지 않았다.
