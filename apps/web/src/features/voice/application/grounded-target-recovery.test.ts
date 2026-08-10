@@ -305,8 +305,7 @@ describe("GroundedTargetRecovery", () => {
     } as const;
     const provider = new FakeGroundedTargetRecoveryProvider({
       status: "SELECTED",
-      startLabel: "A1",
-      endLabel: "B1",
+      pairLabel: "P1",
     });
     const result = await new GroundedTargetRecovery({
       provider,
@@ -332,13 +331,10 @@ describe("GroundedTargetRecovery", () => {
       },
     });
     if (provider.lastInput?.kind !== "text_span") throw new Error("Expected span input.");
-    expect(provider.lastInput.startCandidates[0]).toMatchObject({
-      label: "A1",
-      text: "Moreover",
-    });
-    expect(provider.lastInput.endCandidates[0]).toMatchObject({
-      label: "B1",
-      text: "instance",
+    expect(provider.lastInput.pairCandidates[0]).toMatchObject({
+      label: "P1",
+      startText: "Moreover",
+      endText: "instance",
     });
     expect(JSON.stringify(provider.lastInput)).not.toContain("tokenId");
     expect(JSON.stringify(provider.lastInput)).not.toContain("readingOrder");
@@ -370,7 +366,7 @@ describe("GroundedTargetRecovery", () => {
     expect(provider.recoverCallCount).toBe(0);
   });
 
-  it("keeps duplicate anchors distinct and rejects a reverse selected pair", async () => {
+  it("keeps valid occurrence pairs distinct and exposes only pair labels", async () => {
     const fixture = textSpanFixture(true, true);
     const evidence = speechEvidence(
       "모얼오벌부터 인스탠스까지",
@@ -383,8 +379,7 @@ describe("GroundedTargetRecovery", () => {
     } as const;
     const provider = new FakeGroundedTargetRecoveryProvider({
       status: "SELECTED",
-      startLabel: "A1",
-      endLabel: "B1",
+      pairLabel: "P1",
     });
     const recovery = new GroundedTargetRecovery({
       provider,
@@ -397,9 +392,9 @@ describe("GroundedTargetRecovery", () => {
       initialResolution: { status: "NOT_FOUND", reasonCode: "NO_MATCH" },
     });
 
-    expect(result.status).toBe("INVALID");
+    expect(result.status).toBe("RESOLVED");
     if (provider.lastInput?.kind !== "text_span") throw new Error("Expected span input.");
-    expect(provider.lastInput.endCandidates).toHaveLength(2);
+    expect(provider.lastInput.pairCandidates.length).toBeGreaterThan(0);
     expect(provider.recoverCallCount).toBe(1);
   });
 

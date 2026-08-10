@@ -406,7 +406,7 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       }
       if (url === "/api/voice/direct-command/recover") {
         return Response.json({
-          result: { status: "SELECTED", startLabel: "A1", endLabel: "B1" },
+          result: { status: "SELECTED", pairLabel: "P1" },
         });
       }
       throw new Error(`Unexpected endpoint: ${url}`);

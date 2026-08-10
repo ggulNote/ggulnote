@@ -120,7 +120,7 @@ describe("LlmGroundedTargetRecoveryProvider", () => {
     expect(transport.calls).toHaveLength(0);
   });
 
-  it("validates start and end labels independently for text spans", async () => {
+  it("validates supplied span-pair labels for text spans", async () => {
     const input: GroundedTargetRecoveryInput = {
       ...INPUT,
       kind: "text_span",
@@ -129,22 +129,25 @@ describe("LlmGroundedTargetRecoveryProvider", () => {
         startAnchor: "모얼오벌",
         endAnchor: "인스탠스",
       },
-      startCandidates: [{ label: "A1", text: "Moreover", context: "Moreover modern" }],
-      endCandidates: [{ label: "B1", text: "instance", context: "For instance" }],
+      pairCandidates: [{
+        label: "P1",
+        startText: "Moreover",
+        endText: "instance",
+        preview: "Moreover modern For instance",
+        relation: { sameSentence: false, sameParagraph: true, rangeLength: "short" },
+      }],
     };
     const transport = new StubTransport(
-      '{"status":"SELECTED","startLabel":"A1","endLabel":"B1"}',
+      '{"status":"SELECTED","pairLabel":"P1"}',
     );
     const provider = new LlmGroundedTargetRecoveryProvider(transport);
     await expect(provider.recover(input)).resolves.toEqual({
       status: "SELECTED",
-      startLabel: "A1",
-      endLabel: "B1",
+      pairLabel: "P1",
     });
     const request = transport.calls[0];
     expect(request.instructions).toContain("REQUEST-SPECIFIC OUTPUT CONTRACT: text_span");
-    expect(request.instructions).toContain('Allowed startLabel values: ["A1"]');
-    expect(request.instructions).toContain('Allowed endLabel values: ["B1"]');
+    expect(request.instructions).toContain('Allowed pairLabel values: ["P1"]');
     expect(request.instructions).toContain("Never return candidateLabel for text_span");
   });
 
