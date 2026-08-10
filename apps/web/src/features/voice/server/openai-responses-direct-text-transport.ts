@@ -74,7 +74,13 @@ implements DirectTextModelTransport {
         body: JSON.stringify({
           model: this.options.model,
           instructions: request.instructions,
-          input: request.input,
+          input: [
+            {
+              role: "system",
+              content: "Return exactly one JSON object.",
+            },
+            ...request.input,
+          ],
           text: { format: { type: "json_object" } },
           max_output_tokens: request.maxOutputTokens,
           store: false,
@@ -88,6 +94,11 @@ implements DirectTextModelTransport {
         throw new DirectAiProviderError("PLANNER_TIMEOUT", "TIMEOUT");
       }
       if (!response.ok) {
+        const error = await readOpenAiHttpErrorSummary(response);
+        console.error("[direct-command-ai] OpenAI HTTP failure", {
+          status: response.status,
+          ...error,
+        });
         throw new DirectAiProviderError(
           "PLANNER_UNAVAILABLE",
           "HTTP_FAILURE",
@@ -164,4 +175,37 @@ export function extractOpenAiOutputText(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function readOpenAiHttpErrorSummary(
+  response: Response,
+): Promise<Record<string, string>> {
+  try {
+    const payload = await response.json() as unknown;
+    if (!isRecord(payload) || !isRecord(payload.error)) return {};
+    const error = payload.error;
+    return {
+      ...readErrorString(error, "type"),
+      ...readErrorString(error, "code"),
+      ...readErrorString(error, "param"),
+      ...readErrorString(error, "message", 500),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function readErrorString(
+  value: Record<string, unknown>,
+  key: "type" | "code" | "param" | "message",
+  maximumLength = 120,
+): Record<string, string> {
+  const candidate = value[key];
+  if (typeof candidate !== "string" || candidate.trim().length === 0) return {};
+  const redacted = candidate
+    .replace(/sk-[A-Za-z0-9_-]+/gu, "[REDACTED]")
+    .replace(/[\r\n]+/gu, " ")
+    .trim()
+    .slice(0, maximumLength);
+  return redacted.length === 0 ? {} : { [key]: redacted };
 }
