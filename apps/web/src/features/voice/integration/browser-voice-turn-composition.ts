@@ -8,6 +8,7 @@ import { WebSpeechRecognitionProvider } from "../providers";
 
 export interface BrowserVoiceTurnCompositionOptions {
   readCurrentContext: () => VoiceTurnContextRead;
+  clock?: InteractionClock;
   timeProvider?: () => number;
   createTurnId?: () => string;
 }
@@ -20,7 +21,7 @@ export interface BrowserVoiceTurnComposition {
 export function createBrowserVoiceTurnComposition(
   options: BrowserVoiceTurnCompositionOptions,
 ): BrowserVoiceTurnComposition {
-  const clock = new InteractionClock(
+  const clock = options.clock ?? new InteractionClock(
     options.timeProvider ?? readBrowserMonotonicTime,
   );
   const provider = new WebSpeechRecognitionProvider({ clock });
