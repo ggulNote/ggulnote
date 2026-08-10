@@ -899,3 +899,9 @@ Stage 4 spatial scope 침범 없음
 ```
 
 이 증명되어야 한다.
+
+## Hardened Speech Grounding Pipeline
+
+Raw STT -> optional bounded Speech Refiner -> Planner -> TargetQuery -> target-slot extraction -> complete Frozen Page term index -> query-specific hybrid retrieval -> deterministic resolver -> optional grounded candidate recovery -> Guard -> Compiler -> Editor.
+
+The Refiner receives only the bounded utterance, language, and command vocabulary. It never receives PDF text, canvas content, IDs, geometry, or vectors. Target-aware retrieval strips TextSpan boundary particles by slot role, excludes command words structurally, keeps actual page surfaces as authority, and applies the LLM candidate bound only after local retrieval.

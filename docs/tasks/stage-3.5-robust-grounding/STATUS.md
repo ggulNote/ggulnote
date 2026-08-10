@@ -338,3 +338,15 @@ Next: Stage 4 — Structured Scene / VLM / Deterministic Spatial Placement
 `DEFER_SPATIAL` 경계를 유지한다. Stage 4는 Structured Scene, Render Snapshot,
 Focus Crop, Occupancy, Free-space Candidates, Multimodal Planner, bounded Placement
 Candidate와 Deterministic Placement를 담당한다. Stage 4 구현은 시작하지 않았다.
+
+## Speech Understanding / Grounding Hardening
+
+Status: COMPLETE
+
+Current production flow is Raw STT -> optional bounded Refiner -> Planner -> target-aware local retrieval -> deterministic Resolver -> optional Grounded Recovery -> Guard/Compiler/Editor. Clear commands skip Refiner and resolved targets skip Recovery. The local Frozen Page term universe is not truncated before ranking; only LLM Recovery candidates are bounded.
+
+Production activation: browser composition includes same-origin HTTP Refiner and Recovery providers. Refiner payload is the bounded utterance plus language/allowed commands only. Recovery payload remains bounded candidates. Missing server AI configuration degrades to raw speech and deterministic grounding without blocking editing.
+
+Evaluation separates Candidate Recall@K from candidate selection. Added fixtures cover command pollution, TextSpan boundary normalization, terms beyond the former 256-entry limit, multilingual phonetic recall, absent-term safety, and exact fast paths.
+
+Known limitations remain ASR N-best production availability, persistent GroundingMemory, Math/Table subranges, ink recognition, and Stage 4 spatial placement.

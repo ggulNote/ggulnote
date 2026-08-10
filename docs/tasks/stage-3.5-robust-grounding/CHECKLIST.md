@@ -320,3 +320,18 @@ Stage 3.5 완료 조건:
 ```
 
 이 Stage 3 Direct Route와 통합되어야 한다.
+
+## Speech Understanding / Target Grounding Hardening
+
+- [x] Preserve raw transcript and add bounded, non-authoritative Speech Refiner
+- [x] Use same-origin server provider with graceful raw fallback
+- [x] Build speech evidence after Planner from TargetQuery slots
+- [x] Remove TextSpan boundary particles by slot role
+- [x] Prevent command-word fragments from entering term retrieval
+- [x] Search the complete Frozen Page term universe before candidate bounding
+- [x] Merge exact, normalized, fuzzy, phonetic, and ASR evidence
+- [x] Keep semantic retrieval in query-specific SemanticUnit/Object strategies
+- [x] Rank contextual terms by relevance instead of alphabetical truncation
+- [x] Preserve candidate-only bounded Grounded Recovery
+- [x] Add Candidate Recall@K evaluation and multilingual recall fixtures
+- [x] Wire Refiner and Recovery providers into browser production composition
