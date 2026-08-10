@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { CanonicalTextStream, CanonicalTextToken } from "./canonical-text-stream";
 import {
   buildSpanPairCandidates,
+  canonicalizeAnchorCandidates,
   groundTextSpan,
   normalizeTextSpanAnchorSlot,
+  pruneDominatedSpanPairs,
   retrieveAnchorSpanCandidates,
 } from "./text-span-grounder";
 
@@ -25,7 +27,45 @@ describe("layered TextSpan grounding", () => {
     const token = candidates.find((candidate) => candidate.text === "capability");
     expect(phrase).toBeDefined();
     expect(phrase?.evidence.coverage).toBe(1);
+    expect(phrase?.evidence).toMatchObject({
+      queryChunkCount: 2,
+      matchedChunkCount: 2,
+      boundaryPrecision: 1,
+      extraPrefixTokens: 0,
+      extraSuffixTokens: 0,
+    });
     expect(phrase?.score).toBeGreaterThan(token?.score ?? 0);
+  });
+
+  it("canonicalizes same-occurrence boundary variants relative to the query", () => {
+    const page = visionPage();
+    const clean = retrieveAnchorSpanCandidates(page, "미전 케퍼블리티", { role: "start" })
+      .find((candidate) => candidate.text === "vision capability");
+    if (clean === undefined) throw new Error("Expected clean anchor.");
+    const expanded = {
+      ...clean,
+      text: "Particularly vision capability",
+      startIndex: clean.startIndex - 1,
+      tokenCount: clean.tokenCount + 1,
+      evidence: {
+        ...clean.evidence,
+        candidateTokenCount: clean.evidence.candidateTokenCount + 1,
+        extraPrefixTokens: 1,
+        boundaryPrecision: 2 / 3,
+      },
+      score: clean.score - 0.06,
+    };
+    expect(canonicalizeAnchorCandidates([expanded, clean])).toEqual([clean]);
+
+    const explicit = retrieveAnchorSpanCandidates(
+      page,
+      "Particularly vision capability",
+      { role: "start" },
+    )[0];
+    expect(explicit).toMatchObject({
+      text: "Particularly vision capability",
+      evidence: { coverage: 1, boundaryPrecision: 1 },
+    });
   });
 
   it("supports multi-token anchors on the end and on both sides", () => {
@@ -62,6 +102,94 @@ describe("layered TextSpan grounding", () => {
     });
     expect(pair?.materialized.bounds.length).toBeGreaterThanOrEqual(2);
     expect(result.diagnostics.multiTokenAnchorUsed).toBe(true);
+  });
+
+  it("deterministically selects clean full-coverage phrase boundaries", () => {
+    const page = createStream([
+      "Particularly,", "vision", "capability", "is", "crucial", "for", "utilizing",
+      "tools", "such", "as", "web", "browsers,", "as", "rendered", "web", "pages",
+      "support", "web", "browsing",
+    ]);
+    const result = groundTextSpan({
+      stream: page,
+      query: {
+        kind: "text_span",
+        startAnchor: "비전 capability",
+        endAnchor: "웹 브라우저스",
+      },
+    });
+    expect(result.status).toBe("RESOLVED");
+    if (result.status !== "RESOLVED") return;
+    expect(result.pair).toMatchObject({
+      start: {
+        text: "vision capability",
+        evidence: { coverage: 1, boundaryPrecision: 1 },
+      },
+      end: {
+        text: "web browsers,",
+        evidence: { coverage: 1, boundaryPrecision: 1 },
+      },
+      evidence: {
+        startAlignment: { matchedChunkCount: 2, queryChunkCount: 2 },
+        endAlignment: { matchedChunkCount: 2, queryChunkCount: 2 },
+      },
+    });
+    expect(result.diagnostics).toMatchObject({
+      dominatedAnchorVariantCount: expect.any(Number),
+      spanPairCandidateCountBeforePruning: expect.any(Number),
+      spanPairCandidateCountAfterPruning: expect.any(Number),
+      spanPairResolvedDeterministically: true,
+    });
+  });
+
+  it("ranks browser morphology above end phrases with partial alignment", () => {
+    const page = createStream(["web", "browsers", "then", "web", "pages", "and", "web", "browsing"]);
+    const candidates = retrieveAnchorSpanCandidates(page, "웹 브라우저스", { role: "end" });
+    expect(candidates[0]).toMatchObject({
+      text: "web browsers",
+      evidence: { coverage: 1, boundaryPrecision: 1 },
+    });
+    expect(candidates.find((candidate) => candidate.text === "web pages")?.score ?? 0)
+      .toBeLessThan(candidates[0]?.score ?? 0);
+  });
+
+  it("prunes only dominated boundary variants and preserves distinct occurrences", () => {
+    const page = visionPage();
+    const start = retrieveAnchorSpanCandidates(page, "미전 케퍼블리티", { role: "start" })[0];
+    const end = retrieveAnchorSpanCandidates(page, "브라우저스", { role: "end" })[0];
+    if (start === undefined || end === undefined) throw new Error("Expected anchors.");
+    const pair = buildSpanPairCandidates(page, [start], [end])[0];
+    if (pair === undefined) throw new Error("Expected pair.");
+    const dominated = {
+      ...pair,
+      start: {
+        ...start,
+        text: `prefix ${start.text}`,
+        startIndex: start.startIndex - 1,
+        evidence: {
+          ...start.evidence,
+          extraPrefixTokens: 1,
+          boundaryPrecision: start.evidence.boundaryPrecision / 2,
+        },
+        score: start.score - 0.1,
+      },
+      evidence: {
+        ...pair.evidence,
+        startAlignment: {
+          ...pair.evidence.startAlignment,
+          extraPrefixTokens: 1,
+          boundaryPrecision: pair.evidence.startAlignment.boundaryPrecision / 2,
+        },
+      },
+      score: pair.score - 0.1,
+    };
+    expect(pruneDominatedSpanPairs([dominated, pair])).toEqual([pair]);
+
+    const twoOccurrences = createStream([
+      "vision", "capability", "to", "browsers", "then", "vision", "capability", "to", "browsers",
+    ]);
+    const starts = retrieveAnchorSpanCandidates(twoOccurrences, "vision capability", { role: "start" });
+    expect(starts.filter((candidate) => candidate.text === "vision capability")).toHaveLength(2);
   });
 
   it("does not force neighboring words onto a single-token capability anchor", () => {
@@ -136,6 +264,8 @@ describe("layered TextSpan grounding", () => {
       startAnchorChunkCount: 2,
       endAnchorChunkCount: 1,
       spanPairCandidateCount: expect.any(Number),
+      canonicalAnchorCount: expect.any(Number),
+      dominatedPairCount: expect.any(Number),
     });
   });
 });

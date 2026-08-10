@@ -21,18 +21,27 @@ describe("TextSpan grounding evaluation", () => {
       selectedPair: pair,
       committed: true,
       shouldCommit: true,
+      deterministicallyResolved: true,
+      recoveryUsed: false,
       k: 3,
     })).toEqual({
       anchorCandidateRecallAtK: 1,
       anchorPhraseAccuracy: 1,
+      anchorBoundaryAccuracy: 1,
       spanPairRecallAtK: 1,
       spanPairSelectionAccuracy: 1,
       finalTargetHitAt1: 1,
+      deterministicResolutionRate: 1,
+      llmRecoveryRate: 0,
       falseCommitRate: 0,
     });
   });
 });
 
 function anchor(startIndex: number, endIndex: number): AnchorSpanCandidate {
-  return { startIndex, endIndex } as AnchorSpanCandidate;
+  return {
+    startIndex,
+    endIndex,
+    evidence: { boundaryPrecision: 1 },
+  } as AnchorSpanCandidate;
 }

@@ -335,6 +335,10 @@ describe("GroundedTargetRecovery", () => {
       label: "P1",
       startText: "Moreover",
       endText: "instance",
+      alignment: {
+        start: { coverage: "full", boundary: "clean" },
+        end: { coverage: "full", boundary: "clean" },
+      },
     });
     expect(JSON.stringify(provider.lastInput)).not.toContain("tokenId");
     expect(JSON.stringify(provider.lastInput)).not.toContain("readingOrder");

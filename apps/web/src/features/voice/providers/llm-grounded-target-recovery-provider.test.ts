@@ -134,6 +134,22 @@ describe("LlmGroundedTargetRecoveryProvider", () => {
         startText: "Moreover",
         endText: "instance",
         preview: "Moreover modern For instance",
+        alignment: {
+          start: {
+            queryChunks: 1,
+            matchedChunks: 1,
+            coverage: "full",
+            boundary: "clean",
+            confidence: "strong",
+          },
+          end: {
+            queryChunks: 1,
+            matchedChunks: 1,
+            coverage: "full",
+            boundary: "clean",
+            confidence: "strong",
+          },
+        },
         relation: { sameSentence: false, sameParagraph: true, rangeLength: "short" },
       }],
     };
@@ -149,6 +165,7 @@ describe("LlmGroundedTargetRecoveryProvider", () => {
     expect(request.instructions).toContain("REQUEST-SPECIFIC OUTPUT CONTRACT: text_span");
     expect(request.instructions).toContain('Allowed pairLabel values: ["P1"]');
     expect(request.instructions).toContain("Never return candidateLabel for text_span");
+    expect(request.instructions).toContain("chunk coverage");
   });
 
   it("logs only bounded validation metadata for invalid recovery output", async () => {
