@@ -9,11 +9,11 @@ import type {
   FrozenPageGroundingSnapshot,
   FrozenSceneSnapshotReference,
   PageTargetCandidate,
+  SpeechGroundingEvidence,
 } from "../domain";
 import { DIRECT_COMMAND_NAMES } from "../domain";
 import { buildPageTargetCatalog } from "./page-target-catalog-builder";
 import {
-  createMinimalSpeechGroundingEvidence,
   TypedSpeechNormalizer,
   type TypedSpeechNormalizerPort,
 } from "./typed-speech-normalizer";
@@ -145,7 +145,7 @@ export class DirectCommandContextBuilder {
           }),
       allowedCommands: [...this.allowedCommands],
     } as const;
-    let speechGroundingEvidence;
+    let speechGroundingEvidence: SpeechGroundingEvidence | undefined;
     try {
       speechGroundingEvidence = this.speechNormalizer.normalize({
         rawFinalTranscript: turn.rawTranscript,
@@ -156,10 +156,7 @@ export class DirectCommandContextBuilder {
         mode: "command",
       });
     } catch {
-      speechGroundingEvidence = createMinimalSpeechGroundingEvidence(
-        turn.rawTranscript,
-        "NORMALIZER_FAILED",
-      );
+      speechGroundingEvidence = undefined;
     }
 
     return {
@@ -170,7 +167,9 @@ export class DirectCommandContextBuilder {
         pageTargetCatalog,
         recentOperations,
         plannerContext,
-        speechGroundingEvidence,
+        ...(speechGroundingEvidence === undefined
+          ? {}
+          : { speechGroundingEvidence }),
         ...(buildOptions.historySnapshot === undefined
           ? {}
           : { historySnapshot: buildOptions.historySnapshot }),

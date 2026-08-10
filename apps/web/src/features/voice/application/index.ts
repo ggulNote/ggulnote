@@ -50,7 +50,6 @@ export type {
 export { TARGET_STRATEGY_CONFIG } from "./target-resolution-policy";
 export {
   buildDocumentLexicon,
-  createMinimalSpeechGroundingEvidence,
   normalizeSpokenMath,
   normalizeSpokenNumbers,
   parseSpokenInteger,

@@ -137,6 +137,7 @@ embeddingErrorCode
 
 - `SpeechGroundingEvidence`가 raw final transcript를 그대로 보존하고 term/number/math/context evidence를 별도 제공한다.
 - `DirectCommandContextBuilder`가 Frozen Page catalog 생성 후 normalizer를 한 번 호출하고 같은 evidence 참조를 resolver input에 전달한다.
+- evidence contract는 optional이며 normalizer 실패/legacy context에서는 빈 객체를 합성하지 않고 기존 deterministic grounding으로 degrade한다.
 - Document Lexicon은 Frozen Page의 PDF word/line/sentence/paragraph와 Canvas TEXT candidate만 사용하며 최대 256개다.
 - lexicon은 semantic/scene catalog에서 deterministic하게 재생성하므로 별도 IndexedDB persistence를 추가하지 않았다.
 - 한국어식 영어 음차는 lightweight consonant/romanized edit heuristic으로 실제 lexicon 후보만 최대 3개 제공한다.

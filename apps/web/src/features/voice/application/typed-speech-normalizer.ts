@@ -109,28 +109,6 @@ export class TypedSpeechNormalizer implements TypedSpeechNormalizerPort {
   }
 }
 
-export function createMinimalSpeechGroundingEvidence(
-  rawFinalTranscript: string,
-  errorCode?: string,
-): SpeechGroundingEvidence {
-  return freezeEvidence({
-    rawFinalTranscript,
-    termHypotheses: [],
-    numberHypotheses: [],
-    contextualTerms: [],
-    asrAlternatives: [],
-    diagnostics: {
-      speechNormalizationUsed: false,
-      termHypothesisCount: 0,
-      numberHypothesisCount: 0,
-      documentLexiconSize: 0,
-      contextTermCount: 0,
-      normalizationMs: 0,
-      ...(errorCode === undefined ? {} : { errorCode }),
-    },
-  });
-}
-
 export function buildDocumentLexicon(
   catalog: PageTargetCatalog,
   maxEntries = MAX_LEXICON_ENTRIES,
