@@ -323,27 +323,35 @@ deterministic mutation으로 commit되어야 한다.
 
 # Phase F. Diagnostics / Regression / Stage Completion
 
-- [ ] route lifecycle timestamp 추가
-- [ ] plannerMs 계산
-- [ ] resolverMs 계산
-- [ ] validationMs 계산
-- [ ] compileMs 계산
-- [ ] commitMs 계산
-- [ ] directRouteMs 계산
-- [ ] voiceEndToCommitMs 계산 가능
-- [ ] debug payload에서 turnId / planId / operationId 추적
-- [ ] targetQueryKind / resolvedTargetKind / resolverConfidence 추적
-- [ ] raw document 전체를 기본 로그에 남기지 않음
-- [ ] spatial request → `DEFER_SPATIAL` integration test
-- [ ] ambiguous target no-commit/disambiguation test
-- [ ] stale scene no-commit integration test
-- [ ] invalid planner output no-commit integration test
-- [ ] 기존 Stage 1/2 테스트 regression 실행
-- [ ] lint / typecheck / test 실행
-- [ ] `git diff --check`
-- [ ] `STATUS.md` 최종 갱신
-- [ ] 완료 commit 기록
-- [ ] known issue / deferred item 기록
+- [x] Stage 2 completed turn → production Direct Route 자동 wiring
+- [x] interim transcript는 route를 호출하지 않음
+- [x] no-speech / cancelled turn은 route를 호출하지 않음
+- [x] integration subscription / route dispose lifecycle 연결
+- [x] in-flight dispose 후 late result no-commit 테스트
+- [x] route lifecycle timestamp 추가
+- [x] plannerMs 계산
+- [x] resolverMs 계산
+- [x] disambiguatorMs 계산 가능
+- [x] validationMs 계산
+- [x] compileMs 계산
+- [x] commitMs 계산
+- [x] directRouteMs 계산
+- [x] voiceEndToCommitMs 계산 가능
+- [x] debug payload에서 turnId / planId / operationId 추적
+- [x] targetQueryKind / resolvedTargetKind / resolverConfidence 추적
+- [x] bounded trace storage 구현
+- [x] raw transcript / raw document / prompt / model response를 기본 trace에 남기지 않음
+- [x] spatial request → `DEFER_SPATIAL` integration test
+- [x] ambiguous target no-commit/disambiguation test
+- [x] stale scene no-commit integration test
+- [x] invalid planner output no-commit integration test
+- [x] error 이후 다음 completed turn 복구 테스트
+- [x] 기존 Stage 1/2 테스트 regression 실행
+- [x] lint / typecheck / test 실행
+- [x] `git diff --check`
+- [x] `STATUS.md` 최종 갱신
+- [x] 완료 commit 기록
+- [x] known issue / deferred item 기록
 
 Stage 3 최종 완료 조건:
 
@@ -360,18 +368,18 @@ CompletedVoiceTurn
 
 최소 E2E 시나리오:
 
-- [ ] "여기 밑줄 쳐줘"
-- [ ] "세종대왕의부터 업적까지 밑줄 쳐줘"
-- [ ] "노란색으로 하이라이트해줘"
-- [ ] "AI의 문제점을 설명하는 문장 하이라이트"
-- [ ] "밑줄 아니 밑줄 말고 노란색 하이라이트"
-- [ ] "노란색 말고 파란색으로"
-- [ ] "다음 페이지"
-- [ ] "이전 페이지"
-- [ ] "방금 거 취소해"
-- [ ] editable text replace
-- [ ] PDF source text replace 차단
-- [ ] ambiguous target 추측 실행 없음
-- [ ] spatial command `DEFER_SPATIAL`
-- [ ] duplicate turn exactly-once commit
-- [ ] stale scene no commit
+- [x] "여기 밑줄 쳐줘"
+- [x] "세종대왕의부터 업적까지 밑줄 쳐줘"
+- [x] "노란색으로 하이라이트해줘"
+- [x] "AI의 문제점을 설명하는 문장 하이라이트"
+- [x] "밑줄 아니 밑줄 말고 노란색 하이라이트"
+- [x] "노란색 말고 파란색으로"
+- [x] "다음 페이지"
+- [x] "이전 페이지"
+- [x] "방금 거 취소해"
+- [x] editable text replace
+- [x] PDF source text replace 차단
+- [x] ambiguous target 추측 실행 없음
+- [x] spatial command `DEFER_SPATIAL`
+- [x] duplicate turn exactly-once commit
+- [x] stale scene no commit
