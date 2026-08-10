@@ -144,10 +144,13 @@ export type {
   ResolvedObject,
   ResolvedTarget,
   ResolvedTextSpan,
+  TargetEvidenceUsage,
+  TargetResolutionDiagnostics,
   TargetResolutionInput,
   TargetResolutionPolicy,
   TargetResolutionReasonCode,
   TargetResolutionResult,
+  TargetStrategyKind,
 } from "./target-grounding-types";
 export {
   DirectPlannerResultValidationError,

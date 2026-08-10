@@ -71,6 +71,9 @@ export class DirectCommandContextBuilder {
       .sort((left, right) => right.createdAt - left.createdAt)
       .slice(0, this.maxRecentOperations);
     const pageTargetCatalog = buildPageTargetCatalog({
+      ...(snapshot.documentId === undefined
+        ? {}
+        : { documentId: snapshot.documentId }),
       scene: snapshot.scene,
       ...(snapshot.semanticModel === undefined
         ? {}

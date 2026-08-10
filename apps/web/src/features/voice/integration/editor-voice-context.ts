@@ -203,6 +203,7 @@ function annotationToSceneObject(
       return {
         ...base,
         kind: "text",
+        sourceObjectId: annotation.id,
         text: readString(annotation.properties, "text", ""),
         style: {
           fontFamily: readString(

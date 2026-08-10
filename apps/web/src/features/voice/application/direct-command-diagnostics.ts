@@ -87,6 +87,9 @@ function cloneTrace(trace: DirectCommandTrace): DirectCommandTrace {
   return {
     ...trace,
     ...(trace.command === undefined ? {} : { command: { ...trace.command } }),
+    ...(trace.evidenceUsed === undefined
+      ? {}
+      : { evidenceUsed: { ...trace.evidenceUsed } }),
     timestamps: { ...trace.timestamps },
     metrics: { ...trace.metrics },
   };

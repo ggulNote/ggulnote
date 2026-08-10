@@ -14,6 +14,10 @@ import {
   resolveTextSpanWithCanonicalStream,
 } from "./canonical-text-stream";
 import { rankTargetCandidates } from "./candidate-ranker";
+import {
+  TargetStrategyRouter,
+  type TargetStrategyResolveOptions,
+} from "./target-strategy-router";
 import type { Rect } from "@ggulnote/editor-core";
 
 const TEXT_LIKE_TARGET_TYPES = new Set([
@@ -25,11 +29,36 @@ const TEXT_LIKE_TARGET_TYPES = new Set([
 ]);
 
 export class FrozenTargetResolver {
+  private readonly policy: TargetResolutionPolicy;
+  private readonly strategyRouter?: TargetStrategyRouter;
+
   public constructor(
-    private readonly policy: TargetResolutionPolicy =
-      DEFAULT_TARGET_RESOLUTION_POLICY,
+    policyOrOptions: TargetResolutionPolicy | {
+      policy?: TargetResolutionPolicy;
+      strategyRouter?: TargetStrategyRouter;
+    } = DEFAULT_TARGET_RESOLUTION_POLICY,
   ) {
-    assertPolicy(policy);
+    this.policy = isTargetResolutionPolicy(policyOrOptions)
+      ? policyOrOptions
+      : policyOrOptions.policy ?? DEFAULT_TARGET_RESOLUTION_POLICY;
+    this.strategyRouter = isTargetResolutionPolicy(policyOrOptions)
+      ? undefined
+      : policyOrOptions.strategyRouter;
+    assertPolicy(this.policy);
+  }
+
+  public resolveAsync(
+    input: TargetResolutionInput,
+    options: TargetStrategyResolveOptions = {},
+  ): Promise<TargetResolutionResult> {
+    if (this.strategyRouter === undefined) {
+      return Promise.resolve(this.resolve(input));
+    }
+    return this.strategyRouter.resolve(input, {
+      resolveDeterministic: (nextInput) => this.resolve(nextInput),
+      resolveRankedCandidate: (nextInput, candidate) =>
+        this.resolveRankedCandidate(nextInput, candidate),
+    }, options);
   }
 
   public resolve(input: TargetResolutionInput): TargetResolutionResult {
@@ -400,4 +429,15 @@ function assertPolicy(policy: TargetResolutionPolicy): void {
   ) {
     throw new RangeError("Invalid target resolution policy.");
   }
+}
+
+function isTargetResolutionPolicy(
+  value: TargetResolutionPolicy | {
+    policy?: TargetResolutionPolicy;
+    strategyRouter?: TargetStrategyRouter;
+  },
+): value is TargetResolutionPolicy {
+  return "minResolvedScore" in value
+    && "minResolvedMargin" in value
+    && "maxAmbiguousCandidates" in value;
 }

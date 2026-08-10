@@ -1,4 +1,5 @@
 import type {
+  DocumentId,
   EditorHistoryAction,
   EditorOperation,
   PageId,
@@ -55,6 +56,7 @@ export interface PageTargetCandidate {
 }
 
 export interface PageTargetCatalog {
+  documentId?: DocumentId;
   pageId: PageId;
   sceneRevision: SceneSnapshot["sceneRevision"];
   semanticModel?: PageSemanticModel;
@@ -62,6 +64,7 @@ export interface PageTargetCatalog {
 }
 
 export interface FrozenPageGroundingSnapshot {
+  documentId?: DocumentId;
   scene: SceneSnapshot;
   semanticModel?: PageSemanticModel;
 }
@@ -141,21 +144,48 @@ export type TargetResolutionResult =
       target: ResolvedTarget;
       confidence: number;
       evidence: CandidateEvidence;
+      diagnostics?: TargetResolutionDiagnostics;
     }
   | {
       status: "AMBIGUOUS";
       candidates: readonly RankedTargetCandidate[];
       reasonCode: "AMBIGUOUS_MATCH";
+      diagnostics?: TargetResolutionDiagnostics;
     }
   | {
       status: "NOT_FOUND";
       reasonCode: Exclude<TargetResolutionReasonCode, "AMBIGUOUS_MATCH">;
+      diagnostics?: TargetResolutionDiagnostics;
     };
 
 export interface TargetResolutionPolicy {
   minResolvedScore: number;
   minResolvedMargin: number;
   maxAmbiguousCandidates: number;
+}
+
+export type TargetStrategyKind = TargetQuery["kind"];
+
+export interface TargetEvidenceUsage {
+  type: boolean;
+  lexical: boolean;
+  fuzzy: boolean;
+  embedding: boolean;
+  structure: boolean;
+  focus: boolean;
+  temporal: boolean;
+}
+
+export interface TargetResolutionDiagnostics {
+  targetStrategy: TargetStrategyKind;
+  evidenceUsed: TargetEvidenceUsage;
+  embeddingUsed: boolean;
+  embeddingCandidateCount: number;
+  topSemanticScore?: number;
+  topSemanticMargin?: number;
+  queryEmbeddingMs?: number;
+  embeddingSearchMs?: number;
+  embeddingErrorCode?: string;
 }
 
 export const DEFAULT_TARGET_RESOLUTION_POLICY = {

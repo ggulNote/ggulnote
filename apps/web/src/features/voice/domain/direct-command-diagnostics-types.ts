@@ -4,7 +4,12 @@ import type {
   DirectPlannerResult,
 } from "./direct-command-types";
 import type { DirectCommandPlanningTimestamps } from "./direct-command-planning-types";
-import type { ResolvedTarget, TargetResolutionResult } from "./target-grounding-types";
+import type {
+  ResolvedTarget,
+  TargetEvidenceUsage,
+  TargetResolutionResult,
+  TargetStrategyKind,
+} from "./target-grounding-types";
 import type { DirectCommandTarget } from "./target-query";
 
 export interface DirectCommandExecutionTimestamps {
@@ -25,6 +30,15 @@ export interface DirectCommandPlanningDiagnostics {
   resolvedTargetKind?: ResolvedTarget["kind"];
   resolverConfidence?: number;
   candidateCount?: number;
+  targetStrategy?: TargetStrategyKind;
+  evidenceUsed?: TargetEvidenceUsage;
+  embeddingUsed?: boolean;
+  embeddingCandidateCount?: number;
+  topSemanticScore?: number;
+  topSemanticMargin?: number;
+  queryEmbeddingMs?: number;
+  embeddingSearchMs?: number;
+  embeddingErrorCode?: string;
   disambiguationUsed: boolean;
   disambiguationResult?: "SELECTED" | "NONE";
   guardStatus: "NOT_RUN" | "PASSED" | "REJECTED";
@@ -61,6 +75,15 @@ export interface DirectCommandTrace {
   resolvedTargetKind?: ResolvedTarget["kind"];
   resolverConfidence?: number;
   candidateCount?: number;
+  targetStrategy?: TargetStrategyKind;
+  evidenceUsed?: TargetEvidenceUsage;
+  embeddingUsed?: boolean;
+  embeddingCandidateCount?: number;
+  topSemanticScore?: number;
+  topSemanticMargin?: number;
+  queryEmbeddingMs?: number;
+  embeddingSearchMs?: number;
+  embeddingErrorCode?: string;
   disambiguationUsed: boolean;
   disambiguationResult?: "SELECTED" | "NONE";
   guardStatus: DirectCommandPlanningDiagnostics["guardStatus"];

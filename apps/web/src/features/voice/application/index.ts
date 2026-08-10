@@ -40,6 +40,18 @@ export {
   rankTargetCandidates,
 } from "./candidate-ranker";
 export { FrozenTargetResolver } from "./frozen-target-resolver";
+export { TargetStrategyRouter } from "./target-strategy-router";
+export type {
+  TargetEmbeddingSearch,
+  TargetStrategyResolutionPort,
+  TargetStrategyResolveOptions,
+  TargetStrategyRouterOptions,
+} from "./target-strategy-router";
+export { TARGET_STRATEGY_CONFIG } from "./target-resolution-policy";
+export type {
+  TargetEvidenceWeights,
+  TargetStrategyConfig,
+} from "./target-resolution-policy";
 export { guardDirectCommandPlan } from "./direct-command-guard";
 export type {
   DirectCommandGuardInput,

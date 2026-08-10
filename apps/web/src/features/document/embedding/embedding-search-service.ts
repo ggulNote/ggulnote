@@ -46,15 +46,7 @@ export class EmbeddingSearchService {
   }
 
   public async searchText(input: EmbeddingTextSearchQuery): Promise<readonly EmbeddingSearchResult[]> {
-    const text = normalizeEmbeddingInput(input.text);
-    if (text.length === 0) {
-      throw new RangeError("Embedding search text must not be empty.");
-    }
-    const vectors = await this.provider.embed([text], { signal: input.signal });
-    const vector = vectors[0];
-    if (!vector || vectors.length !== 1) {
-      throw new Error("Query embedding result count mismatch.");
-    }
+    const vector = await this.embedQuery(input.text, { signal: input.signal });
     return this.searchVector({
       documentId: input.documentId,
       pageId: input.pageId,
@@ -62,6 +54,25 @@ export class EmbeddingSearchService {
       queryVector: vector,
       topK: input.topK,
     });
+  }
+
+  public async embedQuery(
+    textInput: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<Float32Array> {
+    const text = normalizeEmbeddingInput(textInput);
+    if (text.length === 0) {
+      throw new RangeError("Embedding search text must not be empty.");
+    }
+    const vectors = await this.provider.embed([text], options);
+    const vector = vectors[0];
+    if (!vector || vectors.length !== 1) {
+      throw new Error("Query embedding result count mismatch.");
+    }
+    if (vector.length !== this.provider.descriptor.dimensions) {
+      throw new RangeError("Query embedding dimensions do not match the configured model.");
+    }
+    return new Float32Array(vector);
   }
 
   public async searchVector(input: EmbeddingSearchQuery): Promise<readonly EmbeddingSearchResult[]> {

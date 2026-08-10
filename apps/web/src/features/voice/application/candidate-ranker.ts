@@ -5,15 +5,10 @@ import type {
   TargetResolutionInput,
 } from "../domain";
 import type { TargetQuery, TextSpanTargetQuery } from "../domain";
-
-const EVIDENCE_WEIGHTS = {
-  typeMatch: 0.2,
-  lexicalMatch: 0.2,
-  fuzzyMatch: 0.2,
-  temporalMatch: 0.15,
-  structuralMatch: 0.15,
-  focusMatch: 0.1,
-} as const;
+import {
+  TARGET_STRATEGY_CONFIG,
+  type TargetEvidenceWeights,
+} from "./target-resolution-policy";
 
 const TEXT_LIKE_TYPES = new Set([
   "sentence",
@@ -25,6 +20,10 @@ const TEXT_LIKE_TYPES = new Set([
 
 export function rankTargetCandidates(
   input: TargetResolutionInput,
+  options: {
+    semanticMatches?: ReadonlyMap<string, number>;
+    weights?: TargetEvidenceWeights;
+  } = {},
 ): RankedTargetCandidate[] {
   const candidates = input.catalog.candidates.filter((candidate) =>
     candidateMatchesQueryType(candidate, input.query));
@@ -38,10 +37,14 @@ export function rankTargetCandidates(
         candidate,
         input,
         createdAtOrder,
+        options.semanticMatches,
       );
       return {
         candidate,
-        score: scoreEvidence(evidence),
+        score: scoreCandidateEvidence(
+          evidence,
+          options.weights ?? TARGET_STRATEGY_CONFIG[input.query.kind].weights,
+        ),
         evidence,
       };
     })
@@ -107,6 +110,7 @@ function buildCandidateEvidence(
   candidate: PageTargetCandidate,
   input: TargetResolutionInput,
   createdAtOrder: readonly PageTargetCandidate[],
+  semanticMatches?: ReadonlyMap<string, number>,
 ): CandidateEvidence {
   const queryText = textForQuery(input.query);
   const operationIndex = input.recentOperations.findIndex((operation) =>
@@ -142,7 +146,7 @@ function buildCandidateEvidence(
     fuzzyMatch: queryText === undefined || candidate.text === undefined
       ? null
       : fuzzyMatch(input.query, candidate.text),
-    semanticMatch: null,
+    semanticMatch: semanticMatches?.get(candidate.candidateId) ?? null,
     mathMatch: null,
     temporalMatch,
     structuralMatch: structuralMatch(input.query, candidate),
@@ -262,15 +266,16 @@ function textSpanStructuralMatch(
   return startIndex >= 0 && endIndex >= startIndex ? 1 : 0;
 }
 
-function scoreEvidence(evidence: CandidateEvidence): number {
+export function scoreCandidateEvidence(
+  evidence: CandidateEvidence,
+  weights: TargetEvidenceWeights,
+): number {
   let weightedScore = 0;
   let totalWeight = 0;
-  for (const key of Object.keys(EVIDENCE_WEIGHTS) as Array<
-    keyof typeof EVIDENCE_WEIGHTS
-  >) {
+  for (const key of Object.keys(weights) as Array<keyof CandidateEvidence>) {
     const value = evidence[key];
     if (value === null) continue;
-    const weight = EVIDENCE_WEIGHTS[key];
+    const weight = weights[key] ?? 0;
     weightedScore += value * weight;
     totalWeight += weight;
   }

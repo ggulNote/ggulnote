@@ -31,6 +31,7 @@ export interface EditorDirectCommandCompositionOptions {
   goToPage(page: number): void;
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
+  targetResolver?: FrozenTargetResolver;
 }
 
 export interface EditorDirectCommandComposition {
@@ -54,7 +55,7 @@ export function createEditorDirectCommandComposition(
   const planning = new DirectCommandPlanningPipeline({
     contextBuilder,
     planner: options.planner ?? new HttpDirectCommandPlannerProvider(),
-    resolver: new FrozenTargetResolver(),
+    resolver: options.targetResolver ?? new FrozenTargetResolver(),
     disambiguator: options.disambiguator
       ?? new HttpDirectTargetDisambiguatorProvider(),
     clock: options.clock,

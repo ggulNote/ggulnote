@@ -120,9 +120,14 @@ export class DirectCommandPlanningPipeline {
 
     const resolutionInput = toResolutionInput(context, plan.command.target);
     timestamps.resolverStartedAt = this.now();
-    let resolution = this.options.resolver.resolve(resolutionInput);
+    let resolution = await this.options.resolver.resolveAsync(resolutionInput, {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
     timestamps.resolverCompletedAt = this.now();
     diagnostics.resolutionStatus = resolution.status;
+    if (resolution.diagnostics !== undefined) {
+      Object.assign(diagnostics, resolution.diagnostics);
+    }
 
     if (resolution.status === "NOT_FOUND") {
       return {

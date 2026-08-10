@@ -1046,6 +1046,7 @@ export function DocumentWorkspace({
     try {
       const current = readVoiceTurnContext();
       return {
+        ...(state.document ? { documentId: state.document.id } : {}),
         scene: current.scene,
         ...(semanticDebugModel === null
           ? {}
@@ -1054,7 +1055,7 @@ export function DocumentWorkspace({
     } catch {
       return undefined;
     }
-  }, [readVoiceTurnContext, semanticDebugModel]);
+  }, [readVoiceTurnContext, semanticDebugModel, state.document]);
   const voiceDirectCommandComposition =
     useOwnedBrowserDirectCommandComposition({
       editorEngine,

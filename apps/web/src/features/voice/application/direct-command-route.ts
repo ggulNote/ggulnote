@@ -321,6 +321,33 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.candidateCount === undefined
         ? {}
         : { candidateCount: planningDiagnostics.candidateCount }),
+      ...(planningDiagnostics?.targetStrategy === undefined
+        ? {}
+        : { targetStrategy: planningDiagnostics.targetStrategy }),
+      ...(planningDiagnostics?.evidenceUsed === undefined
+        ? {}
+        : { evidenceUsed: { ...planningDiagnostics.evidenceUsed } }),
+      ...(planningDiagnostics?.embeddingUsed === undefined
+        ? {}
+        : { embeddingUsed: planningDiagnostics.embeddingUsed }),
+      ...(planningDiagnostics?.embeddingCandidateCount === undefined
+        ? {}
+        : { embeddingCandidateCount: planningDiagnostics.embeddingCandidateCount }),
+      ...(planningDiagnostics?.topSemanticScore === undefined
+        ? {}
+        : { topSemanticScore: planningDiagnostics.topSemanticScore }),
+      ...(planningDiagnostics?.topSemanticMargin === undefined
+        ? {}
+        : { topSemanticMargin: planningDiagnostics.topSemanticMargin }),
+      ...(planningDiagnostics?.queryEmbeddingMs === undefined
+        ? {}
+        : { queryEmbeddingMs: planningDiagnostics.queryEmbeddingMs }),
+      ...(planningDiagnostics?.embeddingSearchMs === undefined
+        ? {}
+        : { embeddingSearchMs: planningDiagnostics.embeddingSearchMs }),
+      ...(planningDiagnostics?.embeddingErrorCode === undefined
+        ? {}
+        : { embeddingErrorCode: planningDiagnostics.embeddingErrorCode }),
       disambiguationUsed: planningDiagnostics?.disambiguationUsed
         ?? ready?.disambiguationUsed
         ?? false,
