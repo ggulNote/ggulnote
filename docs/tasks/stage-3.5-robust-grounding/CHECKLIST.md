@@ -211,27 +211,27 @@ typed grounding evidence로 제공되어야 한다.
 
 # Phase E. Grounded LLM Recovery
 
-- [ ] 기존 Disambiguator와 공통화 가능성 조사
-- [ ] recoverable NOT_FOUND reason 정의
-- [ ] non-recoverable reason 정의
-- [ ] Recovery call max 1
-- [ ] SemanticUnit candidate-only recovery
-- [ ] TextSpan start/end anchor recovery
-- [ ] Object candidate-only recovery
+- [x] 기존 Disambiguator와 공통화 가능성 조사
+- [x] recoverable NOT_FOUND reason 정의
+- [x] non-recoverable reason 정의
+- [x] Recovery call max 1
+- [x] SemanticUnit candidate-only recovery
+- [x] TextSpan start/end anchor recovery
+- [x] Object candidate-only recovery
 - [ ] Subrange supported selector recovery
-- [ ] internal ID LLM 비노출
-- [ ] coordinate/offset LLM 생성 금지
-- [ ] capability/operation/relation/payload 변경 금지
-- [ ] NONE 결과 no mutation
-- [ ] Frozen page/revision 강제
-- [ ] Stage 3 Guard 재검증
-- [ ] targetRecoveryUsed diagnostics
-- [ ] recovery latency
-- [ ] actual `헨타이어 ↔ entire` fixture
-- [ ] actual `모얼오벌 ↔ Moreover`, `인스탠스 ↔ instance` fixture
-- [ ] target absent hallucination safety test
-- [ ] normal RESOLVED path 추가 LLM call 0
-- [ ] Phase E 문서 갱신
+- [x] internal ID LLM 비노출
+- [x] coordinate/offset LLM 생성 금지
+- [x] capability/operation/relation/payload 변경 금지
+- [x] NONE 결과 no mutation
+- [x] Frozen page/revision 강제
+- [x] Stage 3 Guard 재검증
+- [x] targetRecoveryUsed diagnostics
+- [x] recovery latency
+- [x] actual `헨타이어 ↔ entire` fixture
+- [x] actual `모얼오벌 ↔ Moreover`, `인스탠스 ↔ instance` fixture
+- [x] target absent hallucination safety test
+- [x] normal RESOLVED path 추가 LLM call 0
+- [x] Phase E 문서 갱신
 
 완료 조건:
 

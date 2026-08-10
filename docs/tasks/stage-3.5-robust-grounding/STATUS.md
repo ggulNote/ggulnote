@@ -8,12 +8,14 @@ Phase A: COMPLETE
 Phase B: COMPLETE
 Phase C: COMPLETE
 Phase D: COMPLETE
-Current Milestone: Phase E — Grounded LLM Recovery
+Phase E: COMPLETE
+Current Milestone: Phase F — Multi-Rect Execution / E2E / Completion
 ```
 
 `FrozenTargetResolver` facade는 기존 동기 API를 유지하고 production planning용
-async strategy router를 추가했다. Typed speech evidence는 turn context에서 한 번
-생성되며 Phase E/F 구현은 시작하지 않았다.
+async strategy router를 사용한다. Typed speech evidence는 turn context에서 한 번
+생성되며 recoverable `NOT_FOUND`만 bounded candidate-only LLM recovery로 보강한다.
+Phase F Editor multi-rect mutation은 시작하지 않았다.
 
 ## 2. Branch / 기준점
 
@@ -27,6 +29,11 @@ develop used: NO
 Phase A implementation: 9c66c23
 Phase B implementation: 49f8497
 Phase A/B docs: a3eb4a9
+Phase C implementation: 322466a
+Phase C docs: a84a3d0
+Phase D implementation: e9ff07f
+Phase D docs: 4b86f7c
+Phase D compatibility fix: 3019cf4
 ```
 
 ## 3. Phase A
@@ -149,7 +156,42 @@ embeddingErrorCode
 - normalization diagnostics는 사용 여부, hypothesis 수, math 상태, lexicon/context 크기와 latency만 보존하고 원문/lexicon 전체를 trace에 dump하지 않는다.
 - typed evidence만으로 target 또는 Editor mutation을 실행하지 않으며 Stage C scoring은 변경하지 않았다.
 
-## 10. Validation
+## 10. Phase E Grounded Recovery
+
+- 기존 `AMBIGUOUS`는 Stage 3 `DirectTargetDisambiguatorProvider` 경로를 유지한다.
+- `semantic_unit`, `text_span`, `object`의 `NO_MATCH`/`LOW_CONFIDENCE`만 recovery 가능하다.
+- relative focus/history 실패, unsupported subrange, target-kind unsupported, stale/Guard 실패는 recovery하지 않는다.
+- 한 planning turn에서 recovery provider는 최대 한 번 호출하며 재계획/재시도 loop가 없다.
+- `GroundedTargetRecoveryProvider`는 LLM/HTTP/fake 구현을 가지며 same-origin endpoint는 `/api/voice/direct-command/recover`다.
+- production composition은 privacy consent 없는 자동 외부 전송을 피하기 위해 provider를 명시적으로 주입한 경우에만 recovery를 활성화한다.
+- provider 미주입, evidence 부재, network/config 실패는 기존 deterministic terminal result로 degrade한다.
+
+Semantic/Object:
+
+- Frozen Page의 동일 semantic unit 또는 동일 object type 후보만 사용한다.
+- low-confidence embedding/ranking 후보, lexical ranking, focus, reading-order diversity를 union해 sentence 최대 24개, object 최대 16개로 제한한다.
+- model에는 `C*`/`O*` label과 bounded text만 노출하며 선택 후 Frozen catalog candidate로 다시 매핑한다.
+- Canvas semantic object recovery는 현재 실제 TEXT object만 지원한다.
+
+TextSpan:
+
+- Canonical Text Stream actual token과 Phase D document-grounded term hypothesis로 start `A*`, end `B*` 후보를 만든다.
+- token ID/offset/readingOrder/coordinate는 model에 노출하지 않는다.
+- duplicate anchor는 bounded neighboring text가 있는 별도 label로 유지한다.
+- 선택 후 코드가 same page, actual token 존재, forward order를 검증하고 actual range와 line별 `Rect[]`를 materialize한다.
+- 한쪽 실제 anchor 후보가 없으면 provider를 호출하지 않고 `NONE`으로 종료한다.
+
+Safety/Lifecycle:
+
+- strict output은 supplied label 또는 `NONE`만 허용하며 object ID, coordinate, operation 등 추가 field와 prose를 거부한다.
+- recovery는 capability/operation/relation/payload/TargetQuery를 변경할 API가 없다.
+- 복구 target은 기존 Stage 3 Guard에서 Frozen revision, target existence, permission/capability를 다시 검증한다.
+- AbortSignal, timeout, invalid output, unavailable provider를 normalized recovery 상태로 처리한다.
+- route idempotency/in-flight dedupe 바깥에 별도 loop나 history mutation을 추가하지 않았다.
+- diagnostics는 recovery 사용 여부/kind/candidate count/result/error/latency와 initial/final resolution status만 기록한다.
+- 전체 prompt, transcript, candidate dump, internal ID는 trace에 저장하지 않는다.
+
+## 11. Validation
 
 ```text
 Phase B targeted: 6 files / 20 tests PASS
@@ -175,6 +217,14 @@ Editor Core regression: PASS
 Web/Editor Core typecheck: PASS
 targeted/package lint: PASS
 git diff --check: PASS
+Phase E targeted: 5 files / 37 tests PASS
+Web regression: 89 files / 621 tests PASS
+Editor Core regression: 6 files / 47 tests PASS
+Web typecheck: PASS
+Editor Core typecheck: PASS
+Phase E targeted lint: PASS
+Web package lint: PASS
+Editor Core package lint: PASS
 ```
 
 Web full regression에서는 기존 `voice-debug-panel` happy-path 1건이 fake speech
@@ -190,25 +240,27 @@ Environment:
 - Web full run의 기존 jsdom canvas `getContext` stderr가 출력됐다.
 - Editor Core lint의 기존 React detect/pages-directory warning이 출력됐다.
 
-## 11. Current Limitations
+## 12. Current Limitations
 
 - embedding resolver integration은 sentence/paragraph/Canvas TEXT로 제한된다.
 - PDF/Canvas 자동 외부 전송 production wiring은 없다. explicit index composition에서만 provider를 호출한다.
 - English phonetic은 bounded deterministic hypothesis이며 hard recovery/확정은 하지 않는다.
-- Grounded LLM recovery는 없다.
+- Grounded recovery production wiring은 explicit provider injection/consent가 필요하며 기본 자동 외부 전송은 없다.
+- Semantic/Object recovery threshold의 final product tuning과 actual external LLM smoke는 수행하지 않았다.
 - spaced number sequence는 ambiguity를 유지하며 문맥 판정은 Phase E 이후 책임이다.
 - Math normalization은 기본 expression text/token 범위이며 typed Math AST/subrange는 없다.
 - multi-rect geometry는 resolve되지만 실제 annotation mutation은 single rect limitation을 유지한다.
 - 별도 Memo type이 없어 `memo` granularity record는 생성하지 않는다.
 - server vector DB/full-document default search는 없다.
 
-## 12. Next Milestone
+## 13. Next Milestone
 
 ```text
-Phase E — Grounded LLM Recovery
+Phase F — Multi-Rect Execution / E2E / Completion
 ```
 
-- AMBIGUOUS / recoverable NOT_FOUND
-- target-kind-specific candidate-only recovery
-- TextSpan start/end anchor recovery
-- NONE policy / recovery max 1
+- `ResolvedTextSpan.bounds: Rect[]` actual underline/highlight execution
+- generic grouped/multi-rect annotation representation
+- serialization/hydration
+- one logical operation / one Undo unit
+- Stage 3.5 final E2E and diagnostics evaluation
