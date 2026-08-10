@@ -227,6 +227,8 @@ typed grounding evidence로 제공되어야 한다.
 - [x] Stage 3 Guard 재검증
 - [x] targetRecoveryUsed diagnostics
 - [x] recovery latency
+- [x] browser production composition에 same-origin HTTP Recovery provider 연결
+- [x] development bounded Direct Command trace 노출
 - [x] actual `헨타이어 ↔ entire` fixture
 - [x] actual `모얼오벌 ↔ Moreover`, `인스탠스 ↔ instance` fixture
 - [x] target absent hallucination safety test

@@ -170,8 +170,8 @@ embeddingErrorCode
 - relative focus/history 실패, unsupported subrange, target-kind unsupported, stale/Guard 실패는 recovery하지 않는다.
 - 한 planning turn에서 recovery provider는 최대 한 번 호출하며 재계획/재시도 loop가 없다.
 - `GroundedTargetRecoveryProvider`는 LLM/HTTP/fake 구현을 가지며 same-origin endpoint는 `/api/voice/direct-command/recover`다.
-- production composition은 privacy consent 없는 자동 외부 전송을 피하기 위해 provider를 명시적으로 주입한 경우에만 recovery를 활성화한다.
-- provider 미주입, evidence 부재, network/config 실패는 기존 deterministic terminal result로 degrade한다.
+- browser production composition은 사용자 동의를 전제로 기존 same-origin `HttpGroundedTargetRecoveryProvider`를 기본 주입하며 recoverable `NOT_FOUND`에서만 `/api/voice/direct-command/recover`를 최대 한 번 호출한다.
+- 서버 `OPENAI_API_KEY` 미설정, evidence 부재, network/config 실패는 기존 deterministic terminal result로 degrade한다.
 
 Semantic/Object:
 
@@ -258,7 +258,6 @@ Environment:
 - embedding resolver integration은 sentence/paragraph/Canvas TEXT로 제한된다.
 - PDF/Canvas 자동 외부 전송 production wiring은 없다. explicit index composition에서만 provider를 호출한다.
 - English phonetic은 bounded deterministic hypothesis이며 hard recovery/확정은 하지 않는다.
-- Grounded recovery production wiring은 explicit provider injection/consent가 필요하며 기본 자동 외부 전송은 없다.
 - Semantic/Object recovery threshold의 final product tuning과 actual external LLM smoke는 수행하지 않았다.
 - spaced number sequence는 ambiguity를 유지하며 문맥 판정은 Phase E 이후 책임이다.
 - Math normalization은 기본 expression text/token 범위이며 typed Math AST/subrange는 없다.
@@ -319,9 +318,15 @@ Synthetic latency p50/p95: 60ms / 120ms
 Production activation:
 
 - deterministic grounding과 multi-rect execution은 default production path에서 활성이다.
-- embedding indexing/query와 grounded recovery는 외부 payload 전송 동의 및 explicit provider injection 시에만 활성이다.
-- 동의/주입이 없으면 기존 deterministic grounding으로 degrade하며 빈 evidence를 만들지 않는다.
-- actual external LLM smoke는 payload 전송 동의가 없어 `SKIPPED`다.
+- embedding indexing/query는 외부 payload 전송 동의 및 explicit provider injection 시에만 활성이다.
+- grounded recovery는 사용자 동의에 따라 browser production composition에서 활성이며 recoverable `NOT_FOUND`일 때만 bounded transcript/query/candidate context를 same-origin 서버 경계로 전송한다.
+- 서버 provider가 unavailable하면 기존 deterministic grounding으로 degrade하며 빈 evidence를 만들지 않는다.
+- actual external LLM smoke는 현재 환경에 `OPENAI_API_KEY`가 없어 `SKIPPED`다.
+
+Production diagnostics:
+
+- development 환경은 기존 `DirectCommandTraceStore`를 구독해 command kind, initial resolution reason, initial/final resolution, recovery result, Guard/execution status, error code와 latency만 `console.debug`로 노출한다.
+- raw transcript, candidate text, prompt/response, internal ID, coordinate, embedding vector는 console trace에 포함하지 않는다.
 
 ## 15. Stage 4 Handoff
 
