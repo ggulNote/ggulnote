@@ -22,6 +22,7 @@ import type { EditorSnapshot, PageSceneSnapshot } from "./editor-snapshot";
 import type { EditorOptions } from "./editor-options";
 import { EditorHistoryAction, type EditorEvents, type EditorPersistenceEvent } from "./editor-events";
 import { isFiniteNumber } from "./editor-utils";
+import type { Annotation } from "../annotations/annotation";
 export const DEFAULT_HISTORY_LIMIT = 100;
 
 type DragMode = "move" | "resize";
@@ -591,8 +592,10 @@ export class EditorEngine {
     this.emit();
   }
 
-  private canResizeAnnotation(annotation: { type: string }): boolean {
-    return annotation.type !== "LINE";
+  private canResizeAnnotation(annotation: Annotation): boolean {
+    const rects = "rects" in annotation ? annotation.rects : undefined;
+    return annotation.type !== "LINE"
+      && (!Array.isArray(rects) || rects.length <= 1);
   }
 
   private applyResize(annotation: { bounds: { x: number; y: number; width: number; height: number } }, pointerX: number, pointerY: number): void {

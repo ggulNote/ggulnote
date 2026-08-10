@@ -1,5 +1,10 @@
-import type { NormalizedPoint, Size } from "@ggulnote/shared-types";
+import type { NormalizedPoint, NormalizedRect, Size } from "@ggulnote/shared-types";
 import { translateRect } from "../geometry/geometry-utils";
+import {
+  clampAnnotationRectGroupToBounds,
+  translateAnnotationRects,
+  unionAnnotationRects,
+} from "../geometry/multi-rect-geometry";
 import { Annotation } from "./annotation";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
 import { isPointNearRect } from "../geometry/bounds-utils";
@@ -16,18 +21,38 @@ export class HighlightAnnotation extends Annotation {
     updatedAt: number,
     public opacity: number,
     public color: string,
+    public rects?: NormalizedRect[],
   ) {
     super(id, pageId, bounds, zIndex, createdAt, updatedAt);
   }
 
   public hitTest(point: NormalizedPoint, pageSize: Size): boolean {
     const tolerance = Math.max(0.002, 6 / Math.max(1, Math.max(pageSize.width, pageSize.height)));
-    return isPointNearRect(point, this.bounds, tolerance);
+    return this.getRects().some((rect) => isPointNearRect(point, rect, tolerance));
   }
 
   public translate(delta: NormalizedPoint): void {
+    if (this.rects !== undefined) {
+      this.rects = translateAnnotationRects(this.rects, delta);
+      this.bounds = unionAnnotationRects(this.rects);
+      this.touch();
+      return;
+    }
     this.bounds = translateRect(this.bounds, delta);
     this.touch();
+  }
+
+  public override clampToBounds(pageSize: Size): void {
+    if (this.rects === undefined) {
+      super.clampToBounds(pageSize);
+      return;
+    }
+    this.rects = clampAnnotationRectGroupToBounds(this.rects);
+    this.bounds = unionAnnotationRects(this.rects);
+  }
+
+  public getRects(): readonly NormalizedRect[] {
+    return this.rects ?? [this.bounds];
   }
 
   public clone(): HighlightAnnotation {
@@ -40,6 +65,7 @@ export class HighlightAnnotation extends Annotation {
       this.updatedAt,
       this.opacity,
       this.color,
+      this.rects?.map((rect) => ({ ...rect })),
     );
   }
 
@@ -50,6 +76,9 @@ export class HighlightAnnotation extends Annotation {
       pageId: this.pageId,
       type: this.type,
       bounds: { ...this.bounds },
+      ...(this.rects === undefined
+        ? {}
+        : { rects: this.rects.map((rect) => ({ ...rect })) }),
       zIndex: this.zIndex,
       properties: {
         opacity: this.opacity,

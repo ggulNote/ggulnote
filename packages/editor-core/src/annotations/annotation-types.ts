@@ -1,4 +1,6 @@
-import type { PageId } from "@ggulnote/shared-types";
+import type { NormalizedRect, PageId } from "@ggulnote/shared-types";
+
+export const MAX_ANNOTATION_RECT_COUNT = 256;
 
 export const DEFAULT_ANNOTATION_STYLE = {
   stroke: "#1f2937",
@@ -61,12 +63,8 @@ export type CreateAnnotationInput =
   | {
       type: "UNDERLINE";
       pageId: PageId;
-      bounds: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-      };
+      bounds: NormalizedRect;
+      rects?: readonly NormalizedRect[];
       color?: string;
       thickness?: number;
       lineStyle?: "solid" | "double" | "wavy";
@@ -74,12 +72,8 @@ export type CreateAnnotationInput =
   | {
       type: "HIGHLIGHT";
       pageId: PageId;
-      bounds: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-      };
+      bounds: NormalizedRect;
+      rects?: readonly NormalizedRect[];
       color?: string;
       opacity?: number;
     }

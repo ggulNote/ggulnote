@@ -6,6 +6,7 @@ import { TableAnnotation } from "./table-annotation";
 import { TextAnnotation } from "./text-annotation";
 import { UnderlineAnnotation } from "./underline-annotation";
 import { clampPoint, clampRectToBounds } from "../geometry/geometry-utils";
+import { normalizeAnnotationRects, unionAnnotationRects } from "../geometry/multi-rect-geometry";
 import type { AnnotationId, PageId, NormalizedPoint, NormalizedRect } from "@ggulnote/shared-types";
 import type { Annotation } from "./annotation";
 
@@ -122,33 +123,45 @@ export class AnnotationFactory {
       }
 
       case "UNDERLINE": {
-        const bounds = ensureBounds(input.bounds);
+        const rects = input.rects === undefined
+          ? undefined
+          : normalizeAnnotationRects(input.rects);
+        const bounds = rects === undefined
+          ? clampRectToBounds({ ...ensureBounds(input.bounds) })
+          : unionAnnotationRects(rects);
 
         return new UnderlineAnnotation(
           base.id,
           base.pageId,
-          clampRectToBounds({ ...bounds }),
+          bounds,
           base.zIndex,
           base.createdAt,
           base.updatedAt,
           Math.round(ensureNumber(input.thickness ?? DEFAULT_ANNOTATION_STYLE_PROPS.underlineThickness, "underline.thickness")),
           ensureLineStyle(input.lineStyle),
           normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
+          rects,
         );
       }
 
       case "HIGHLIGHT": {
-        const bounds = ensureBounds(input.bounds);
+        const rects = input.rects === undefined
+          ? undefined
+          : normalizeAnnotationRects(input.rects);
+        const bounds = rects === undefined
+          ? clampRectToBounds({ ...ensureBounds(input.bounds) })
+          : unionAnnotationRects(rects);
 
         return new HighlightAnnotation(
           base.id,
           base.pageId,
-          clampRectToBounds({ ...bounds }),
+          bounds,
           base.zIndex,
           base.createdAt,
           base.updatedAt,
           ensureOpacity(input.opacity, DEFAULT_ANNOTATION_STYLE_PROPS.highlightOpacity),
           normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.highlightColor),
+          rects,
         );
       }
 
