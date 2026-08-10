@@ -164,41 +164,41 @@ semantic query는 embedding evidence를 실제로 사용할 수 있어야 한다
 
 ## D1. Raw Evidence
 
-- [ ] Raw Final Transcript 보존
-- [ ] normalization이 raw를 overwrite하지 않음
-- [ ] optional ASR alternatives 연결 가능 contract
+- [x] Raw Final Transcript 보존
+- [x] normalization이 raw를 overwrite하지 않음
+- [x] optional ASR alternatives 연결 가능 contract
 
 ## D2. Document Term / English Phonetic
 
-- [ ] Document Lexicon source 정의
-- [ ] 실제 page/document term만 후보화
-- [ ] 한국어식 영어 음차 hypothesis interface
-- [ ] lexical/fuzzy와 결합
+- [x] Document Lexicon source 정의
+- [x] 실제 page/document term만 후보화
+- [x] 한국어식 영어 음차 hypothesis interface
+- [x] lexical/fuzzy와 결합
 - [ ] 필요 시 LLM Recovery가 최종 판단
-- [ ] 자유 영어 rewrite를 authoritative target으로 사용하지 않음
+- [x] 자유 영어 rewrite를 authoritative target으로 사용하지 않음
 
 ## D3. Number
 
-- [ ] integer
-- [ ] decimal
-- [ ] percent
-- [ ] sequence
-- [ ] power
-- [ ] 문맥별 ambiguity 유지
+- [x] integer
+- [x] decimal
+- [x] percent
+- [x] sequence
+- [x] power
+- [x] 문맥별 ambiguity 유지
 
 ## D4. Math
 
-- [ ] 기존 Math AST/model 조사
-- [ ] spoken number/operator normalization
-- [ ] MathNormalizationResult contract
-- [ ] 지원 범위 tests
-- [ ] 미지원 구조는 가짜 AST 생성 금지
+- [x] 기존 Math AST/model 조사
+- [x] spoken number/operator normalization
+- [x] MathNormalizationResult contract
+- [x] 지원 범위 tests
+- [x] 미지원 구조는 가짜 AST 생성 금지
 
 ## D5. Optional STT Bias
 
-- [ ] 현재 STT provider가 contextual keyword/prompt를 지원하는지 확인
-- [ ] 지원 시 bounded terms 제공
-- [ ] 지원 안 해도 core grounding 동작
+- [x] 현재 STT provider가 contextual keyword/prompt를 지원하는지 확인
+- [x] 지원 시 bounded terms 제공
+- [x] 지원 안 해도 core grounding 동작
 
 완료 조건:
 

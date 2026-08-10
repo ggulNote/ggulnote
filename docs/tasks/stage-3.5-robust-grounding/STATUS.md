@@ -7,11 +7,13 @@ Stage: 3.5 — Robust Multigranular Grounding
 Phase A: COMPLETE
 Phase B: COMPLETE
 Phase C: COMPLETE
-Current Milestone: Phase D — Typed Speech Normalization
+Phase D: COMPLETE
+Current Milestone: Phase E — Grounded LLM Recovery
 ```
 
 `FrozenTargetResolver` facade는 기존 동기 API를 유지하고 production planning용
-async strategy router를 추가했다. Phase D/E/F 구현은 시작하지 않았다.
+async strategy router를 추가했다. Typed speech evidence는 turn context에서 한 번
+생성되며 Phase E/F 구현은 시작하지 않았다.
 
 ## 2. Branch / 기준점
 
@@ -131,7 +133,22 @@ queryEmbeddingMs / embeddingSearchMs
 embeddingErrorCode
 ```
 
-## 9. Validation
+## 9. Phase D Typed Speech Normalization
+
+- `SpeechGroundingEvidence`가 raw final transcript를 그대로 보존하고 term/number/math/context evidence를 별도 제공한다.
+- `DirectCommandContextBuilder`가 Frozen Page catalog 생성 후 normalizer를 한 번 호출하고 같은 evidence 참조를 resolver input에 전달한다.
+- Document Lexicon은 Frozen Page의 PDF word/line/sentence/paragraph와 Canvas TEXT candidate만 사용하며 최대 256개다.
+- lexicon은 semantic/scene catalog에서 deterministic하게 재생성하므로 별도 IndexedDB persistence를 추가하지 않았다.
+- 한국어식 영어 음차는 lightweight consonant/romanized edit heuristic으로 실제 lexicon 후보만 최대 3개 제공한다.
+- `NumberHypothesis`는 integer/decimal/percent/sequence/power를 typed result로 제공하고 `이 삼`은 복수 ambiguous hypothesis로 유지한다.
+- Editor의 현재 Math model은 `latex + optional mathJson`이며 typed AST가 없으므로 새 AST를 만들지 않는다.
+- Math normalization은 x/y/z, 수, 기본 연산자, 제곱, 등호, 괄호만 normalized text/token으로 제공한다.
+- optional ASR alternatives 입력 contract를 제공한다. 현재 Web Speech runtime은 top-1 transcript만 turn record에 보존한다.
+- Web Speech의 experimental phrase bias 지원은 기존 bounded 30-term adapter를 유지하며, Phase D context terms는 focus 우선 Frozen Page 목록이다.
+- normalization diagnostics는 사용 여부, hypothesis 수, math 상태, lexicon/context 크기와 latency만 보존하고 원문/lexicon 전체를 trace에 dump하지 않는다.
+- typed evidence만으로 target 또는 Editor mutation을 실행하지 않으며 Stage C scoring은 변경하지 않았다.
+
+## 10. Validation
 
 ```text
 Phase B targeted: 6 files / 20 tests PASS
@@ -143,6 +160,12 @@ Editor Core regression: 6 files / 47 tests PASS
 Editor Core typecheck: PASS
 Editor Core lint: PASS (existing config warnings only)
 git diff --check: PASS
+Phase D targeted: PASS
+Stage 3.5 Phase A/B/C regression: PASS
+Voice/Web regression: PASS
+Editor Core regression: PASS
+Web/Editor Core typecheck: PASS
+targeted/package lint: PASS
 Actual network smoke: SKIPPED
 Phase C targeted: PASS
 Stage 3.5 Phase A/B regression: PASS
@@ -166,25 +189,25 @@ Environment:
 - Web full run의 기존 jsdom canvas `getContext` stderr가 출력됐다.
 - Editor Core lint의 기존 React detect/pages-directory warning이 출력됐다.
 
-## 10. Current Limitations
+## 11. Current Limitations
 
 - embedding resolver integration은 sentence/paragraph/Canvas TEXT로 제한된다.
 - PDF/Canvas 자동 외부 전송 production wiring은 없다. explicit index composition에서만 provider를 호출한다.
-- English phonetic, document lexicon recovery, LLM recovery는 없다.
-- Number/Math normalization은 없다.
+- English phonetic은 bounded deterministic hypothesis이며 hard recovery/확정은 하지 않는다.
+- Grounded LLM recovery는 없다.
+- spaced number sequence는 ambiguity를 유지하며 문맥 판정은 Phase E 이후 책임이다.
+- Math normalization은 기본 expression text/token 범위이며 typed Math AST/subrange는 없다.
 - multi-rect geometry는 resolve되지만 실제 annotation mutation은 single rect limitation을 유지한다.
 - 별도 Memo type이 없어 `memo` granularity record는 생성하지 않는다.
 - server vector DB/full-document default search는 없다.
 
-## 11. Next Milestone
+## 12. Next Milestone
 
 ```text
-Phase D — Typed Speech Normalization
+Phase E — Grounded LLM Recovery
 ```
 
-- Raw STT 보존
-- Document Lexicon
-- 한국어식 영어 음차 hypothesis
-- NumberHypothesis
-- MathNormalizationResult
-- optional STT contextual bias
+- AMBIGUOUS / recoverable NOT_FOUND
+- target-kind-specific candidate-only recovery
+- TextSpan start/end anchor recovery
+- NONE policy / recovery max 1
