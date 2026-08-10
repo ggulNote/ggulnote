@@ -10,10 +10,7 @@ SYSTEM POLICY
 - Never create or return an object ID, candidate ID, token ID, offset, coordinate, capability, operation, relation, payload, TargetQuery, or prose.
 - Never change the command meaning.
 - Return exactly one JSON object and no markdown.
-
-OUTPUT CONTRACT
-- semantic_unit/object: {"status":"SELECTED","candidateLabel":"<supplied label>"} or {"status":"NONE"}
-- text_span: {"status":"SELECTED","startLabel":"<supplied A label>","endLabel":"<supplied B label>"} or {"status":"NONE"}`;
+- Follow only the request-specific output contract below. Never use fields from another target kind.`;
 
 export function buildGroundedTargetRecoveryModelRequest(
   input: GroundedTargetRecoveryInput,
@@ -25,7 +22,10 @@ export function buildGroundedTargetRecoveryModelRequest(
       }
     : { candidates: input.candidates };
   return {
-    instructions: GROUNDED_TARGET_RECOVERY_SYSTEM_POLICY,
+    instructions: [
+      GROUNDED_TARGET_RECOVERY_SYSTEM_POLICY,
+      buildRequestSpecificOutputContract(input),
+    ].join("\n\n"),
     input: [
       message("USER_TARGET_CONTEXT", {
         kind: input.kind,
@@ -41,6 +41,26 @@ export function buildGroundedTargetRecoveryModelRequest(
     ],
     maxOutputTokens: 120,
   };
+}
+
+function buildRequestSpecificOutputContract(
+  input: GroundedTargetRecoveryInput,
+): string {
+  if (input.kind === "text_span") {
+    return `REQUEST-SPECIFIC OUTPUT CONTRACT: text_span
+- Allowed startLabel values: ${JSON.stringify(input.startCandidates.map(({ label }) => label))}
+- Allowed endLabel values: ${JSON.stringify(input.endCandidates.map(({ label }) => label))}
+- SELECTED must contain exactly: status, startLabel, endLabel.
+- NONE must contain exactly: status.
+- Return {"status":"NONE"} unless both selected labels occur verbatim in their corresponding allowed list.
+- Never return candidateLabel for text_span.`;
+  }
+  return `REQUEST-SPECIFIC OUTPUT CONTRACT: ${input.kind}
+- Allowed candidateLabel values: ${JSON.stringify(input.candidates.map(({ label }) => label))}
+- SELECTED must contain exactly: status, candidateLabel.
+- NONE must contain exactly: status.
+- Return {"status":"NONE"} unless the selected label occurs verbatim in the allowed list.
+- Never return startLabel or endLabel for ${input.kind}.`;
 }
 
 function message(section: string, data: unknown) {

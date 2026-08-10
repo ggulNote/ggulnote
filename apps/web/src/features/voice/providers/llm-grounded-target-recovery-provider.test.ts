@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DirectAiProviderError,
   type GroundedTargetRecoveryInput,
@@ -132,13 +132,41 @@ describe("LlmGroundedTargetRecoveryProvider", () => {
       startCandidates: [{ label: "A1", text: "Moreover", context: "Moreover modern" }],
       endCandidates: [{ label: "B1", text: "instance", context: "For instance" }],
     };
-    const provider = new LlmGroundedTargetRecoveryProvider(
-      new StubTransport('{"status":"SELECTED","startLabel":"A1","endLabel":"B1"}'),
+    const transport = new StubTransport(
+      '{"status":"SELECTED","startLabel":"A1","endLabel":"B1"}',
     );
+    const provider = new LlmGroundedTargetRecoveryProvider(transport);
     await expect(provider.recover(input)).resolves.toEqual({
       status: "SELECTED",
       startLabel: "A1",
       endLabel: "B1",
     });
+    const request = transport.calls[0];
+    expect(request.instructions).toContain("REQUEST-SPECIFIC OUTPUT CONTRACT: text_span");
+    expect(request.instructions).toContain('Allowed startLabel values: ["A1"]');
+    expect(request.instructions).toContain('Allowed endLabel values: ["B1"]');
+    expect(request.instructions).toContain("Never return candidateLabel for text_span");
+  });
+
+  it("logs only bounded validation metadata for invalid recovery output", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const provider = new LlmGroundedTargetRecoveryProvider(
+      new StubTransport('{"status":"SELECTED","candidateLabel":"C1","objectId":"secret-object"}'),
+    );
+
+    await expect(provider.recover(INPUT)).rejects.toMatchObject({
+      code: "PLANNER_INVALID_OUTPUT",
+      reason: "INVALID_OUTPUT",
+    });
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[direct-command-ai] Recovery output validation failure",
+      expect.objectContaining({
+        kind: "SCHEMA_VALIDATION",
+        path: "result.objectId",
+      }),
+    );
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain("secret-object");
+    consoleError.mockRestore();
   });
 });
