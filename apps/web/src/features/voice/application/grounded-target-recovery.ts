@@ -8,7 +8,7 @@ import {
   type GroundedTargetRecoveryCandidate,
   type GroundedTargetRecoveryInput,
   type GroundedTargetRecoveryKind,
-  type GroundedTextAnchorCandidate,
+  type GroundedTextSpanPairCandidate,
   type PageTargetCandidate,
   type RankedTargetCandidate,
   type SpeechGroundingEvidence,
@@ -22,15 +22,15 @@ import {
   buildCanonicalTextStream,
   materializeCanonicalTextRange,
   type CanonicalTextStream,
-  type CanonicalTextToken,
 } from "./canonical-text-stream";
 import {
-  compactGroundingText,
-  fuzzyTextSimilarity,
-  normalizeGroundingText,
   rankTargetCandidates,
 } from "./candidate-ranker";
 import { FrozenTargetResolver } from "./frozen-target-resolver";
+import {
+  groundTextSpan,
+  type SpanPairCandidate,
+} from "./text-span-grounder";
 
 type NotFoundResolution = Extract<TargetResolutionResult, { status: "NOT_FOUND" }>;
 type ResolvedResolution = Extract<TargetResolutionResult, { status: "RESOLVED" }>;
@@ -51,7 +51,7 @@ export type GroundedTargetRecoveryAttempt =
       status: "RESOLVED";
       kind: GroundedTargetRecoveryKind;
       candidateCount: number;
-      providerCalled: true;
+      providerCalled: boolean;
       resolution: ResolvedResolution;
     }
   | {
@@ -249,33 +249,43 @@ export class GroundedTargetRecovery implements GroundedTargetRecoveryPort {
         providerCalled: false,
       };
     }
-    const start = buildAnchorCandidates(
-      canonical.stream,
-      query.startAnchor,
-      "A",
-      request.context.speechGroundingEvidence,
-    );
-    const end = buildAnchorCandidates(
-      canonical.stream,
-      query.endAnchor,
-      "B",
-      request.context.speechGroundingEvidence,
-    );
-    const candidateCount = start.safe.length + end.safe.length;
-    if (start.safe.length === 0 || end.safe.length === 0) {
+    const grounding = groundTextSpan({
+      stream: canonical.stream,
+      query,
+      ...(request.context.speechGroundingEvidence === undefined
+        ? {}
+        : { speechEvidence: request.context.speechGroundingEvidence }),
+      ...(request.resolutionInput.frozenContext.focusObjectId === undefined
+        ? {}
+        : { focusObjectId: request.resolutionInput.frozenContext.focusObjectId }),
+    });
+    if (grounding.status === "NOT_FOUND") {
       return {
         status: "NONE",
         kind: "text_span",
-        candidateCount,
+        candidateCount: 0,
         providerCalled: false,
       };
+    }
+    if (grounding.status === "RESOLVED") {
+      return this.resolveTextSpanPair(request, canonical, grounding.pair, 1, false);
+    }
+    const boundedPairs = grounding.pairs.slice(0, TARGET_RECOVERY_LIMITS.spanPairCandidates);
+    const byLabel = new Map<string, SpanPairCandidate>();
+    const pairCandidates: GroundedTextSpanPairCandidate[] = boundedPairs.map((pair, index) => {
+      const label = `P${index + 1}`;
+      byLabel.set(label, pair);
+      return toSafeSpanPair(label, pair);
+    });
+    const candidateCount = pairCandidates.length;
+    if (candidateCount === 0) {
+      return { status: "NONE", kind: "text_span", candidateCount: 0, providerCalled: false };
     }
     const input: GroundedTargetRecoveryInput = {
       ...recoveryInputBase(request),
       kind: "text_span",
       targetQuery: query,
-      startCandidates: start.safe,
-      endCandidates: end.safe,
+      pairCandidates,
     };
     const result = await this.callProvider(
       input,
@@ -292,7 +302,7 @@ export class GroundedTargetRecovery implements GroundedTargetRecoveryPort {
         providerCalled: true,
       };
     }
-    if (!("startLabel" in result) || !("endLabel" in result)) {
+    if (!("pairLabel" in result)) {
       return {
         status: "INVALID",
         kind: "text_span",
@@ -300,15 +310,8 @@ export class GroundedTargetRecovery implements GroundedTargetRecoveryPort {
         providerCalled: true,
       };
     }
-    const startToken = start.byLabel.get(result.startLabel);
-    const endToken = end.byLabel.get(result.endLabel);
-    if (
-      startToken === undefined
-      || endToken === undefined
-      || startToken.index > endToken.index
-      || startToken.token.pageId !== request.resolutionInput.frozenContext.pageId
-      || endToken.token.pageId !== request.resolutionInput.frozenContext.pageId
-    ) {
+    const selectedPair = byLabel.get(result.pairLabel);
+    if (selectedPair === undefined) {
       return {
         status: "INVALID",
         kind: "text_span",
@@ -316,11 +319,18 @@ export class GroundedTargetRecovery implements GroundedTargetRecoveryPort {
         providerCalled: true,
       };
     }
-    const materialized = materializeCanonicalTextRange(canonical.stream, {
-      startIndex: startToken.index,
-      endIndex: endToken.index,
-    });
-    const sourceId = startToken.token.sourceObjectId;
+    return this.resolveTextSpanPair(request, canonical, selectedPair, candidateCount, true);
+  }
+
+  private resolveTextSpanPair(
+    request: GroundedTargetRecoveryRequest,
+    canonical: ReturnType<typeof buildRecoveryCanonicalStream> & {},
+    pair: SpanPairCandidate,
+    candidateCount: number,
+    providerCalled: boolean,
+  ): GroundedTargetRecoveryAttempt {
+    const materialized = materializeCanonicalTextRange(canonical.stream, pair.range);
+    const sourceId = pair.materialized.selectedTokens[0]?.sourceObjectId;
     const sourceCandidate = sourceId === undefined
       ? undefined
       : canonical.sourceCandidates.get(sourceId);
@@ -329,17 +339,17 @@ export class GroundedTargetRecovery implements GroundedTargetRecoveryPort {
         status: "INVALID",
         kind: "text_span",
         candidateCount,
-        providerCalled: true,
+        providerCalled,
       };
     }
     return {
       status: "RESOLVED",
       kind: "text_span",
       candidateCount,
-      providerCalled: true,
+      providerCalled,
       resolution: {
         status: "RESOLVED",
-        confidence: 0.75,
+        confidence: Math.max(0.75, pair.score),
         target: {
           candidateId: sourceCandidate.candidateId,
           kind: "text_span",
@@ -572,62 +582,23 @@ function buildRecoveryCanonicalStream(
   };
 }
 
-function buildAnchorCandidates(
-  stream: CanonicalTextStream,
-  rawAnchor: string,
-  prefix: "A" | "B",
-  evidence: SpeechGroundingEvidence | undefined,
-): {
-  safe: readonly GroundedTextAnchorCandidate[];
-  byLabel: ReadonlyMap<string, { token: CanonicalTextToken; index: number }>;
-} {
-  const hypotheses = matchingHypothesisValues(rawAnchor, evidence);
-  const normalizedAnchor = compactGroundingText(normalizeGroundingText(rawAnchor));
-  const scored = stream.tokens.flatMap((token, index) => {
-    const normalizedToken = compactGroundingText(normalizeGroundingText(token.text));
-    const hypothesisMatch = hypotheses.has(normalizedToken);
-    const exact = normalizedToken.length > 0 && normalizedToken === normalizedAnchor;
-    const fuzzy = fuzzyTextSimilarity(token.text, rawAnchor);
-    const score = exact || hypothesisMatch ? 1 : fuzzy;
-    return score >= 0.55 ? [{ token, index, score }] : [];
-  }).sort((left, right) =>
-    right.score - left.score
-    || left.token.readingOrder - right.token.readingOrder
-    || left.token.id.localeCompare(right.token.id))
-    .slice(0, TARGET_RECOVERY_LIMITS.anchorCandidatesPerSide);
-  const byLabel = new Map<string, { token: CanonicalTextToken; index: number }>();
-  const safe = scored.map((entry, index) => {
-    const label = `${prefix}${index + 1}`;
-    byLabel.set(label, { token: entry.token, index: entry.index });
-    return {
-      label,
-      text: boundText(entry.token.text, 120),
-      context: boundText(
-        stream.tokens
-          .slice(Math.max(0, entry.index - 4), entry.index + 5)
-          .map((token) => token.text)
-          .join(" "),
-        TARGET_RECOVERY_LIMITS.anchorContextChars,
-      ),
-    };
-  });
-  return { safe, byLabel };
-}
-
-function matchingHypothesisValues(
-  rawAnchor: string,
-  evidence: SpeechGroundingEvidence | undefined,
-): ReadonlySet<string> {
-  const anchor = compactGroundingText(normalizeGroundingText(rawAnchor));
-  const values = new Set<string>();
-  for (const hypothesis of evidence?.termHypotheses ?? []) {
-    const raw = compactGroundingText(normalizeGroundingText(hypothesis.rawSpan));
-    if (raw.length === 0 || (!anchor.includes(raw) && !raw.includes(anchor))) continue;
-    for (const candidate of hypothesis.candidates) {
-      values.add(compactGroundingText(normalizeGroundingText(candidate.value)));
-    }
-  }
-  return values;
+function toSafeSpanPair(
+  label: string,
+  pair: SpanPairCandidate,
+): GroundedTextSpanPairCandidate {
+  return {
+    label,
+    startText: boundText(pair.start.text, 120),
+    endText: boundText(pair.end.text, 120),
+    preview: boundText(pair.preview, TARGET_RECOVERY_LIMITS.anchorContextChars),
+    relation: {
+      sameSentence: pair.evidence.sameSentence,
+      sameParagraph: pair.evidence.sameParagraph,
+      rangeLength: pair.evidence.tokenDistance <= 24
+        ? "short"
+        : pair.evidence.tokenDistance <= 96 ? "medium" : "long",
+    },
+  };
 }
 
 function recoveryErrorCode(

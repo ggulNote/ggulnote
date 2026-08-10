@@ -16,10 +16,7 @@ export function buildGroundedTargetRecoveryModelRequest(
   input: GroundedTargetRecoveryInput,
 ): DirectTextModelRequest {
   const candidates = input.kind === "text_span"
-    ? {
-        startCandidates: input.startCandidates,
-        endCandidates: input.endCandidates,
-      }
+    ? { pairCandidates: input.pairCandidates }
     : { candidates: input.candidates };
   return {
     instructions: [
@@ -48,11 +45,10 @@ function buildRequestSpecificOutputContract(
 ): string {
   if (input.kind === "text_span") {
     return `REQUEST-SPECIFIC OUTPUT CONTRACT: text_span
-- Allowed startLabel values: ${JSON.stringify(input.startCandidates.map(({ label }) => label))}
-- Allowed endLabel values: ${JSON.stringify(input.endCandidates.map(({ label }) => label))}
-- SELECTED must contain exactly: status, startLabel, endLabel.
+- Allowed pairLabel values: ${JSON.stringify(input.pairCandidates.map(({ label }) => label))}
+- SELECTED must contain exactly: status, pairLabel.
 - NONE must contain exactly: status.
-- Return {"status":"NONE"} unless both selected labels occur verbatim in their corresponding allowed list.
+- Return {"status":"NONE"} unless the selected pair label occurs verbatim in the allowed list.
 - Never return candidateLabel for text_span.`;
   }
   return `REQUEST-SPECIFIC OUTPUT CONTRACT: ${input.kind}

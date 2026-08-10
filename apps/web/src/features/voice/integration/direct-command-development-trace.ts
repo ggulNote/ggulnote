@@ -12,6 +12,17 @@ export interface DirectCommandDevelopmentTraceSummary {
   localTermUniverseSize?: number;
   phoneticHitCount?: number;
   mergedCandidateCount?: number;
+  startAnchorChunkCount?: number;
+  endAnchorChunkCount?: number;
+  startAnchorCandidateCount?: number;
+  endAnchorCandidateCount?: number;
+  multiTokenAnchorUsed?: boolean;
+  spanPairCandidateCount?: number;
+  topSpanPairScore?: number;
+  topSpanPairMargin?: number;
+  spanPairResolvedDeterministically?: boolean;
+  spanPairRecoveryUsed?: boolean;
+  spanPairRecoveryResult?: DirectCommandTrace["spanPairRecoveryResult"];
   initialResolutionStatus?: DirectCommandTrace["initialResolutionStatus"];
   initialResolutionReason?: DirectCommandTrace["initialResolutionReason"];
   targetRecoveryUsed: boolean;
@@ -80,6 +91,28 @@ export function summarizeDirectCommandTrace(
     ...(trace.mergedCandidateCount === undefined
       ? {}
       : { mergedCandidateCount: trace.mergedCandidateCount }),
+    ...(trace.startAnchorChunkCount === undefined
+      ? {} : { startAnchorChunkCount: trace.startAnchorChunkCount }),
+    ...(trace.endAnchorChunkCount === undefined
+      ? {} : { endAnchorChunkCount: trace.endAnchorChunkCount }),
+    ...(trace.startAnchorCandidateCount === undefined
+      ? {} : { startAnchorCandidateCount: trace.startAnchorCandidateCount }),
+    ...(trace.endAnchorCandidateCount === undefined
+      ? {} : { endAnchorCandidateCount: trace.endAnchorCandidateCount }),
+    ...(trace.multiTokenAnchorUsed === undefined
+      ? {} : { multiTokenAnchorUsed: trace.multiTokenAnchorUsed }),
+    ...(trace.spanPairCandidateCount === undefined
+      ? {} : { spanPairCandidateCount: trace.spanPairCandidateCount }),
+    ...(trace.topSpanPairScore === undefined
+      ? {} : { topSpanPairScore: trace.topSpanPairScore }),
+    ...(trace.topSpanPairMargin === undefined
+      ? {} : { topSpanPairMargin: trace.topSpanPairMargin }),
+    ...(trace.spanPairResolvedDeterministically === undefined
+      ? {} : { spanPairResolvedDeterministically: trace.spanPairResolvedDeterministically }),
+    ...(trace.spanPairRecoveryUsed === undefined
+      ? {} : { spanPairRecoveryUsed: trace.spanPairRecoveryUsed }),
+    ...(trace.spanPairRecoveryResult === undefined
+      ? {} : { spanPairRecoveryResult: trace.spanPairRecoveryResult }),
     ...(trace.command === undefined
       ? {}
       : { command: `${trace.command.capability}.${trace.command.operation}` }),

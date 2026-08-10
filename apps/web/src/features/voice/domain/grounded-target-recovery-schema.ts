@@ -4,7 +4,7 @@ import {
   type GroundedTargetRecoveryCandidate,
   type GroundedTargetRecoveryInput,
   type GroundedTargetRecoveryResult,
-  type GroundedTextAnchorCandidate,
+  type GroundedTextSpanPairCandidate,
   type TargetRecoverySpeechEvidence,
 } from "./grounded-target-recovery-types";
 import {
@@ -34,8 +34,7 @@ export function parseGroundedTargetRecoveryInput(
     "frozenContext",
     "speechEvidence",
     "candidates",
-    "startCandidates",
-    "endCandidates",
+    "pairCandidates",
   ], "input");
   const kind = readRecoveryKind(input.kind, "input.kind");
   const targetQuery = parseTargetQuery(input.targetQuery, "input.targetQuery");
@@ -84,16 +83,7 @@ export function parseGroundedTargetRecoveryInput(
       ...base,
       kind,
       targetQuery,
-      startCandidates: readAnchorCandidates(
-        input.startCandidates,
-        "A",
-        "input.startCandidates",
-      ),
-      endCandidates: readAnchorCandidates(
-        input.endCandidates,
-        "B",
-        "input.endCandidates",
-      ),
+      pairCandidates: readSpanPairCandidates(input.pairCandidates),
     };
   }
   if (kind === "semantic_unit" && targetQuery.kind === "semantic_unit") {
@@ -137,12 +127,10 @@ export function parseGroundedTargetRecoveryResult(
     return fail("result.status", `unsupported recovery status: ${status}`);
   }
   if (input.kind === "text_span") {
-    assertOnlyKeys(result, ["status", "startLabel", "endLabel"], "result");
-    const startLabel = readString(result.startLabel, "result.startLabel");
-    const endLabel = readString(result.endLabel, "result.endLabel");
-    assertSuppliedLabel(startLabel, input.startCandidates, "result.startLabel");
-    assertSuppliedLabel(endLabel, input.endCandidates, "result.endLabel");
-    return { status, startLabel, endLabel };
+    assertOnlyKeys(result, ["status", "pairLabel"], "result");
+    const pairLabel = readString(result.pairLabel, "result.pairLabel");
+    assertSuppliedLabel(pairLabel, input.pairCandidates, "result.pairLabel");
+    return { status, pairLabel };
   }
   assertOnlyKeys(result, ["status", "candidateLabel"], "result");
   const candidateLabel = readString(
@@ -195,33 +183,40 @@ function readCandidates(
   });
 }
 
-function readAnchorCandidates(
+function readSpanPairCandidates(
   value: unknown,
-  prefix: "A" | "B",
-  path: string,
-): readonly GroundedTextAnchorCandidate[] {
+): readonly GroundedTextSpanPairCandidate[] {
+  const path = "input.pairCandidates";
   const candidates = readArray(value, path);
   if (
     candidates.length < 1
-    || candidates.length > TARGET_RECOVERY_LIMITS.anchorCandidatesPerSide
+    || candidates.length > TARGET_RECOVERY_LIMITS.spanPairCandidates
   ) {
     return fail(
       path,
-      `expected between 1 and ${TARGET_RECOVERY_LIMITS.anchorCandidatesPerSide} candidates`,
+      `expected between 1 and ${TARGET_RECOVERY_LIMITS.spanPairCandidates} candidates`,
     );
   }
   return candidates.map((value, index) => {
     const candidatePath = `${path}[${index}]`;
     const candidate = readRecord(value, candidatePath);
-    assertOnlyKeys(candidate, ["label", "text", "context"], candidatePath);
-    const expectedLabel = `${prefix}${index + 1}`;
+    assertOnlyKeys(candidate, ["label", "startText", "endText", "preview", "relation"], candidatePath);
+    const expectedLabel = `P${index + 1}`;
     if (candidate.label !== expectedLabel) {
       return fail(`${candidatePath}.label`, `expected sequential label ${expectedLabel}`);
     }
+    const relation = readRecord(candidate.relation, `${candidatePath}.relation`);
+    assertOnlyKeys(relation, ["sameSentence", "sameParagraph", "rangeLength"], `${candidatePath}.relation`);
     return {
       label: expectedLabel,
-      text: readNonEmptyString(candidate.text, `${candidatePath}.text`),
-      context: readString(candidate.context, `${candidatePath}.context`),
+      startText: readNonEmptyString(candidate.startText, `${candidatePath}.startText`),
+      endText: readNonEmptyString(candidate.endText, `${candidatePath}.endText`),
+      preview: readString(candidate.preview, `${candidatePath}.preview`),
+      relation: {
+        sameSentence: readBoolean(relation.sameSentence, `${candidatePath}.relation.sameSentence`),
+        sameParagraph: readBoolean(relation.sameParagraph, `${candidatePath}.relation.sameParagraph`),
+        rangeLength: readEnum(relation.rangeLength, ["short", "medium", "long"], `${candidatePath}.relation.rangeLength`),
+      },
     };
   });
 }
@@ -360,6 +355,11 @@ function readArray(value: unknown, path: string): readonly unknown[] {
 
 function readString(value: unknown, path: string): string {
   if (typeof value !== "string") return fail(path, "expected a string");
+  return value;
+}
+
+function readBoolean(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") return fail(path, "expected a boolean");
   return value;
 }
 

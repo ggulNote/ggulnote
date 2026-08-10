@@ -12,7 +12,13 @@ import { DEFAULT_TARGET_RESOLUTION_POLICY } from "../domain";
 import {
   buildCanonicalTextStream,
   resolveTextSpanWithCanonicalStream,
+  type TextSpanRangeResolution,
 } from "./canonical-text-stream";
+import {
+  countTextSpanAnchorChunks,
+  groundTextSpan,
+  type TextSpanGroundingDiagnostics,
+} from "./text-span-grounder";
 import { rankTargetCandidates } from "./candidate-ranker";
 import {
   TargetStrategyRouter,
@@ -239,24 +245,57 @@ export class FrozenTargetResolver {
       boundsBySourceObjectId,
     });
     const resolution = resolveTextSpanWithCanonicalStream(stream, query);
-
-    if (resolution.status !== "RESOLVED") {
-      return undefined;
+    if (resolution.status === "RESOLVED") {
+      return this.toResolvedTextSpan(
+        input,
+        resolution,
+        sourceObjectCandidates,
+        1,
+        exactTextSpanDiagnostics(query),
+      );
     }
 
-    const startCandidate = resolution.selectedTokens[0]?.sourceObjectId
-      ? sourceObjectCandidates.get(resolution.selectedTokens[0]?.sourceObjectId)
-      : undefined;
-    if (startCandidate === undefined) {
-      return undefined;
+    const grounding = groundTextSpan({
+      stream,
+      query,
+      ...(input.speechGroundingEvidence === undefined
+        ? {}
+        : { speechEvidence: input.speechGroundingEvidence }),
+      ...(input.frozenContext.focusObjectId === undefined
+        ? {}
+        : { focusObjectId: input.frozenContext.focusObjectId }),
+    });
+    if (grounding.status === "RESOLVED") {
+      return this.toResolvedTextSpan(
+        input,
+        grounding.pair.materialized,
+        sourceObjectCandidates,
+        grounding.pair.score,
+        grounding.diagnostics,
+      );
     }
-    if (startCandidate.source === "ggulnote") {
-      return undefined;
-    }
+    return {
+      status: "NOT_FOUND",
+      reasonCode: grounding.status === "AMBIGUOUS" ? "LOW_CONFIDENCE" : "NO_MATCH",
+      diagnostics: targetTextSpanDiagnostics(grounding.diagnostics),
+    };
+  }
 
+  private toResolvedTextSpan(
+    input: TargetResolutionInput,
+    resolution: Extract<TextSpanRangeResolution, { status: "RESOLVED" }>,
+    sourceObjectCandidates: ReadonlyMap<string, PageTargetCandidate>,
+    confidence: number,
+    diagnostics: TextSpanGroundingDiagnostics,
+  ): TargetResolutionResult | undefined {
+    const sourceObjectId = resolution.selectedTokens[0]?.sourceObjectId;
+    const startCandidate = sourceObjectId === undefined
+      ? undefined
+      : sourceObjectCandidates.get(sourceObjectId);
+    if (startCandidate === undefined || startCandidate.source === "ggulnote") return undefined;
     return {
       status: "RESOLVED",
-      confidence: 1,
+      confidence,
       target: {
         candidateId: startCandidate.candidateId,
         kind: "text_span",
@@ -275,9 +314,10 @@ export class FrozenTargetResolver {
       evidence: {
         ...emptyEvidence(),
         typeMatch: 1,
-        lexicalMatch: 1,
-        fuzzyMatch: 0.99,
+        lexicalMatch: confidence,
+        fuzzyMatch: confidence,
       },
+      diagnostics: targetTextSpanDiagnostics(diagnostics),
     };
   }
 
@@ -314,6 +354,42 @@ export class FrozenTargetResolver {
       first.score,
     );
   }
+}
+
+function exactTextSpanDiagnostics(query: TextSpanTargetQuery): TextSpanGroundingDiagnostics {
+  const startChunks = countTextSpanAnchorChunks(query.quote ?? query.startAnchor ?? "");
+  const endChunks = countTextSpanAnchorChunks(query.quote ?? query.endAnchor ?? "");
+  return {
+    startAnchorChunkCount: startChunks,
+    endAnchorChunkCount: endChunks,
+    startAnchorCandidateCount: 1,
+    endAnchorCandidateCount: 1,
+    multiTokenAnchorUsed: startChunks > 1 || endChunks > 1,
+    spanPairCandidateCount: 1,
+    topSpanPairScore: 1,
+    topSpanPairMargin: 1,
+    spanPairResolvedDeterministically: true,
+  };
+}
+
+function targetTextSpanDiagnostics(
+  diagnostics: TextSpanGroundingDiagnostics,
+): NonNullable<TargetResolutionResult["diagnostics"]> {
+  return {
+    targetStrategy: "text_span",
+    evidenceUsed: {
+      type: true,
+      lexical: true,
+      fuzzy: true,
+      embedding: false,
+      structure: true,
+      focus: false,
+      temporal: false,
+    },
+    embeddingUsed: false,
+    embeddingCandidateCount: 0,
+    ...diagnostics,
+  };
 }
 
 function relationForQuery(

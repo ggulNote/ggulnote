@@ -189,6 +189,15 @@ export interface TargetResolutionDiagnostics {
   queryEmbeddingMs?: number;
   embeddingSearchMs?: number;
   embeddingErrorCode?: string;
+  startAnchorChunkCount?: number;
+  endAnchorChunkCount?: number;
+  startAnchorCandidateCount?: number;
+  endAnchorCandidateCount?: number;
+  multiTokenAnchorUsed?: boolean;
+  spanPairCandidateCount?: number;
+  topSpanPairScore?: number;
+  topSpanPairMargin?: number;
+  spanPairResolvedDeterministically?: boolean;
 }
 
 export const DEFAULT_TARGET_RESOLUTION_POLICY = {

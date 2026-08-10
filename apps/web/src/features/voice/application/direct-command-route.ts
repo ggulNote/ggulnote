@@ -355,6 +355,31 @@ export class DirectCommandRoute {
             mergedCandidateCount:
               planningDiagnostics.mergedCandidateCount,
           }),
+      ...(planningDiagnostics?.startAnchorChunkCount === undefined
+        ? {} : { startAnchorChunkCount: planningDiagnostics.startAnchorChunkCount }),
+      ...(planningDiagnostics?.endAnchorChunkCount === undefined
+        ? {} : { endAnchorChunkCount: planningDiagnostics.endAnchorChunkCount }),
+      ...(planningDiagnostics?.startAnchorCandidateCount === undefined
+        ? {} : { startAnchorCandidateCount: planningDiagnostics.startAnchorCandidateCount }),
+      ...(planningDiagnostics?.endAnchorCandidateCount === undefined
+        ? {} : { endAnchorCandidateCount: planningDiagnostics.endAnchorCandidateCount }),
+      ...(planningDiagnostics?.multiTokenAnchorUsed === undefined
+        ? {} : { multiTokenAnchorUsed: planningDiagnostics.multiTokenAnchorUsed }),
+      ...(planningDiagnostics?.spanPairCandidateCount === undefined
+        ? {} : { spanPairCandidateCount: planningDiagnostics.spanPairCandidateCount }),
+      ...(planningDiagnostics?.topSpanPairScore === undefined
+        ? {} : { topSpanPairScore: planningDiagnostics.topSpanPairScore }),
+      ...(planningDiagnostics?.topSpanPairMargin === undefined
+        ? {} : { topSpanPairMargin: planningDiagnostics.topSpanPairMargin }),
+      ...(planningDiagnostics?.spanPairResolvedDeterministically === undefined
+        ? {} : {
+            spanPairResolvedDeterministically:
+              planningDiagnostics.spanPairResolvedDeterministically,
+          }),
+      ...(planningDiagnostics?.spanPairRecoveryUsed === undefined
+        ? {} : { spanPairRecoveryUsed: planningDiagnostics.spanPairRecoveryUsed }),
+      ...(planningDiagnostics?.spanPairRecoveryResult === undefined
+        ? {} : { spanPairRecoveryResult: planningDiagnostics.spanPairRecoveryResult }),
       ...(planningDiagnostics?.resolutionStatus === undefined
         ? {}
         : { resolutionStatus: planningDiagnostics.resolutionStatus }),

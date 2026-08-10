@@ -218,8 +218,12 @@ export class DirectCommandPlanningPipeline {
       diagnostics.targetRecoveryUsed = attempt.providerCalled;
       diagnostics.targetRecoveryKind = attempt.kind;
       diagnostics.recoveryCandidateCount = attempt.candidateCount;
+      if (attempt.kind === "text_span") {
+        diagnostics.spanPairRecoveryUsed = attempt.providerCalled;
+      }
       if (attempt.status === "ERROR") {
         diagnostics.recoveryResult = "ERROR";
+        if (attempt.kind === "text_span") diagnostics.spanPairRecoveryResult = "ERROR";
         diagnostics.recoveryErrorCode = attempt.errorCode;
         diagnostics.finalResolutionStatus = "NOT_FOUND";
         if (attempt.errorCode === "RECOVERY_ABORTED") {
@@ -240,6 +244,7 @@ export class DirectCommandPlanningPipeline {
       }
       if (attempt.status !== "RESOLVED") {
         diagnostics.recoveryResult = attempt.status;
+        if (attempt.kind === "text_span") diagnostics.spanPairRecoveryResult = attempt.status;
         diagnostics.finalResolutionStatus = "NOT_FOUND";
         return {
           status: "TARGET_NOT_FOUND",
@@ -249,6 +254,7 @@ export class DirectCommandPlanningPipeline {
         };
       }
       diagnostics.recoveryResult = "SELECTED";
+      if (attempt.kind === "text_span") diagnostics.spanPairRecoveryResult = "SELECTED";
       resolution = attempt.resolution;
     }
     let disambiguationUsed = false;

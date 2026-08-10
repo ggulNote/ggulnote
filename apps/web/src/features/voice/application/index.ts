@@ -76,10 +76,32 @@ export type {
   TargetAwareGroundingRetrievalInput,
   TargetAwareGroundingRetrievalResult,
 } from "./target-aware-grounding-retrieval";
-export { evaluateCandidateRecallAtK } from "./grounding-retrieval-evaluation";
+export {
+  buildSpanPairCandidates,
+  countTextSpanAnchorChunks,
+  groundTextSpan,
+  normalizeTextSpanAnchorSlot,
+  retrieveAnchorSpanCandidates,
+  TEXT_SPAN_GROUNDING_POLICY,
+} from "./text-span-grounder";
+export type {
+  AnchorSpanCandidate,
+  AnchorSpanEvidence,
+  SpanPairCandidate,
+  SpanPairEvidence,
+  TextSpanGroundingDiagnostics,
+  TextSpanGroundingInput,
+  TextSpanGroundingResult,
+} from "./text-span-grounder";
+export {
+  evaluateCandidateRecallAtK,
+  evaluateTextSpanGroundingStages,
+} from "./grounding-retrieval-evaluation";
 export type {
   CandidateRecallEvaluationCase,
   CandidateRecallEvaluationResult,
+  TextSpanGroundingEvaluationCase,
+  TextSpanGroundingEvaluationResult,
 } from "./grounding-retrieval-evaluation";
 export {
   buildDocumentLexicon,

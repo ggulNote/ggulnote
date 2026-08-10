@@ -17,6 +17,7 @@ export const TARGET_RECOVERY_LIMITS = {
   semanticCandidates: 24,
   objectCandidates: 16,
   anchorCandidatesPerSide: 12,
+  spanPairCandidates: 12,
   candidateTextChars: 800,
   anchorContextChars: 240,
   termHypotheses: 8,
@@ -61,10 +62,16 @@ export interface GroundedTargetRecoveryCandidate {
   context?: string;
 }
 
-export interface GroundedTextAnchorCandidate {
+export interface GroundedTextSpanPairCandidate {
   label: string;
-  text: string;
-  context: string;
+  startText: string;
+  endText: string;
+  preview: string;
+  relation: {
+    sameSentence: boolean;
+    sameParagraph: boolean;
+    rangeLength: "short" | "medium" | "long";
+  };
 }
 
 interface GroundedTargetRecoveryInputBase {
@@ -94,8 +101,7 @@ export interface ObjectRecoveryInput extends GroundedTargetRecoveryInputBase {
 export interface TextSpanRecoveryInput extends GroundedTargetRecoveryInputBase {
   kind: "text_span";
   targetQuery: TextSpanTargetQuery;
-  startCandidates: readonly GroundedTextAnchorCandidate[];
-  endCandidates: readonly GroundedTextAnchorCandidate[];
+  pairCandidates: readonly GroundedTextSpanPairCandidate[];
 }
 
 export type GroundedTargetRecoveryInput =
@@ -106,7 +112,7 @@ export type GroundedTargetRecoveryInput =
 export type GroundedTargetRecoveryResult =
   | { status: "NONE" }
   | { status: "SELECTED"; candidateLabel: string }
-  | { status: "SELECTED"; startLabel: string; endLabel: string };
+  | { status: "SELECTED"; pairLabel: string };
 
 export type TargetRecoveryErrorCode =
   | "RECOVERY_UNAVAILABLE"

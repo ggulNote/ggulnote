@@ -50,7 +50,7 @@ export type {
   GroundedTargetRecoveryInput,
   GroundedTargetRecoveryKind,
   GroundedTargetRecoveryResult,
-  GroundedTextAnchorCandidate,
+  GroundedTextSpanPairCandidate,
   ObjectRecoveryInput,
   SemanticUnitRecoveryInput,
   TargetRecoveryErrorCode,
