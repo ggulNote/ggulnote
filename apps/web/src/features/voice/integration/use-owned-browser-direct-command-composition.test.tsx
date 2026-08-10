@@ -458,6 +458,52 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
     );
   });
 
+  it("wires bounded speech refinement before planning in production", async () => {
+    const turn = createTextSpanTurn(
+      "turn-refined-online-finish",
+      "어 online부터 아니 online부터 finish까지 하이라이트 해 줘",
+    );
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === "/api/voice/direct-command/refine") {
+        return Response.json({
+          result: {
+            status: "REFINED",
+            refinedTranscript: "online부터 finish까지 하이라이트 해 줘",
+            corrections: [{ kind: "self_correction" }],
+          },
+        });
+      }
+      if (url === "/api/voice/direct-command/planner") {
+        return Response.json({
+          result: plannerResult(turn.id, "online", "finish"),
+        });
+      }
+      throw new Error("Unexpected endpoint: " + url);
+    });
+    const harness = createProductionHarness(fetchMock);
+
+    await act(async () => {
+      await expect(harness.result.current.direct.route.execute(turn))
+        .resolves.toMatchObject({ status: "COMMITTED" });
+    });
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "/api/voice/direct-command/refine",
+      "/api/voice/direct-command/planner",
+    ]);
+    expect(harness.result.current.direct.traces.getSnapshot().at(-1))
+      .toMatchObject({
+        speechRefinerUsed: true,
+        speechRefinerResult: "REFINED",
+        targetQueryKind: "text_span",
+        targetSlotKind: "text_span",
+        initialResolutionStatus: "RESOLVED",
+        targetRecoveryUsed: false,
+        executionStatus: "COMMITTED",
+      });
+  });
+
   it("does not call recovery when deterministic text span grounding resolves", async () => {
     const turn = createTextSpanTurn(
       "turn-exact-online-finish",

@@ -113,15 +113,20 @@ describe("TypedSpeechNormalizer", () => {
 
     expect(result.status).toBe("READY");
     if (result.status !== "READY") return;
-    expect(result.context.speechGroundingEvidence).toMatchObject({
+    expect(result.context.speechGroundingEvidence).toBeUndefined();
+    const speechGroundingEvidence = builder.buildSpeechGroundingEvidence(
+      result.context,
+      { kind: "object", objectType: "text", query: "트랜스포머" },
+    );
+    expect(speechGroundingEvidence).toMatchObject({
       rawFinalTranscript: "트랜스포머 하이라이트",
+      targetSlots: [{ kind: "object_query", text: "트랜스포머" }],
       diagnostics: {
         speechNormalizationUsed: true,
         documentLexiconSize: 1,
+        targetSlotKind: "object",
       },
     });
-    expect(result.context.speechGroundingEvidence?.termHypotheses[0]
-      ?.candidates.map((item) => item.value)).toContain("Transformer");
   });
 
   it("builds a bounded Frozen Page lexicon with source mapping and dedupe", () => {
@@ -145,44 +150,36 @@ describe("TypedSpeechNormalizer", () => {
   it("preserves raw STT and produces only document-grounded phonetic candidates", () => {
     let now = 10;
     const normalizer = new TypedSpeechNormalizer({ now: () => now++ });
-    const evidence = normalizer.normalize({
-      rawFinalTranscript: "헨타이어 모얼오벌 인스탠스 트랜스포머",
-      pageTargetCatalog: catalog([
-        candidate("entire", "entire"),
-        candidate("process", "process"),
-        candidate("moreover", "Moreover"),
-        candidate("instance", "instance"),
-        candidate("transformer", "Transformer"),
-      ]),
-      focusObjectId: "scene:entire",
-      asrAlternatives: [{ text: "entire process", confidence: 0.6 }],
-    });
-
-    expect(evidence.rawFinalTranscript).toBe("헨타이어 모얼오벌 인스탠스 트랜스포머");
     for (const [rawSpan, expected] of [
       ["헨타이어", "entire"],
       ["모얼오벌", "Moreover"],
       ["인스탠스", "instance"],
       ["트랜스포머", "Transformer"],
     ] as const) {
+      const evidence = normalizer.normalize({
+        rawFinalTranscript: rawSpan,
+        targetQuery: { kind: "text_span", quote: rawSpan },
+        pageTargetCatalog: catalog([
+          candidate("entire", "entire"),
+          candidate("process", "process"),
+          candidate("moreover", "Moreover"),
+          candidate("instance", "instance"),
+          candidate("transformer", "Transformer"),
+        ]),
+        focusObjectId: "scene:entire",
+      });
+      expect(evidence.rawFinalTranscript).toBe(rawSpan);
       expect(evidence.termHypotheses.find((item) => item.rawSpan === rawSpan)
         ?.candidates.map((item) => item.value)).toContain(expected);
+      expect(evidence.diagnostics.normalizationMs).toBe(1);
+      expect(Object.isFrozen(evidence)).toBe(true);
     }
-    expect(evidence.termHypotheses.at(-1)?.candidates[0]).toMatchObject({
-      value: "entire process",
-      source: "asr_alternative",
-    });
-    expect(evidence.contextualTerms[0]).toMatchObject({
-      text: "entire",
-      source: "frozen_focus",
-    });
-    expect(evidence.diagnostics.normalizationMs).toBe(1);
-    expect(Object.isFrozen(evidence)).toBe(true);
   });
 
   it("does not hallucinate an English candidate absent from the lexicon", () => {
     const evidence = new TypedSpeechNormalizer().normalize({
       rawFinalTranscript: "헨타이어",
+      targetQuery: { kind: "text_span", quote: "헨타이어" },
       pageTargetCatalog: catalog([candidate("process", "process")]),
     });
     expect(evidence.termHypotheses.flatMap((item) => item.candidates)
