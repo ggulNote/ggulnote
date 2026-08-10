@@ -1,4 +1,4 @@
-export { GGULNOTE_DATABASE_NAME, GGULNOTE_DATABASE_VERSION, SEMANTIC_DATABASE_VERSION, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "./types";
+export { EMBEDDING_DATABASE_VERSION, GGULNOTE_DATABASE_NAME, GGULNOTE_DATABASE_VERSION, SEMANTIC_DATABASE_VERSION, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "./types";
 export { openLocalDatabase } from "./database";
 
 export type {
@@ -10,6 +10,7 @@ export type {
   PersistedOperationRecord,
   PersistedPageSnapshotRecord,
   PersistedSemanticPageRecord,
+  PersistedEmbeddingRecord,
   SaveState,
   SaveStatus,
   DocumentRecordViewState,
@@ -23,3 +24,4 @@ export { DocumentRepository } from "./repositories/document-repository";
 export { PageSnapshotRepository } from "./repositories/page-snapshot-repository";
 export { OperationRepository } from "./repositories/operation-repository";
 export { SemanticPageRepository } from "./repositories/semantic-page-repository";
+export { IndexedDbEmbeddingStore } from "./repositories/indexed-db-embedding-store";
