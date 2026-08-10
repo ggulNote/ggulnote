@@ -3,8 +3,10 @@ import type {
   EditorPersistenceEvent,
   SerializedAnnotation,
 } from "@ggulnote/editor-core";
+import type { InteractionClock } from "@ggulnote/interaction-core";
 import type {
   DirectCommandExecutionResult,
+  DirectCommandExecutionTimestamps,
   DirectCommandRuntimeInstruction,
   DirectOperationRecord,
   ReadyForDirectCommandExecution,
@@ -48,6 +50,7 @@ export interface EditorDirectCommandExecutorOptions {
   editorEngine: EditorEngine;
   navigation: DirectCommandNavigationPort;
   getCurrentSceneRevision(): number;
+  clock: Pick<InteractionClock, "now">;
 }
 
 export class EditorDirectCommandExecutor implements DirectCommandExecutor {
@@ -58,11 +61,15 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
   public async execute(
     ready: ReadyForDirectCommandExecution,
   ): Promise<DirectCommandExecutionResult> {
+    const timestamps: DirectCommandExecutionTimestamps = {
+      compileStartedAt: this.now(),
+    };
     const compiled = compileDirectCommandCapability(ready, {
       pageSize: this.options.editorEngine.getActivePageSize() ?? undefined,
     });
+    timestamps.compiledAt = this.now();
     if (compiled.status === "ERROR") {
-      return this.error(ready, compiled.errorCode);
+      return this.error(ready, compiled.errorCode, timestamps);
     }
 
     const instruction = compiled.instruction;
@@ -70,26 +77,34 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
       isSceneMutation(instruction)
       && !this.canCommitFrozenScene(ready)
     ) {
-      return this.error(ready, "STALE_SCENE");
+      return this.error(ready, "STALE_SCENE", timestamps);
     }
 
+    timestamps.commitStartedAt = this.now();
     try {
+      let result: DirectCommandExecutionResult;
       switch (instruction.kind) {
         case "CREATE_ANNOTATION":
-          return this.createAnnotation(ready, instruction);
+          result = this.createAnnotation(ready, instruction);
+          break;
         case "REPLACE_TEXT_CONTENT":
-          return this.replaceTextContent(ready, instruction);
+          result = this.replaceTextContent(ready, instruction);
+          break;
         case "UPDATE_HIGHLIGHT_COLOR":
-          return this.error(ready, "REVISE_NOT_AVAILABLE");
+          result = this.error(ready, "REVISE_NOT_AVAILABLE");
+          break;
         case "NAVIGATE": {
-          const result = await this.navigate(ready, instruction);
-          return result;
+          result = await this.navigate(ready, instruction);
+          break;
         }
         case "UNDO":
-          return this.undo(ready);
+          result = this.undo(ready);
+          break;
       }
+      if (result.status !== "ERROR") timestamps.committedAt = this.now();
+      return withExecutionTimestamps(result, timestamps);
     } catch {
-      return this.error(ready, "COMMIT_FAILED");
+      return this.error(ready, "COMMIT_FAILED", timestamps);
     }
   }
 
@@ -97,30 +112,41 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
     ready: ReadyForDirectCommandExecution,
     previous: DirectOperationRecord,
   ): Promise<DirectCommandExecutionResult> {
+    const timestamps: DirectCommandExecutionTimestamps = {
+      compileStartedAt: this.now(),
+    };
     const compiled = compileDirectCommandRevision(ready, previous);
+    timestamps.compiledAt = this.now();
     if (compiled.status === "ERROR") {
-      return this.error(ready, compiled.errorCode);
+      return this.error(ready, compiled.errorCode, timestamps);
     }
     const instruction = compiled.instruction;
     if (
       !isSceneMutation(instruction)
       || !this.canCommitFrozenScene(ready)
     ) {
-      return this.error(ready, "STALE_SCENE");
+      return this.error(ready, "STALE_SCENE", timestamps);
     }
+    timestamps.commitStartedAt = this.now();
     try {
+      let result: DirectCommandExecutionResult;
       switch (instruction.kind) {
         case "UPDATE_HIGHLIGHT_COLOR":
-          return this.updateHighlightColor(ready, instruction);
+          result = this.updateHighlightColor(ready, instruction);
+          break;
         case "REPLACE_TEXT_CONTENT":
-          return this.replaceTextContent(ready, instruction);
+          result = this.replaceTextContent(ready, instruction);
+          break;
         case "CREATE_ANNOTATION":
         case "NAVIGATE":
         case "UNDO":
-          return this.error(ready, "REVISE_NOT_AVAILABLE");
+          result = this.error(ready, "REVISE_NOT_AVAILABLE");
+          break;
       }
+      if (result.status !== "ERROR") timestamps.committedAt = this.now();
+      return withExecutionTimestamps(result, timestamps);
     } catch {
-      return this.error(ready, "COMMIT_FAILED");
+      return this.error(ready, "COMMIT_FAILED", timestamps);
     }
   }
 
@@ -316,9 +342,28 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
       DirectCommandExecutionResult,
       { status: "ERROR" }
     >["errorCode"],
+    executionTimestamps?: DirectCommandExecutionTimestamps,
   ): DirectCommandExecutionResult {
-    return { status: "ERROR", turnId: ready.turnId, errorCode };
+    return {
+      status: "ERROR",
+      turnId: ready.turnId,
+      errorCode,
+      ...(executionTimestamps === undefined
+        ? {}
+        : { executionTimestamps }),
+    };
   }
+
+  private now(): number {
+    return Number(this.options.clock.now());
+  }
+}
+
+function withExecutionTimestamps(
+  result: DirectCommandExecutionResult,
+  executionTimestamps: DirectCommandExecutionTimestamps,
+): DirectCommandExecutionResult {
+  return { ...result, executionTimestamps: { ...executionTimestamps } };
 }
 
 function findEditorAnnotation(

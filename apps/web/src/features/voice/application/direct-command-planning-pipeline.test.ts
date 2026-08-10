@@ -198,7 +198,17 @@ describe("DirectCommandPlanningPipeline", () => {
         plannerCompletedAt: expect.any(Number),
         resolverStartedAt: expect.any(Number),
         resolverCompletedAt: expect.any(Number),
+        validationStartedAt: expect.any(Number),
         validatedAt: expect.any(Number),
+      },
+      diagnostics: {
+        plannerStatus: "EXECUTABLE",
+        targetQueryKind: "relative",
+        resolutionStatus: "RESOLVED",
+        resolvedTargetKind: "text_span",
+        resolverConfidence: expect.any(Number),
+        disambiguationUsed: false,
+        guardStatus: "PASSED",
       },
     });
     expect(harness.planner.planCallCount).toBe(1);
@@ -251,6 +261,17 @@ describe("DirectCommandPlanningPipeline", () => {
       status: "READY_FOR_EXECUTION",
       target: { objectId: AMBIGUOUS_B.id },
       disambiguationUsed: true,
+      timestamps: {
+        disambiguatorRequestedAt: expect.any(Number),
+        disambiguatorCompletedAt: expect.any(Number),
+      },
+      diagnostics: {
+        resolutionStatus: "RESOLVED",
+        candidateCount: 2,
+        disambiguationUsed: true,
+        disambiguationResult: "SELECTED",
+        guardStatus: "PASSED",
+      },
     });
     expect(harness.disambiguator.disambiguateCallCount).toBe(1);
     const exposed = JSON.stringify(harness.disambiguator.lastInput);
@@ -274,7 +295,15 @@ describe("DirectCommandPlanningPipeline", () => {
     }), { status: "NONE" });
 
     await expect(harness.pipeline.plan(createTurn("동일 문장 하이라이트")))
-      .resolves.toMatchObject({ status: "TARGET_AMBIGUOUS" });
+      .resolves.toMatchObject({
+        status: "TARGET_AMBIGUOUS",
+        diagnostics: {
+          resolutionStatus: "AMBIGUOUS",
+          disambiguationUsed: true,
+          disambiguationResult: "NONE",
+          guardStatus: "NOT_RUN",
+        },
+      });
     expect(harness.disambiguator.disambiguateCallCount).toBe(1);
   });
 
@@ -301,7 +330,14 @@ describe("DirectCommandPlanningPipeline", () => {
     const resolverSpy = vi.spyOn(harness.resolver, "resolve");
 
     await expect(harness.pipeline.plan(createTurn("오른쪽 여백에 메모")))
-      .resolves.toMatchObject({ status: "DEFERRED_SPATIAL" });
+      .resolves.toMatchObject({
+        status: "DEFERRED_SPATIAL",
+        diagnostics: {
+          plannerStatus: "DEFER_SPATIAL",
+          disambiguationUsed: false,
+          guardStatus: "NOT_RUN",
+        },
+      });
     expect(resolverSpy).not.toHaveBeenCalled();
     expect(harness.disambiguator.disambiguateCallCount).toBe(0);
   });
