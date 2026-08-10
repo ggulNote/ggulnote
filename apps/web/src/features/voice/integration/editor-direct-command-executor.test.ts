@@ -2,6 +2,7 @@ import {
   EditorEngine,
   type EditorPersistenceEvent,
 } from "@ggulnote/editor-core";
+import { toSessionTimeMs } from "@ggulnote/interaction-core";
 import { describe, expect, it } from "vitest";
 import type {
   CompletedVoiceTurn,
@@ -205,6 +206,7 @@ function createExecutor(
     editorEngine,
     navigation,
     getCurrentSceneRevision: () => revision,
+    clock: { now: () => toSessionTimeMs(100) },
   });
 }
 
@@ -365,7 +367,7 @@ describe("EditorDirectCommandExecutor", () => {
       payload: { text: "mutated" },
     }, PDF_TEXT));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: "ERROR",
       turnId: TURN.id,
       errorCode: "TARGET_NOT_EDITABLE",
@@ -464,7 +466,7 @@ describe("EditorDirectCommandExecutor", () => {
       operation: "undo",
       target: { kind: "LAST_OPERATION" },
       payload: {},
-    }))).resolves.toEqual({
+    }))).resolves.toMatchObject({
       status: "ERROR",
       turnId: TURN.id,
       errorCode: "UNDO_NOT_AVAILABLE",
@@ -481,7 +483,7 @@ describe("EditorDirectCommandExecutor", () => {
       operation: "underline",
       target: { kind: "relative", relation: "focused" },
       payload: {},
-    }, PDF_TEXT))).resolves.toEqual({
+    }, PDF_TEXT))).resolves.toMatchObject({
       status: "ERROR",
       turnId: TURN.id,
       errorCode: "STALE_SCENE",
@@ -501,7 +503,7 @@ describe("EditorDirectCommandExecutor", () => {
       operation: "highlight",
       target: { kind: "relative", relation: "last_target" },
       payload: { color: "#3b82f6" },
-    }, PDF_TEXT, "REVISE_LAST"))).resolves.toEqual({
+    }, PDF_TEXT, "REVISE_LAST"))).resolves.toMatchObject({
       status: "ERROR",
       turnId: TURN.id,
       errorCode: "REVISE_NOT_AVAILABLE",
@@ -525,7 +527,7 @@ describe("EditorDirectCommandExecutor", () => {
       operation: "next_page",
       target: { kind: "CURRENT_PAGE" },
       payload: {},
-    }))).resolves.toEqual({
+    }))).resolves.toMatchObject({
       status: "ERROR",
       turnId: TURN.id,
       errorCode: "COMMIT_FAILED",

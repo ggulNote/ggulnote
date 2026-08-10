@@ -14,6 +14,7 @@ import type {
   CompletedVoiceTurn,
   FrozenVoiceTurnContext,
 } from "./voice-turn-types";
+import type { DirectCommandExecutionTimestamps } from "./direct-command-diagnostics-types";
 
 export type CommandRelation = "NEW" | "REVISE_LAST" | "CONTINUE" | "CANCEL";
 
@@ -219,21 +220,25 @@ export type DirectCommandExecutionResult =
       planId: DirectCommandPlanId;
       operationId: DirectCommandOperationId;
       annotationId?: AnnotationId;
+      executionTimestamps?: DirectCommandExecutionTimestamps;
     }
   | {
       status: "NAVIGATED";
       turnId: DirectCommandTurnId;
       direction: "next_page" | "previous_page";
+      executionTimestamps?: DirectCommandExecutionTimestamps;
     }
   | {
       status: "UNDONE";
       turnId: DirectCommandTurnId;
       operationId?: DirectCommandOperationId;
+      executionTimestamps?: DirectCommandExecutionTimestamps;
     }
   | {
       status: "ERROR";
       turnId: DirectCommandTurnId;
       errorCode: DirectCommandRouteErrorCode;
+      executionTimestamps?: DirectCommandExecutionTimestamps;
     };
 
 export type DirectCommandRouteResult =
@@ -244,6 +249,7 @@ export type DirectCommandRouteResult =
       planId: DirectCommandPlanId;
       operationId: DirectCommandOperationId;
       annotationId?: AnnotationId;
+      executionTimestamps?: DirectCommandExecutionTimestamps;
     }
   | { status: "DEFERRED_SPATIAL"; turnId: DirectCommandTurnId }
   | { status: "NEEDS_CLARIFICATION"; turnId: DirectCommandTurnId }

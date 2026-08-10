@@ -179,3 +179,11 @@ export type {
   VoiceTurnTimingConfig,
   CompletedVoiceTurn,
 } from "./voice-turn-types";
+export type {
+  DirectCommandExecutionTimestamps,
+  DirectCommandLatencyMetrics,
+  DirectCommandLifecycleTimestamps,
+  DirectCommandPlanningDiagnostics,
+  DirectCommandTrace,
+  DirectCommandTraceDiagnostics,
+} from "./direct-command-diagnostics-types";

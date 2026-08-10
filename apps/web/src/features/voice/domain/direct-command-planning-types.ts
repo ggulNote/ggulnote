@@ -1,4 +1,5 @@
 import type { DirectCommandContext, ResolvedTarget } from "./target-grounding-types";
+import type { DirectCommandPlanningDiagnostics } from "./direct-command-diagnostics-types";
 import type {
   DirectCommandRouteErrorCode,
   DirectCommandTurnId,
@@ -13,12 +14,14 @@ export interface DirectCommandPlanningTimestamps {
   resolverCompletedAt?: number;
   disambiguatorRequestedAt?: number;
   disambiguatorCompletedAt?: number;
+  validationStartedAt?: number;
   validatedAt?: number;
 }
 
 interface DirectCommandPlanningResultBase {
   turnId: DirectCommandTurnId;
   timestamps: DirectCommandPlanningTimestamps;
+  diagnostics?: DirectCommandPlanningDiagnostics;
 }
 
 export type DirectCommandPlanningResult =

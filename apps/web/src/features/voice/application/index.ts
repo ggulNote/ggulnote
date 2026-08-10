@@ -77,6 +77,11 @@ export type {
   DirectCommandExecutionRegistryOptions,
 } from "./direct-command-execution-registry";
 export { DirectCommandRoute } from "./direct-command-route";
+export {
+  calculateDirectCommandLatencyMetrics,
+  DirectCommandTraceStore,
+} from "./direct-command-diagnostics";
+export type { DirectCommandTraceStoreOptions } from "./direct-command-diagnostics";
 export type {
   DirectCommandExecutionPort,
   DirectCommandPlanningPort,

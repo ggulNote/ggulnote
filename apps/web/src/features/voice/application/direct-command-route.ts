@@ -1,14 +1,19 @@
+import type { InteractionClock } from "@ggulnote/interaction-core";
 import type {
   CompletedVoiceTurn,
   DirectCommandExecutionResult,
+  DirectCommandLifecycleTimestamps,
   DirectCommandPlanningResult,
   DirectCommandRouteResult,
+  DirectCommandTrace,
+  DirectCommandTraceDiagnostics,
   DirectOperationRecord,
   DirectReusableTargetRecord,
   ReadyForDirectCommandExecution,
   ResolvedTarget,
   TargetQuery,
 } from "../domain";
+import { calculateDirectCommandLatencyMetrics } from "./direct-command-diagnostics";
 import { DirectCommandExecutionRegistry } from "./direct-command-execution-registry";
 import { DirectCommandHistoryContext } from "./direct-command-history-context";
 import type { DirectCommandPlanningOptions } from "./direct-command-planning-pipeline";
@@ -34,7 +39,9 @@ export interface DirectCommandRouteOptions {
   planning: DirectCommandPlanningPort;
   executor: DirectCommandExecutionPort;
   history: DirectCommandHistoryContext;
+  clock: Pick<InteractionClock, "now">;
   registry?: DirectCommandExecutionRegistry;
+  diagnostics?: DirectCommandTraceDiagnostics;
 }
 
 export interface DirectCommandRouteExecuteOptions {
@@ -43,6 +50,8 @@ export interface DirectCommandRouteExecuteOptions {
 
 export class DirectCommandRoute {
   private readonly registry: DirectCommandExecutionRegistry;
+  private readonly activeControllers = new Set<AbortController>();
+  private disposed = false;
 
   public constructor(private readonly options: DirectCommandRouteOptions) {
     this.registry = options.registry ?? new DirectCommandExecutionRegistry();
@@ -52,9 +61,12 @@ export class DirectCommandRoute {
     turn: CompletedVoiceTurn,
     executeOptions: DirectCommandRouteExecuteOptions = {},
   ): Promise<DirectCommandRouteResult> {
+    if (this.disposed) {
+      return Promise.resolve(aborted(turn.id));
+    }
     return this.registry.execute(
       turn.id,
-      () => this.executeOnce(turn, executeOptions),
+      () => this.runOnce(turn, executeOptions),
     );
   }
 
@@ -67,51 +79,93 @@ export class DirectCommandRoute {
   }
 
   public dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const controller of this.activeControllers) controller.abort();
+    this.activeControllers.clear();
     this.registry.clear();
     this.options.history.clear();
   }
 
-  private async executeOnce(
+  private async runOnce(
     turn: CompletedVoiceTurn,
     executeOptions: DirectCommandRouteExecuteOptions,
   ): Promise<DirectCommandRouteResult> {
+    const controller = new AbortController();
+    const onExternalAbort = () => controller.abort();
+    if (executeOptions.signal?.aborted) {
+      controller.abort();
+    } else {
+      executeOptions.signal?.addEventListener("abort", onExternalAbort, {
+        once: true,
+      });
+    }
+    this.activeControllers.add(controller);
+    try {
+      return await this.executeOnce(turn, controller.signal);
+    } finally {
+      executeOptions.signal?.removeEventListener("abort", onExternalAbort);
+      this.activeControllers.delete(controller);
+    }
+  }
+
+  private async executeOnce(
+    turn: CompletedVoiceTurn,
+    signal: AbortSignal,
+  ): Promise<DirectCommandRouteResult> {
+    const routeReceivedAt = this.now();
+    if (signal.aborted || this.disposed) {
+      return this.finish(turn, undefined, aborted(turn.id), routeReceivedAt);
+    }
+
     const historySnapshot = this.options.history.snapshot();
     let planning: DirectCommandPlanningResult;
     try {
       planning = await this.options.planning.plan(turn, {
-        ...(executeOptions.signal === undefined
-          ? {}
-          : { signal: executeOptions.signal }),
+        signal,
         historySnapshot,
+        routeReceivedAt,
       });
     } catch {
-      return {
-        status: "ERROR",
-        turnId: turn.id,
-        errorCode: executeOptions.signal?.aborted
-          ? "ABORTED"
-          : "PLANNER_ERROR",
-      };
+      return this.finish(
+        turn,
+        undefined,
+        abortedOrPlannerError(turn.id, signal),
+        routeReceivedAt,
+      );
+    }
+    if (signal.aborted || this.disposed) {
+      return this.finish(turn, planning, aborted(turn.id), routeReceivedAt);
     }
     if (planning.status !== "READY_FOR_EXECUTION") {
-      return terminalPlanningResult(planning);
+      return this.finish(
+        turn,
+        planning,
+        terminalPlanningResult(planning),
+        routeReceivedAt,
+      );
     }
 
+    let result: DirectCommandRouteResult;
     switch (planning.plan.relation) {
       case "NEW":
-        return this.executeNew(planning);
+        result = await this.executeNew(planning);
+        break;
       case "CONTINUE":
-        return this.executeContinue(
+        result = await this.executeContinue(
           planning,
           historySnapshot.lastReusableTarget,
         );
+        break;
       case "REVISE_LAST":
-        return this.executeRevision(
+        result = await this.executeRevision(
           planning,
           historySnapshot.lastSuccessfulOperation,
           historySnapshot.lastReusableTarget,
         );
+        break;
     }
+    return this.finish(turn, planning, result, routeReceivedAt);
   }
 
   private async executeNew(
@@ -201,9 +255,103 @@ export class DirectCommandRoute {
       ...(execution.annotationId === undefined
         ? {}
         : { annotationId: execution.annotationId }),
+      ...(execution.executionTimestamps === undefined
+        ? {}
+        : { executionTimestamps: execution.executionTimestamps }),
     };
     this.options.history.recordSuccessfulExecution(ready, revised);
     return revised;
+  }
+
+  private finish(
+    turn: CompletedVoiceTurn,
+    planning: DirectCommandPlanningResult | undefined,
+    result: DirectCommandRouteResult,
+    routeReceivedAt: number,
+  ): DirectCommandRouteResult {
+    const routeCompletedAt = this.now();
+    const executionTimestamps = "executionTimestamps" in result
+      ? result.executionTimestamps
+      : undefined;
+    const timestamps: DirectCommandLifecycleTimestamps = {
+      ...(planning?.timestamps ?? { routeReceivedAt }),
+      routeReceivedAt,
+      ...(turn.completedAt === undefined
+        ? {}
+        : { voiceFinalizedAt: turn.completedAt }),
+      ...(executionTimestamps ?? {}),
+      routeCompletedAt,
+    };
+    const planningDiagnostics = planning?.diagnostics;
+    const ready = planning?.status === "READY_FOR_EXECUTION"
+      ? planning
+      : undefined;
+    const plan = ready?.plan;
+    const trace: DirectCommandTrace = {
+      turnId: turn.id,
+      ...(planningDiagnostics?.planId === undefined
+        ? plan === undefined ? {} : { planId: plan.planId }
+        : { planId: planningDiagnostics.planId }),
+      ...(planningDiagnostics?.plannerStatus === undefined
+        ? {}
+        : { plannerStatus: planningDiagnostics.plannerStatus }),
+      ...(plan === undefined
+        ? {}
+        : {
+            command: {
+              capability: plan.command.capability,
+              operation: plan.command.operation,
+              relation: plan.relation,
+            },
+          }),
+      ...(planningDiagnostics?.targetQueryKind === undefined
+        ? {}
+        : { targetQueryKind: planningDiagnostics.targetQueryKind }),
+      ...(planningDiagnostics?.resolutionStatus === undefined
+        ? {}
+        : { resolutionStatus: planningDiagnostics.resolutionStatus }),
+      ...(planningDiagnostics?.resolvedTargetKind === undefined
+        ? ready?.target === undefined
+          ? {}
+          : { resolvedTargetKind: ready.target.kind }
+        : { resolvedTargetKind: planningDiagnostics.resolvedTargetKind }),
+      ...(planningDiagnostics?.resolverConfidence === undefined
+        ? {}
+        : { resolverConfidence: planningDiagnostics.resolverConfidence }),
+      ...(planningDiagnostics?.candidateCount === undefined
+        ? {}
+        : { candidateCount: planningDiagnostics.candidateCount }),
+      disambiguationUsed: planningDiagnostics?.disambiguationUsed
+        ?? ready?.disambiguationUsed
+        ?? false,
+      ...(planningDiagnostics?.disambiguationResult === undefined
+        ? {}
+        : {
+            disambiguationResult:
+              planningDiagnostics.disambiguationResult,
+          }),
+      guardStatus: planningDiagnostics?.guardStatus
+        ?? (ready === undefined ? "NOT_RUN" : "PASSED"),
+      executionStatus: result.status,
+      ...("operationId" in result && result.operationId !== undefined
+        ? { editorOperationId: result.operationId }
+        : {}),
+      ...(result.status === "ERROR"
+        ? { errorCode: result.errorCode }
+        : {}),
+      timestamps,
+      metrics: calculateDirectCommandLatencyMetrics(timestamps),
+    };
+    try {
+      this.options.diagnostics?.record(trace);
+    } catch {
+      // Diagnostics cannot change route semantics.
+    }
+    return result;
+  }
+
+  private now(): number {
+    return Number(this.options.clock.now());
   }
 }
 
@@ -291,4 +439,17 @@ function error(
   >["errorCode"],
 ): DirectCommandRouteResult {
   return { status: "ERROR", turnId: ready.turnId, errorCode };
+}
+
+function aborted(turnId: string): DirectCommandRouteResult {
+  return { status: "ERROR", turnId, errorCode: "ABORTED" };
+}
+
+function abortedOrPlannerError(
+  turnId: string,
+  signal: AbortSignal,
+): DirectCommandRouteResult {
+  return signal.aborted
+    ? aborted(turnId)
+    : { status: "ERROR", turnId, errorCode: "PLANNER_ERROR" };
 }

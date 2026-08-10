@@ -3,6 +3,7 @@ import {
   type EditorPersistenceEvent,
   type SerializedAnnotation,
 } from "@ggulnote/editor-core";
+import { toSessionTimeMs } from "@ggulnote/interaction-core";
 import { describe, expect, it } from "vitest";
 import type {
   CommandRelation,
@@ -254,12 +255,14 @@ function createHarness(
     editorEngine: editor,
     navigation: new FakeNavigation(),
     getCurrentSceneRevision: () => currentRevision,
+    clock: { now: () => toSessionTimeMs(100) },
   });
   const route = new DirectCommandRoute({
     planning,
     executor,
     history,
     registry,
+    clock: { now: () => toSessionTimeMs(100) },
   });
   return {
     editor,
@@ -385,8 +388,10 @@ describe("DirectCommandRoute Phase E", () => {
         editorEngine: harness.editor,
         navigation: new FakeNavigation(),
         getCurrentSceneRevision: () => currentRevision,
+        clock: { now: () => toSessionTimeMs(100) },
       }),
       history: harness.history,
+      clock: { now: () => toSessionTimeMs(100) },
     });
 
     await route.execute(first);
@@ -739,8 +744,10 @@ describe("DirectCommandRoute Phase E", () => {
         editorEngine: harness.editor,
         navigation: new FakeNavigation(),
         getCurrentSceneRevision: () => currentRevision,
+        clock: { now: () => toSessionTimeMs(100) },
       }),
       history: harness.history,
+      clock: { now: () => toSessionTimeMs(100) },
     });
     await route.execute(first);
     currentRevision = second.frozenContext.sceneRevision;
@@ -752,5 +759,41 @@ describe("DirectCommandRoute Phase E", () => {
       errorCode: "INVALID_TARGET",
     });
     expect(route.getLastOperation()?.turnId).toBe(first.id);
+  });
+});
+
+describe("DirectCommandRoute Phase F lifecycle", () => {
+  it("aborts an in-flight planner on dispose and ignores a late READY result", async () => {
+    const voiceTurn = turn("turn-dispose", 7);
+    let resolvePlanning:
+      | ((result: DirectCommandPlanningResult) => void)
+      | undefined;
+    const latePlanning = new Promise<DirectCommandPlanningResult>((resolve) => {
+      resolvePlanning = resolve;
+    });
+    const harness = createHarness([
+      () => latePlanning,
+    ]);
+    const operations = collectOperations(harness.editor);
+
+    const pending = harness.route.execute(voiceTurn);
+    harness.route.dispose();
+    resolvePlanning?.(
+      ready(
+        voiceTurn,
+        "NEW",
+        underlineCommand("focused"),
+        pdfTarget(voiceTurn),
+      ),
+    );
+
+    await expect(pending).resolves.toEqual({
+      status: "ERROR",
+      turnId: voiceTurn.id,
+      errorCode: "ABORTED",
+    });
+    expect(harness.editor.exportPageSnapshot(PAGE_ID).annotations).toHaveLength(0);
+    expect(operations.events).toHaveLength(0);
+    operations.dispose();
   });
 });

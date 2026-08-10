@@ -4,6 +4,7 @@ import {
   type CompletedVoiceTurn,
   type DirectCommandContext,
   type DirectCommandHistorySnapshot,
+  type DirectCommandPlanningDiagnostics,
   type DirectCommandPlanningResult,
   type DirectCommandPlanningTimestamps,
   type DirectEditorCommand,
@@ -25,6 +26,7 @@ import { FrozenTargetResolver } from "./frozen-target-resolver";
 export interface DirectCommandPlanningOptions {
   signal?: AbortSignal;
   historySnapshot?: DirectCommandHistorySnapshot;
+  routeReceivedAt?: number;
 }
 
 export interface DirectCommandPlanningPipelineOptions {
@@ -44,7 +46,11 @@ export class DirectCommandPlanningPipeline {
     options: DirectCommandPlanningOptions = {},
   ): Promise<DirectCommandPlanningResult> {
     const timestamps: DirectCommandPlanningTimestamps = {
-      routeReceivedAt: this.now(),
+      routeReceivedAt: options.routeReceivedAt ?? this.now(),
+    };
+    const diagnostics: DirectCommandPlanningDiagnostics = {
+      disambiguationUsed: false,
+      guardStatus: "NOT_RUN",
     };
     const built = this.options.contextBuilder.build(turn, {
       ...(options.historySnapshot === undefined
@@ -57,6 +63,7 @@ export class DirectCommandPlanningPipeline {
         turnId: turn.id,
         errorCode: built.errorCode,
         timestamps,
+        diagnostics,
       };
     }
     const context = built.context;
@@ -70,40 +77,71 @@ export class DirectCommandPlanningPipeline {
       );
     } catch (error) {
       timestamps.plannerCompletedAt = this.now();
-      return this.aiError(turn.id, timestamps, error, options.signal);
+      return this.aiError(
+        turn.id,
+        timestamps,
+        error,
+        options.signal,
+        diagnostics,
+      );
     }
     timestamps.plannerCompletedAt = this.now();
+    diagnostics.plannerStatus = plannerResult.status;
 
     if (plannerResult.status !== "EXECUTABLE") {
-      const terminal = terminalPlannerResult(plannerResult, timestamps);
-      if (terminal === null) throw new Error("Unreachable executable planner result.");
+      const terminal = terminalPlannerResult(
+        plannerResult,
+        timestamps,
+        diagnostics,
+      );
+      if (terminal === null) {
+        throw new Error("Unreachable executable planner result.");
+      }
       return terminal;
     }
     const plan = plannerResult;
+    Object.assign(diagnostics, {
+      planId: plan.planId,
+      capability: plan.command.capability,
+      operation: plan.command.operation,
+      relation: plan.relation,
+      targetQueryKind: plan.command.target.kind,
+    });
     if (isControlCommand(plan.command)) {
-      return this.guardReady(context, plan, undefined, false, timestamps);
+      return this.guardReady(
+        context,
+        plan,
+        undefined,
+        false,
+        timestamps,
+        diagnostics,
+      );
     }
 
     const resolutionInput = toResolutionInput(context, plan.command.target);
     timestamps.resolverStartedAt = this.now();
     let resolution = this.options.resolver.resolve(resolutionInput);
     timestamps.resolverCompletedAt = this.now();
+    diagnostics.resolutionStatus = resolution.status;
 
     if (resolution.status === "NOT_FOUND") {
       return {
         status: "TARGET_NOT_FOUND",
         turnId: turn.id,
         timestamps,
+        diagnostics,
       };
     }
     let disambiguationUsed = false;
     if (resolution.status === "AMBIGUOUS") {
+      diagnostics.candidateCount = resolution.candidates.length;
       const disambiguator = this.options.disambiguator;
       if (disambiguator === undefined) {
         return {
           status: "TARGET_AMBIGUOUS",
           turnId: turn.id,
           timestamps,
+          diagnostics,
         };
       }
       const disambiguation = buildDirectTargetDisambiguationContext(
@@ -121,17 +159,27 @@ export class DirectCommandPlanningPipeline {
         );
       } catch (error) {
         timestamps.disambiguatorCompletedAt = this.now();
-        return this.aiError(turn.id, timestamps, error, options.signal);
+        return this.aiError(
+          turn.id,
+          timestamps,
+          error,
+          options.signal,
+          diagnostics,
+        );
       }
       timestamps.disambiguatorCompletedAt = this.now();
       disambiguationUsed = true;
+      diagnostics.disambiguationUsed = true;
       if (selection.status === "NONE") {
+        diagnostics.disambiguationResult = "NONE";
         return {
           status: "TARGET_AMBIGUOUS",
           turnId: turn.id,
           timestamps,
+          diagnostics,
         };
       }
+      diagnostics.disambiguationResult = "SELECTED";
       const selected = disambiguation.candidatesByLabel.get(
         selection.candidateLabel,
       );
@@ -141,6 +189,7 @@ export class DirectCommandPlanningPipeline {
           turnId: turn.id,
           errorCode: "PLANNER_INVALID_OUTPUT",
           timestamps,
+          diagnostics,
         };
       }
       resolution = this.options.resolver.resolveRankedCandidate(
@@ -148,13 +197,18 @@ export class DirectCommandPlanningPipeline {
         selected,
       );
       if (resolution.status !== "RESOLVED") {
+        diagnostics.resolutionStatus = resolution.status;
         return {
           status: "TARGET_NOT_FOUND",
           turnId: turn.id,
           timestamps,
+          diagnostics,
         };
       }
     }
+    diagnostics.resolutionStatus = resolution.status;
+    diagnostics.resolvedTargetKind = resolution.target.kind;
+    diagnostics.resolverConfidence = resolution.confidence;
 
     return this.guardReady(
       context,
@@ -162,6 +216,7 @@ export class DirectCommandPlanningPipeline {
       resolution,
       disambiguationUsed,
       timestamps,
+      diagnostics,
     );
   }
 
@@ -171,7 +226,9 @@ export class DirectCommandPlanningPipeline {
     resolution: TargetResolutionResult | undefined,
     disambiguationUsed: boolean,
     timestamps: DirectCommandPlanningTimestamps,
+    diagnostics: DirectCommandPlanningDiagnostics,
   ): DirectCommandPlanningResult {
+    timestamps.validationStartedAt = this.now();
     const guarded = guardDirectCommandPlan({
       result: plan,
       expectedTurnId: context.turn.id,
@@ -183,13 +240,16 @@ export class DirectCommandPlanningPipeline {
     });
     timestamps.validatedAt = this.now();
     if (guarded.status === "REJECTED") {
+      diagnostics.guardStatus = "REJECTED";
       return {
         status: "ERROR",
         turnId: context.turn.id,
         errorCode: guarded.errorCode,
         timestamps,
+        diagnostics,
       };
     }
+    diagnostics.guardStatus = "PASSED";
     return {
       status: "READY_FOR_EXECUTION",
       turnId: context.turn.id,
@@ -198,6 +258,7 @@ export class DirectCommandPlanningPipeline {
       ...(guarded.target === undefined ? {} : { target: guarded.target }),
       disambiguationUsed,
       timestamps,
+      diagnostics,
     };
   }
 
@@ -206,13 +267,14 @@ export class DirectCommandPlanningPipeline {
     timestamps: DirectCommandPlanningTimestamps,
     error: unknown,
     signal: AbortSignal | undefined,
+    diagnostics: DirectCommandPlanningDiagnostics,
   ): DirectCommandPlanningResult {
     const errorCode = error instanceof DirectAiProviderError
       ? error.code
       : signal?.aborted
         ? "ABORTED"
         : "PLANNER_ERROR";
-    return { status: "ERROR", turnId, errorCode, timestamps };
+    return { status: "ERROR", turnId, errorCode, timestamps, diagnostics };
   }
 
   private now(): number {
@@ -223,18 +285,39 @@ export class DirectCommandPlanningPipeline {
 function terminalPlannerResult(
   result: DirectPlannerResult,
   timestamps: DirectCommandPlanningTimestamps,
+  diagnostics: DirectCommandPlanningDiagnostics,
 ): DirectCommandPlanningResult | null {
   switch (result.status) {
     case "EXECUTABLE":
       return null;
     case "DEFER_SPATIAL":
-      return { status: "DEFERRED_SPATIAL", turnId: result.turnId, timestamps };
+      return {
+        status: "DEFERRED_SPATIAL",
+        turnId: result.turnId,
+        timestamps,
+        diagnostics,
+      };
     case "NEEDS_CLARIFICATION":
-      return { status: "NEEDS_CLARIFICATION", turnId: result.turnId, timestamps };
+      return {
+        status: "NEEDS_CLARIFICATION",
+        turnId: result.turnId,
+        timestamps,
+        diagnostics,
+      };
     case "UNSUPPORTED":
-      return { status: "UNSUPPORTED", turnId: result.turnId, timestamps };
+      return {
+        status: "UNSUPPORTED",
+        turnId: result.turnId,
+        timestamps,
+        diagnostics,
+      };
     case "CANCELLED":
-      return { status: "CANCELLED", turnId: result.turnId, timestamps };
+      return {
+        status: "CANCELLED",
+        turnId: result.turnId,
+        timestamps,
+        diagnostics,
+      };
   }
 }
 
