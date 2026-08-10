@@ -126,3 +126,9 @@ export type {
 export type {
   DirectCommandCompileContext,
 } from "./direct-command-capability-compiler";
+export { evaluateGroundingCases } from "./grounding-evaluation";
+export type {
+  GroundingEvaluationCase,
+  GroundingEvaluationCategory,
+  GroundingEvaluationMetrics,
+} from "./grounding-evaluation";
