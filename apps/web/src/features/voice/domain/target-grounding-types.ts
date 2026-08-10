@@ -40,6 +40,7 @@ export interface PageTargetCandidate {
   source: PageTargetSource;
   type: PageTargetCandidateType;
   pageId: PageId;
+  sourceObjectId?: string;
   sceneObjectId?: string;
   semanticObjectId?: string;
   objectRevision?: number;
@@ -56,6 +57,7 @@ export interface PageTargetCandidate {
 export interface PageTargetCatalog {
   pageId: PageId;
   sceneRevision: SceneSnapshot["sceneRevision"];
+  semanticModel?: PageSemanticModel;
   candidates: readonly PageTargetCandidate[];
 }
 

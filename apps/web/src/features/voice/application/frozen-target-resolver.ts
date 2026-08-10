@@ -6,9 +6,15 @@ import type {
   TargetResolutionInput,
   TargetResolutionPolicy,
   TargetResolutionResult,
+  TextSpanTargetQuery,
 } from "../domain";
 import { DEFAULT_TARGET_RESOLUTION_POLICY } from "../domain";
+import {
+  buildCanonicalTextStream,
+  resolveTextSpanWithCanonicalStream,
+} from "./canonical-text-stream";
 import { rankTargetCandidates } from "./candidate-ranker";
+import type { Rect } from "@ggulnote/editor-core";
 
 const TEXT_LIKE_TARGET_TYPES = new Set([
   "sentence",
@@ -32,6 +38,12 @@ export class FrozenTargetResolver {
       || input.catalog.sceneRevision !== input.frozenContext.sceneRevision
     ) {
       return { status: "NOT_FOUND", reasonCode: "NO_MATCH" };
+    }
+    if (input.query.kind === "text_span" && input.catalog.semanticModel !== undefined) {
+      const canonical = this.resolveTextSpanCanonical(input, input.query);
+      if (canonical !== undefined) {
+        return canonical;
+      }
     }
     if (input.query.kind === "subrange") {
       return { status: "NOT_FOUND", reasonCode: "SUBRANGE_UNSUPPORTED" };
@@ -166,6 +178,78 @@ export class FrozenTargetResolver {
       },
       input.catalog.sceneRevision,
     );
+  }
+
+  private resolveTextSpanCanonical(
+    input: TargetResolutionInput,
+    query: TextSpanTargetQuery,
+  ): TargetResolutionResult | undefined {
+    if (input.catalog.semanticModel === undefined) {
+      return undefined;
+    }
+    const boundsBySourceObjectId = new Map<string, Rect>();
+    const sourceObjectCandidates = new Map<string, PageTargetCandidate>();
+    for (const candidate of input.catalog.candidates) {
+      if (
+        candidate.source === "pdf"
+        && candidate.sourceObjectId !== undefined
+        && candidate.bounds !== undefined
+      ) {
+        const bounds = candidate.bounds;
+        boundsBySourceObjectId.set(candidate.sourceObjectId, { ...bounds });
+        sourceObjectCandidates.set(candidate.sourceObjectId, candidate);
+      }
+    }
+    if (boundsBySourceObjectId.size === 0) {
+      return undefined;
+    }
+
+    const stream = buildCanonicalTextStream({
+      semanticModel: input.catalog.semanticModel,
+      pageId: input.frozenContext.pageId,
+      boundsBySourceObjectId,
+    });
+    const resolution = resolveTextSpanWithCanonicalStream(stream, query);
+
+    if (resolution.status !== "RESOLVED") {
+      return undefined;
+    }
+
+    const startCandidate = resolution.selectedTokens[0]?.sourceObjectId
+      ? sourceObjectCandidates.get(resolution.selectedTokens[0]?.sourceObjectId)
+      : undefined;
+    if (startCandidate === undefined) {
+      return undefined;
+    }
+    if (startCandidate.source === "ggulnote") {
+      return undefined;
+    }
+
+    return {
+      status: "RESOLVED",
+      confidence: 1,
+      target: {
+        candidateId: startCandidate.candidateId,
+        kind: "text_span",
+        pageId: startCandidate.pageId,
+        sceneRevision: input.catalog.sceneRevision,
+        source: startCandidate.source,
+        type: startCandidate.type,
+        editable: startCandidate.editable,
+        annotatable: startCandidate.annotatable,
+        ...(startCandidate.sceneObjectId === undefined
+          ? {}
+          : { objectId: startCandidate.sceneObjectId }),
+        text: resolution.text,
+        bounds: [...resolution.bounds],
+      },
+      evidence: {
+        ...emptyEvidence(),
+        typeMatch: 1,
+        lexicalMatch: 1,
+        fuzzyMatch: 0.99,
+      },
+    };
   }
 
   private resolveRanked(input: TargetResolutionInput): TargetResolutionResult {

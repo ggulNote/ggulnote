@@ -123,6 +123,7 @@ describe("buildPageTargetCatalog", () => {
       .toMatchObject({
         type: "line",
         text: "세종대왕의 주요 업적",
+        sourceObjectId: "line-1",
         editable: false,
         annotatable: true,
         semanticUnit: "line",
@@ -144,6 +145,7 @@ describe("buildPageTargetCatalog", () => {
         semanticUnit: "sentence",
         bounds: { x: 60, y: 160, width: 240, height: 40 },
       });
+    expect(catalog.semanticModel).toBe(SEMANTIC_MODEL);
     expect(catalog.candidates.some((candidate) => candidate.pageId === "page-2"))
       .toBe(false);
     expect(recentOperation.targetSceneObjectId).toBe(EDITABLE_TEXT.id);

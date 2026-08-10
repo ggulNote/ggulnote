@@ -7,6 +7,7 @@ import type {
   DirectReusableTargetRecord,
   TargetQuery,
 } from "../domain";
+import { PageSemanticModel } from "@ggulnote/document-core";
 import { FrozenTargetResolver } from "./frozen-target-resolver";
 
 const FROZEN_CONTEXT: FrozenVoiceTurnContext = {
@@ -42,18 +43,221 @@ function catalog(candidates: readonly PageTargetCandidate[]): PageTargetCatalog 
   return { pageId: "page-1", sceneRevision: 7, candidates };
 }
 
+function catalogWithSemanticModel(
+  candidates: readonly PageTargetCandidate[],
+  semanticModel: PageSemanticModel,
+): PageTargetCatalog {
+  return {
+    pageId: "page-1",
+    sceneRevision: 7,
+    semanticModel,
+    candidates,
+  };
+}
+
 function resolve(
   query: TargetQuery,
   candidates: readonly PageTargetCandidate[],
   recentOperations: readonly DirectRecentOperation[] = [],
   lastReusableTarget?: DirectReusableTargetRecord,
+  semanticModel?: PageSemanticModel,
 ) {
   return new FrozenTargetResolver().resolve({
     query,
-    catalog: catalog(candidates),
+    catalog: semanticModel === undefined
+      ? catalog(candidates)
+      : catalogWithSemanticModel(candidates, semanticModel),
     frozenContext: FROZEN_CONTEXT,
     recentOperations,
     ...(lastReusableTarget === undefined ? {} : { lastReusableTarget }),
+  });
+}
+
+function createTextSpanModel(): PageSemanticModel {
+  return new PageSemanticModel({
+    schemaVersion: 1,
+    extractorVersion: "test",
+    documentId: "doc-1",
+    pageId: "page-1",
+    pageNumber: 1,
+    sourceSignature: "test-signature",
+    semanticSource: "legacy-semantic-fallback",
+    readingOrder: ["word-1", "word-2", "word-3", "word-4"],
+    words: [
+      {
+        id: "word-1",
+        type: "WORD",
+        pageId: "page-1",
+        text: "Moreover",
+        normalizedText: "moreover",
+        bounds: { x: 0.02, y: 0.02, width: 0.12, height: 0.04 },
+        readingOrder: 1,
+        confidence: 1,
+        orientation: { angle: 0, writingMode: "horizontal" },
+        regionId: "region-1",
+        blockId: "block-1",
+        columnId: "column-1",
+        sourceItemIds: ["s-word-1"],
+        sourceRanges: [{ sourceTextItemId: "src-word-1", startOffset: 0, endOffset: 8 }],
+        lineId: "line-1",
+        direction: "ltr",
+        startsWithPunctuation: false,
+        endsWithPunctuation: false,
+        hasEOL: false,
+        axis: { advanceX: 18, advanceY: 0, normalX: 0, normalY: 1 },
+        quad: {
+          points: [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 1, y: 1 },
+            { x: 0, y: 1 },
+          ],
+        },
+      },
+      {
+        id: "word-2",
+        type: "WORD",
+        pageId: "page-1",
+        text: "from",
+        normalizedText: "from",
+        bounds: { x: 0.16, y: 0.02, width: 0.08, height: 0.04 },
+        readingOrder: 2,
+        confidence: 1,
+        orientation: { angle: 0, writingMode: "horizontal" },
+        regionId: "region-1",
+        blockId: "block-1",
+        columnId: "column-1",
+        sourceItemIds: ["s-word-2"],
+        sourceRanges: [{ sourceTextItemId: "src-word-2", startOffset: 9, endOffset: 13 }],
+        lineId: "line-1",
+        direction: "ltr",
+        startsWithPunctuation: false,
+        endsWithPunctuation: false,
+        hasEOL: false,
+        axis: { advanceX: 16, advanceY: 0, normalX: 0, normalY: 1 },
+        quad: {
+          points: [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 1, y: 1 },
+            { x: 0, y: 1 },
+          ],
+        },
+      },
+      {
+        id: "word-3",
+        type: "WORD",
+        pageId: "page-1",
+        text: "a",
+        normalizedText: "a",
+        bounds: { x: 0.26, y: 0.02, width: 0.03, height: 0.04 },
+        readingOrder: 3,
+        confidence: 1,
+        orientation: { angle: 0, writingMode: "horizontal" },
+        regionId: "region-1",
+        blockId: "block-1",
+        columnId: "column-1",
+        sourceItemIds: ["s-word-3"],
+        sourceRanges: [{ sourceTextItemId: "src-word-3", startOffset: 14, endOffset: 15 }],
+        lineId: "line-2",
+        direction: "ltr",
+        startsWithPunctuation: false,
+        endsWithPunctuation: false,
+        hasEOL: false,
+        axis: { advanceX: 6, advanceY: 0, normalX: 0, normalY: 1 },
+        quad: {
+          points: [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 1, y: 1 },
+            { x: 0, y: 1 },
+          ],
+        },
+      },
+      {
+        id: "word-4",
+        type: "WORD",
+        pageId: "page-1",
+        text: "instance",
+        normalizedText: "instance",
+        bounds: { x: 0.31, y: 0.02, width: 0.12, height: 0.04 },
+        readingOrder: 4,
+        confidence: 1,
+        orientation: { angle: 0, writingMode: "horizontal" },
+        regionId: "region-1",
+        blockId: "block-1",
+        columnId: "column-1",
+        sourceItemIds: ["s-word-4"],
+        sourceRanges: [{ sourceTextItemId: "src-word-4", startOffset: 16, endOffset: 24 }],
+        lineId: "line-2",
+        direction: "ltr",
+        startsWithPunctuation: false,
+        endsWithPunctuation: false,
+        hasEOL: false,
+        axis: { advanceX: 24, advanceY: 0, normalX: 0, normalY: 1 },
+        quad: {
+          points: [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 1, y: 1 },
+            { x: 0, y: 1 },
+          ],
+        },
+      },
+    ],
+    unassignedWords: [],
+    lines: [
+      {
+        id: "line-1",
+        type: "LINE",
+        pageId: "page-1",
+        text: "Moreover from",
+        normalizedText: "moreover from",
+        bounds: { x: 0.02, y: 0.02, width: 0.26, height: 0.04 },
+        readingOrder: 1,
+        confidence: 1,
+        orientation: { angle: 0, writingMode: "horizontal" },
+        regionId: "region-1",
+        blockId: "block-1",
+        columnId: "column-1",
+        wordIds: ["word-1", "word-2"],
+        paragraphId: "paragraph-1",
+        baseline: 0,
+        direction: "ltr",
+        columnIndex: 0,
+        axis: { advanceX: 18, advanceY: 0, normalX: 0, normalY: 1 },
+        horizontalGaps: [],
+      },
+      {
+        id: "line-2",
+        type: "LINE",
+        pageId: "page-1",
+        text: "a instance",
+        normalizedText: "a instance",
+        bounds: { x: 0.02, y: 0.08, width: 0.22, height: 0.04 },
+        readingOrder: 2,
+        confidence: 1,
+        orientation: { angle: 0, writingMode: "horizontal" },
+        regionId: "region-1",
+        blockId: "block-1",
+        columnId: "column-1",
+        wordIds: ["word-3", "word-4"],
+        paragraphId: "paragraph-1",
+        baseline: 0,
+        direction: "ltr",
+        columnIndex: 0,
+        axis: { advanceX: 6, advanceY: 0, normalX: 0, normalY: 1 },
+        horizontalGaps: [],
+      },
+    ],
+    layoutRegions: [],
+    layoutBlocks: [],
+    columns: [],
+    sentences: [],
+    paragraphs: [],
+    createdAt: 1,
+    sourceItemCount: 0,
+    processingDurationMs: 0,
   });
 }
 
@@ -312,6 +516,68 @@ describe("FrozenTargetResolver", () => {
     expect(result).toMatchObject({ status: "RESOLVED" });
     if (result.status !== "RESOLVED") throw new Error("Expected fuzzy resolution.");
     expect(result.evidence.fuzzyMatch).toBeGreaterThan(0.7);
+  });
+
+  it("resolves text_span through canonical stream when a semantic model is available", () => {
+    const semanticModel = createTextSpanModel();
+    const result = resolve(
+      { kind: "text_span", startAnchor: "Moreover", endAnchor: "instance" },
+      [
+        candidate({
+          candidateId: "candidate:pdf:word:1",
+          sourceObjectId: "word-1",
+          source: "pdf",
+          type: "word",
+          sceneObjectId: "pdf:word:1",
+          text: "Moreover",
+          bounds: { x: 10, y: 10, width: 80, height: 20 },
+        }),
+        candidate({
+          candidateId: "candidate:pdf:word:2",
+          sourceObjectId: "word-2",
+          source: "pdf",
+          type: "word",
+          sceneObjectId: "pdf:word:2",
+          text: "from",
+          bounds: { x: 95, y: 10, width: 55, height: 20 },
+        }),
+        candidate({
+          candidateId: "candidate:pdf:word:3",
+          sourceObjectId: "word-3",
+          source: "pdf",
+          type: "word",
+          sceneObjectId: "pdf:word:3",
+          text: "a",
+          bounds: { x: 155, y: 10, width: 15, height: 20 },
+        }),
+        candidate({
+          candidateId: "candidate:pdf:word:4",
+          sourceObjectId: "word-4",
+          source: "pdf",
+          type: "word",
+          sceneObjectId: "pdf:word:4",
+          text: "instance",
+          bounds: { x: 175, y: 10, width: 70, height: 20 },
+        }),
+      ],
+      [],
+      undefined,
+      semanticModel,
+    );
+
+    expect(result).toMatchObject({
+      status: "RESOLVED",
+      confidence: 1,
+      target: {
+        kind: "text_span",
+        objectId: "pdf:word:1",
+        text: "Moreover from a instance",
+        bounds: [
+          { x: 10, y: 10, width: 140, height: 20 },
+          { x: 155, y: 10, width: 90, height: 20 },
+        ],
+      },
+    });
   });
 
   it("returns AMBIGUOUS for close candidates without auto-selecting top1", () => {

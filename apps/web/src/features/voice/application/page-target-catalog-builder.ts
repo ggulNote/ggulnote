@@ -37,6 +37,7 @@ export function buildPageTargetCatalog(
   return {
     pageId: input.scene.page.id,
     sceneRevision: input.scene.sceneRevision,
+    ...(input.semanticModel === undefined ? {} : { semanticModel: input.semanticModel }),
     candidates: [...sceneCandidates, ...sentenceCandidates],
   };
 }
@@ -78,12 +79,17 @@ function sceneObjectToCandidate(
   const isEditableText = object.source === "canvas"
     && object.kind === "text"
     && !object.locked;
+  const sourceObjectId =
+    object.source === "pdf" && "sourceObjectId" in object
+      ? (object as { sourceObjectId?: string }).sourceObjectId
+      : undefined;
 
   return {
     candidateId: `target:scene:${object.id}`,
     source: object.source === "pdf" ? "pdf" : "ggulnote",
     type: object.kind,
     pageId: object.pageId,
+    ...(sourceObjectId === undefined ? {} : { sourceObjectId }),
     sceneObjectId: object.id,
     objectRevision: object.objectRevision,
     ...(text === undefined || text.length === 0 ? {} : { text }),
