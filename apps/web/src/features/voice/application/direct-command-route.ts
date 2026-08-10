@@ -370,6 +370,9 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.recoveryErrorCode === undefined
         ? {}
         : { recoveryErrorCode: planningDiagnostics.recoveryErrorCode }),
+      ...(planningDiagnostics?.initialResolutionReason === undefined
+        ? {}
+        : { initialResolutionReason: planningDiagnostics.initialResolutionReason }),
       ...(planningDiagnostics?.initialResolutionStatus === undefined
         ? {}
         : { initialResolutionStatus: planningDiagnostics.initialResolutionStatus }),

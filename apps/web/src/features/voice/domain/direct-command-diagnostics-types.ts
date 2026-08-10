@@ -51,6 +51,7 @@ export interface DirectCommandPlanningDiagnostics {
   recoveryResult?: "SELECTED" | "NONE" | "INVALID" | "ERROR";
   recoveryErrorCode?: TargetRecoveryErrorCode;
   initialResolutionStatus?: TargetResolutionResult["status"];
+  initialResolutionReason?: string;
   finalResolutionStatus?: TargetResolutionResult["status"];
   guardStatus: "NOT_RUN" | "PASSED" | "REJECTED";
 }
@@ -104,6 +105,7 @@ export interface DirectCommandTrace {
   recoveryResult?: "SELECTED" | "NONE" | "INVALID" | "ERROR";
   recoveryErrorCode?: TargetRecoveryErrorCode;
   initialResolutionStatus?: TargetResolutionResult["status"];
+  initialResolutionReason?: string;
   finalResolutionStatus?: TargetResolutionResult["status"];
   guardStatus: DirectCommandPlanningDiagnostics["guardStatus"];
   executionStatus: DirectCommandRouteResult["status"];

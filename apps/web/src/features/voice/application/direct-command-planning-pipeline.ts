@@ -132,6 +132,9 @@ export class DirectCommandPlanningPipeline {
     timestamps.resolverCompletedAt = this.now();
     diagnostics.resolutionStatus = resolution.status;
     diagnostics.initialResolutionStatus = resolution.status;
+    if ("reasonCode" in resolution) {
+      diagnostics.initialResolutionReason = resolution.reasonCode;
+    }
     if (resolution.diagnostics !== undefined) {
       Object.assign(diagnostics, resolution.diagnostics);
     }
