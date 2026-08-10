@@ -66,6 +66,12 @@ AnchorSlotNormalizer
 - Single-token과 multi-token anchor는 같은 `AnchorSpanCandidate` 모델을 사용한다.
 - Phrase candidate는 실제 Frozen Page의 연속 Canonical token span만 허용한다.
 - Speech chunk coverage와 monotonic phrase alignment를 별도 evidence로 유지한다.
+- Query-relative unmatched prefix/suffix와 boundary precision을 유지하고 동일 aligned occurrence의
+  expansion variant를 LLM candidate 생성 전에 canonicalize한다.
+- Span pair는 양쪽 anchor evidence를 상속하고 duplicate/dominated pair를 prune한 뒤 중앙
+  TextSpan policy의 score/margin confidence gate를 적용한다.
+- Pair Recovery에는 actual text/preview와 full/partial chunk coverage, clean/expanded boundary,
+  coarse confidence만 전달한다. 내부 token/source ID, offset, coordinate 및 raw rank score는 노출하지 않는다.
 - Cross-line phrase는 같은 semantic paragraph의 reading order에서 허용하며, paragraph/column
   경계를 넘는 synthetic phrase stitching은 금지한다.
 - Start/end occurrence는 forward/materializable `SpanPairCandidate`로 먼저 조합한다.

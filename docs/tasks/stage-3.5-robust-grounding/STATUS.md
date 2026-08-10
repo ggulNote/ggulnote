@@ -392,3 +392,18 @@ Validation:
 
 Remaining limitations are unchanged: production ASR N-best/acoustic retrieval, persistent
 GroundingMemory, Math/Table Subrange and Stage 4 Spatial Placement are not implemented.
+
+## TextSpan Pair Selection Hardening
+
+Status: COMPLETE
+
+- Anchor alignment now preserves query/matched chunk counts, actual aligned occurrence, phrase
+  coverage, phonetic/lexical evidence, unmatched boundary tokens and boundary precision.
+- Same-occurrence expansion variants are canonicalized query-relatively; separate occurrences remain
+  separate targets.
+- Span pairs inherit both anchor evidence, remove invalid/duplicate/dominated variants, and use the
+  centralized TextSpan score/margin confidence gate. Distance remains evidence, not a range limit.
+- Clear full-coverage/clean-boundary pairs resolve deterministically. Ambiguous pairs alone reach the
+  existing one-call supplied-`P*`/`NONE` Recovery provider with bounded interpretable evidence.
+- Diagnostics and evaluation distinguish boundary accuracy, pre/post-pruning counts, deterministic
+  resolution and LLM Recovery use without logging candidate text.

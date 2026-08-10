@@ -350,3 +350,7 @@ Stage 3.5 완료 조건:
 - [x] Anchor/Pair/Final/False Commit 평가 지표를 분리한다.
 - [x] Vision capability, multi-token end/both, duplicate, long range, cross-line 및 multi-column tests를 추가한다.
 - [x] Canonical/Recovery/Pipeline/Multi-Rect/Stage 3 regression을 유지한다.
+- [x] Query-relative anchor boundary evidence와 same-occurrence canonicalization을 적용한다.
+- [x] Start/end evidence inheritance, duplicate/dominated pair pruning과 confidence gate를 적용한다.
+- [x] Pair Recovery에 supplied-label-only/NONE 정책을 유지한 bounded alignment summary를 제공한다.
+- [x] Anchor boundary accuracy, deterministic resolution rate와 LLM recovery rate를 평가한다.
