@@ -53,7 +53,7 @@ import {
 import { LayoutDetectionDebugPanel } from "./layout-detection-debug-panel";
 import {
   buildEditorVoiceContextRead,
-  useOwnedBrowserVoiceTurnController,
+  useOwnedBrowserDirectCommandComposition,
   VoiceLensOverlay,
   VoiceTriggerControl,
 } from "../../voice";
@@ -1042,9 +1042,29 @@ export function DocumentWorkspace({
     visiblePageText,
     voiceSceneRevision,
   ]);
-  const voiceTurnController = useOwnedBrowserVoiceTurnController(
-    readVoiceTurnContext,
-  );
+  const readDirectCommandGroundingSnapshot = useCallback(() => {
+    try {
+      const current = readVoiceTurnContext();
+      return {
+        scene: current.scene,
+        ...(semanticDebugModel === null
+          ? {}
+          : { semanticModel: semanticDebugModel }),
+      };
+    } catch {
+      return undefined;
+    }
+  }, [readVoiceTurnContext, semanticDebugModel]);
+  const voiceDirectCommandComposition =
+    useOwnedBrowserDirectCommandComposition({
+      editorEngine,
+      readCurrentVoiceContext: readVoiceTurnContext,
+      readCurrentGroundingSnapshot: readDirectCommandGroundingSnapshot,
+      getCurrentSceneRevision: () => voiceSceneRevision.get(),
+      getCurrentPage: () => state.currentPage,
+      goToPage,
+    });
+  const voiceTurnController = voiceDirectCommandComposition.voice.controller;
   const voiceLensPage = useMemo(() => {
     if (
       state.status !== "ready"
