@@ -591,6 +591,10 @@ function toSafeSpanPair(
     startText: boundText(pair.start.text, 120),
     endText: boundText(pair.end.text, 120),
     preview: boundText(pair.preview, TARGET_RECOVERY_LIMITS.anchorContextChars),
+    alignment: {
+      start: toSafeAnchorAlignment(pair.start),
+      end: toSafeAnchorAlignment(pair.end),
+    },
     relation: {
       sameSentence: pair.evidence.sameSentence,
       sameParagraph: pair.evidence.sameParagraph,
@@ -598,6 +602,21 @@ function toSafeSpanPair(
         ? "short"
         : pair.evidence.tokenDistance <= 96 ? "medium" : "long",
     },
+  };
+}
+
+function toSafeAnchorAlignment(
+  candidate: SpanPairCandidate["start"],
+): GroundedTextSpanPairCandidate["alignment"]["start"] {
+  const evidence = candidate.evidence;
+  return {
+    queryChunks: evidence.queryChunkCount,
+    matchedChunks: evidence.matchedChunkCount,
+    coverage: evidence.matchedChunkCount === evidence.queryChunkCount ? "full" : "partial",
+    boundary: evidence.boundaryPrecision === 1 ? "clean" : "expanded",
+    confidence: candidate.score >= 0.85
+      ? "strong"
+      : candidate.score >= 0.65 ? "medium" : "weak",
   };
 }
 

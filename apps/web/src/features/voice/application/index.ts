@@ -69,6 +69,7 @@ export {
   buildFrozenPageTermIndex,
   extractTargetGroundingSlots,
   phoneticSimilarity,
+  phoneticMorphologyCompatibility,
   retrieveTargetAwareGroundingEvidence,
   TARGET_RETRIEVAL_PROFILES,
 } from "./target-aware-grounding-retrieval";
@@ -78,9 +79,11 @@ export type {
 } from "./target-aware-grounding-retrieval";
 export {
   buildSpanPairCandidates,
+  canonicalizeAnchorCandidates,
   countTextSpanAnchorChunks,
   groundTextSpan,
   normalizeTextSpanAnchorSlot,
+  pruneDominatedSpanPairs,
   retrieveAnchorSpanCandidates,
   TEXT_SPAN_GROUNDING_POLICY,
 } from "./text-span-grounder";

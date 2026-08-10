@@ -67,11 +67,23 @@ export interface GroundedTextSpanPairCandidate {
   startText: string;
   endText: string;
   preview: string;
+  alignment: {
+    start: GroundedAnchorAlignmentSummary;
+    end: GroundedAnchorAlignmentSummary;
+  };
   relation: {
     sameSentence: boolean;
     sameParagraph: boolean;
     rangeLength: "short" | "medium" | "long";
   };
+}
+
+export interface GroundedAnchorAlignmentSummary {
+  queryChunks: number;
+  matchedChunks: number;
+  coverage: "full" | "partial";
+  boundary: "clean" | "expanded";
+  confidence: "strong" | "medium" | "weak";
 }
 
 interface GroundedTargetRecoveryInputBase {

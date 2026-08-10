@@ -365,6 +365,26 @@ export class DirectCommandRoute {
         ? {} : { endAnchorCandidateCount: planningDiagnostics.endAnchorCandidateCount }),
       ...(planningDiagnostics?.multiTokenAnchorUsed === undefined
         ? {} : { multiTokenAnchorUsed: planningDiagnostics.multiTokenAnchorUsed }),
+      ...(planningDiagnostics?.anchorVariantCount === undefined
+        ? {} : { anchorVariantCount: planningDiagnostics.anchorVariantCount }),
+      ...(planningDiagnostics?.canonicalAnchorCount === undefined
+        ? {} : { canonicalAnchorCount: planningDiagnostics.canonicalAnchorCount }),
+      ...(planningDiagnostics?.dominatedAnchorVariantCount === undefined
+        ? {} : {
+            dominatedAnchorVariantCount: planningDiagnostics.dominatedAnchorVariantCount,
+          }),
+      ...(planningDiagnostics?.spanPairCandidateCountBeforePruning === undefined
+        ? {} : {
+            spanPairCandidateCountBeforePruning:
+              planningDiagnostics.spanPairCandidateCountBeforePruning,
+          }),
+      ...(planningDiagnostics?.dominatedPairCount === undefined
+        ? {} : { dominatedPairCount: planningDiagnostics.dominatedPairCount }),
+      ...(planningDiagnostics?.spanPairCandidateCountAfterPruning === undefined
+        ? {} : {
+            spanPairCandidateCountAfterPruning:
+              planningDiagnostics.spanPairCandidateCountAfterPruning,
+          }),
       ...(planningDiagnostics?.spanPairCandidateCount === undefined
         ? {} : { spanPairCandidateCount: planningDiagnostics.spanPairCandidateCount }),
       ...(planningDiagnostics?.topSpanPairScore === undefined

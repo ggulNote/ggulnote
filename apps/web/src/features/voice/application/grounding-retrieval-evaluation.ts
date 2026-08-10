@@ -41,15 +41,20 @@ export interface TextSpanGroundingEvaluationCase {
   selectedPair?: SpanPairCandidate;
   committed: boolean;
   shouldCommit: boolean;
+  deterministicallyResolved: boolean;
+  recoveryUsed: boolean;
   k: number;
 }
 
 export interface TextSpanGroundingEvaluationResult {
   anchorCandidateRecallAtK: number;
   anchorPhraseAccuracy: number;
+  anchorBoundaryAccuracy: number;
   spanPairRecallAtK: number;
   spanPairSelectionAccuracy: number;
   finalTargetHitAt1: number;
+  deterministicResolutionRate: number;
+  llmRecoveryRate: number;
   falseCommitRate: number;
 }
 
@@ -67,6 +72,12 @@ export function evaluateTextSpanGroundingStages(
     .some((candidate) => sameRange(candidate.range, input.expectedPair));
   const selected = input.selectedPair;
   const selectionCorrect = selected !== undefined && sameRange(selected.range, input.expectedPair);
+  const startBoundaryCorrect = input.startCandidates[0] !== undefined
+    && sameRange(input.startCandidates[0], input.expectedStart)
+    && input.startCandidates[0].evidence.boundaryPrecision === 1;
+  const endBoundaryCorrect = input.endCandidates[0] !== undefined
+    && sameRange(input.endCandidates[0], input.expectedEnd)
+    && input.endCandidates[0].evidence.boundaryPrecision === 1;
   return {
     anchorCandidateRecallAtK: (Number(startRecalled) + Number(endRecalled)) / 2,
     anchorPhraseAccuracy: (
@@ -75,9 +86,12 @@ export function evaluateTextSpanGroundingStages(
       + Number(input.endCandidates[0] !== undefined
         && sameRange(input.endCandidates[0], input.expectedEnd))
     ) / 2,
+    anchorBoundaryAccuracy: (Number(startBoundaryCorrect) + Number(endBoundaryCorrect)) / 2,
     spanPairRecallAtK: Number(pairRecalled),
     spanPairSelectionAccuracy: Number(selectionCorrect),
     finalTargetHitAt1: Number(selectionCorrect && input.committed),
+    deterministicResolutionRate: Number(input.deterministicallyResolved),
+    llmRecoveryRate: Number(input.recoveryUsed),
     falseCommitRate: Number(input.committed && !input.shouldCommit),
   };
 }

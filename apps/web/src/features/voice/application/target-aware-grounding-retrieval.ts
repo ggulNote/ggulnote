@@ -183,9 +183,28 @@ export function phoneticSimilarity(korean: string, english: string): number {
       editSimilarity(koreanSkeleton, englishSkeleton),
       koreanSkeleton.startsWith("H") ? editSimilarity(koreanSkeleton.slice(1), englishSkeleton) : 0,
     );
-    best = Math.max(best, skeleton * 0.88 + editSimilarity(romanizeHangul(korean), variant.toLowerCase()) * 0.12);
+    best = Math.max(
+      best,
+      skeleton * 0.75 + editSimilarity(romanizeHangul(korean), variant.toLowerCase()) * 0.25,
+    );
   }
-  return best;
+  const morphology = phoneticMorphologyCompatibility(korean, english);
+  return morphology === undefined
+    ? best
+    : morphology === 1 ? best * 0.9 + 0.1 : best * 0.5;
+}
+
+export function phoneticMorphologyCompatibility(
+  korean: string,
+  english: string,
+): 0 | 1 | undefined {
+  const compact = english.toLowerCase().replace(/[^a-z]/gu, "");
+  if (/[스즈]$/u.test(korean)) {
+    if (/ing$/u.test(compact)) return 0;
+    return /(?:[sxz]|sh|ch)$/u.test(compact) ? 1 : undefined;
+  }
+  if (/잉$/u.test(korean)) return /ing$/u.test(compact) ? 1 : 0;
+  return undefined;
 }
 
 interface MutableTerm extends Omit<DocumentLexiconEntry, "sourceReferences"> {

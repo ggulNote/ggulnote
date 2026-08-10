@@ -200,18 +200,31 @@ function readSpanPairCandidates(
   return candidates.map((value, index) => {
     const candidatePath = `${path}[${index}]`;
     const candidate = readRecord(value, candidatePath);
-    assertOnlyKeys(candidate, ["label", "startText", "endText", "preview", "relation"], candidatePath);
+    assertOnlyKeys(candidate, [
+      "label",
+      "startText",
+      "endText",
+      "preview",
+      "alignment",
+      "relation",
+    ], candidatePath);
     const expectedLabel = `P${index + 1}`;
     if (candidate.label !== expectedLabel) {
       return fail(`${candidatePath}.label`, `expected sequential label ${expectedLabel}`);
     }
     const relation = readRecord(candidate.relation, `${candidatePath}.relation`);
     assertOnlyKeys(relation, ["sameSentence", "sameParagraph", "rangeLength"], `${candidatePath}.relation`);
+    const alignment = readRecord(candidate.alignment, `${candidatePath}.alignment`);
+    assertOnlyKeys(alignment, ["start", "end"], `${candidatePath}.alignment`);
     return {
       label: expectedLabel,
       startText: readNonEmptyString(candidate.startText, `${candidatePath}.startText`),
       endText: readNonEmptyString(candidate.endText, `${candidatePath}.endText`),
       preview: readString(candidate.preview, `${candidatePath}.preview`),
+      alignment: {
+        start: readAnchorAlignmentSummary(alignment.start, `${candidatePath}.alignment.start`),
+        end: readAnchorAlignmentSummary(alignment.end, `${candidatePath}.alignment.end`),
+      },
       relation: {
         sameSentence: readBoolean(relation.sameSentence, `${candidatePath}.relation.sameSentence`),
         sameParagraph: readBoolean(relation.sameParagraph, `${candidatePath}.relation.sameParagraph`),
@@ -219,6 +232,27 @@ function readSpanPairCandidates(
       },
     };
   });
+}
+
+function readAnchorAlignmentSummary(
+  value: unknown,
+  path: string,
+): GroundedTextSpanPairCandidate["alignment"]["start"] {
+  const summary = readRecord(value, path);
+  assertOnlyKeys(summary, [
+    "queryChunks",
+    "matchedChunks",
+    "coverage",
+    "boundary",
+    "confidence",
+  ], path);
+  return {
+    queryChunks: readNonNegativeInteger(summary.queryChunks, `${path}.queryChunks`),
+    matchedChunks: readNonNegativeInteger(summary.matchedChunks, `${path}.matchedChunks`),
+    coverage: readEnum(summary.coverage, ["full", "partial"], `${path}.coverage`),
+    boundary: readEnum(summary.boundary, ["clean", "expanded"], `${path}.boundary`),
+    confidence: readEnum(summary.confidence, ["strong", "medium", "weak"], `${path}.confidence`),
+  };
 }
 
 function readSpeechEvidence(value: unknown): TargetRecoverySpeechEvidence {

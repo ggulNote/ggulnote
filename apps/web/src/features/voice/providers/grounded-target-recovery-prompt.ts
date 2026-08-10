@@ -48,6 +48,7 @@ function buildRequestSpecificOutputContract(
 - Allowed pairLabel values: ${JSON.stringify(input.pairCandidates.map(({ label }) => label))}
 - SELECTED must contain exactly: status, pairLabel.
 - NONE must contain exactly: status.
+- Use the supplied chunk coverage, boundary quality, and bounded preview as evidence. Do not invent missing anchor support.
 - Return {"status":"NONE"} unless the selected pair label occurs verbatim in the allowed list.
 - Never return candidateLabel for text_span.`;
   }

@@ -10,7 +10,10 @@ import {
   fuzzyTextSimilarity,
   normalizeGroundingText,
 } from "./candidate-ranker";
-import { phoneticSimilarity } from "./target-aware-grounding-retrieval";
+import {
+  phoneticMorphologyCompatibility,
+  phoneticSimilarity,
+} from "./target-aware-grounding-retrieval";
 
 const ANCHOR_TERM_PATTERN = /[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu;
 
@@ -25,12 +28,24 @@ export const TEXT_SPAN_GROUNDING_POLICY = {
   minChunkMatchScore: 0.3,
   minAnchorCandidateScore: 0.52,
   minResolvedPairScore: 0.96,
-  minResolvedPairMargin: 0.1,
+  minResolvedPairMargin: 0.03,
+  fullSupportBonus: 0.05,
+  fullPairSupportBonus: 0.03,
+  morphologyConfidence: {
+    strong: 0.65,
+    medium: 0.5,
+  },
   weights: {
-    pairAnchor: 0.68,
-    pairStructure: 0.14,
-    pairDistance: 0.08,
-    pairMaterializable: 0.1,
+    anchorPhraseAlignment: 0.52,
+    anchorCoverage: 0.3,
+    anchorBoundaryPrecision: 0.18,
+    pairAnchor: 0.5,
+    pairMorphology: 0.12,
+    pairCoverage: 0.1,
+    pairBoundary: 0.12,
+    pairStructure: 0.08,
+    pairDistance: 0.03,
+    pairMaterializable: 0.05,
   },
 } as const;
 
@@ -39,10 +54,22 @@ export interface AnchorSpanEvidence {
   normalized?: number;
   fuzzy?: number;
   phonetic?: number;
+  morphology?: number;
   asrAlternative?: number;
   phraseAlignment: number;
   coverage: number;
+  queryChunkCount: number;
+  matchedChunkCount: number;
+  candidateTokenCount: number;
+  extraPrefixTokens: number;
+  extraSuffixTokens: number;
+  boundaryPrecision: number;
 }
+
+type AnchorMatchEvidence = Pick<
+  AnchorSpanEvidence,
+  "exact" | "normalized" | "fuzzy" | "phonetic" | "morphology" | "asrAlternative"
+>;
 
 export interface AnchorSpanCandidate {
   text: string;
@@ -50,6 +77,8 @@ export interface AnchorSpanCandidate {
   endIndex: number;
   startReadingOrder: number;
   endReadingOrder: number;
+  alignedStartIndex: number;
+  alignedEndIndex: number;
   tokenCount: number;
   context: string;
   evidence: AnchorSpanEvidence;
@@ -61,6 +90,8 @@ export interface AnchorSpanCandidate {
 }
 
 export interface SpanPairEvidence {
+  startAlignment: AnchorSpanEvidence;
+  endAlignment: AnchorSpanEvidence;
   startAnchorConfidence: number;
   endAnchorConfidence: number;
   forwardValid: true;
@@ -88,6 +119,12 @@ export interface TextSpanGroundingDiagnostics {
   startAnchorCandidateCount: number;
   endAnchorCandidateCount: number;
   multiTokenAnchorUsed: boolean;
+  anchorVariantCount: number;
+  canonicalAnchorCount: number;
+  dominatedAnchorVariantCount: number;
+  spanPairCandidateCountBeforePruning: number;
+  dominatedPairCount: number;
+  spanPairCandidateCountAfterPruning: number;
   spanPairCandidateCount: number;
   topSpanPairScore?: number;
   topSpanPairMargin?: number;
@@ -132,9 +169,29 @@ export function retrieveAnchorSpanCandidates(
     speechEvidence?: SpeechGroundingEvidence;
   },
 ): readonly AnchorSpanCandidate[] {
+  return retrieveAnchorSpanCandidatesDetailed(stream, rawAnchor, options).candidates;
+}
+
+interface AnchorRetrievalResult {
+  variants: readonly AnchorSpanCandidate[];
+  candidates: readonly AnchorSpanCandidate[];
+  canonicalCount: number;
+  dominatedVariantCount: number;
+}
+
+function retrieveAnchorSpanCandidatesDetailed(
+  stream: CanonicalTextStream,
+  rawAnchor: string,
+  options: {
+    role: "quote" | "start" | "end";
+    speechEvidence?: SpeechGroundingEvidence;
+  },
+): AnchorRetrievalResult {
   const anchor = normalizeTextSpanAnchorSlot(rawAnchor, options.role);
   const chunks = anchor.match(ANCHOR_TERM_PATTERN) ?? [];
-  if (chunks.length === 0 || stream.tokens.length === 0) return [];
+  if (chunks.length === 0 || stream.tokens.length === 0) {
+    return { variants: [], candidates: [], canonicalCount: 0, dominatedVariantCount: 0 };
+  }
 
   const seeds = findSeeds(stream.tokens, chunks, options.speechEvidence);
   const ranges = expandSeedWindows(stream.tokens, seeds, chunks.length);
@@ -142,10 +199,14 @@ export function retrieveAnchorSpanCandidates(
     const tokens = stream.tokens.slice(startIndex, endIndex + 1);
     if (!isNaturalPhraseWindow(tokens)) return [];
     const alignment = alignPhrase(chunks, tokens, options.speechEvidence);
-    const lengthPenalty = Math.abs(tokens.length - chunks.length)
-      / Math.max(tokens.length, chunks.length) * 0.12;
     const score = clamp(
-      alignment.phraseAlignment * 0.7 + alignment.coverage * 0.3 - lengthPenalty,
+      alignment.phraseAlignment * TEXT_SPAN_GROUNDING_POLICY.weights.anchorPhraseAlignment
+      + alignment.coverage * TEXT_SPAN_GROUNDING_POLICY.weights.anchorCoverage
+      + alignment.boundaryPrecision
+        * TEXT_SPAN_GROUNDING_POLICY.weights.anchorBoundaryPrecision
+      + (alignment.coverage === 1 && alignment.boundaryPrecision === 1
+        ? TEXT_SPAN_GROUNDING_POLICY.fullSupportBonus
+        : 0),
     );
     if (score < TEXT_SPAN_GROUNDING_POLICY.minAnchorCandidateScore) return [];
     const first = tokens[0];
@@ -161,12 +222,20 @@ export function retrieveAnchorSpanCandidates(
       endIndex,
       startReadingOrder: first.readingOrder,
       endReadingOrder: last.readingOrder,
+      alignedStartIndex: startIndex + alignment.alignedStartOffset,
+      alignedEndIndex: startIndex + alignment.alignedEndOffset,
       tokenCount: tokens.length,
       context: contextAround(stream.tokens, startIndex, endIndex),
       evidence: {
         ...alignment.evidence,
         phraseAlignment: alignment.phraseAlignment,
         coverage: alignment.coverage,
+        queryChunkCount: chunks.length,
+        matchedChunkCount: alignment.matchedChunkCount,
+        candidateTokenCount: tokens.length,
+        extraPrefixTokens: alignment.extraPrefixTokens,
+        extraSuffixTokens: alignment.extraSuffixTokens,
+        boundaryPrecision: alignment.boundaryPrecision,
       },
       score,
       ...(paragraphIds.length === 1 && paragraphId !== undefined ? { paragraphId } : {}),
@@ -176,12 +245,28 @@ export function retrieveAnchorSpanCandidates(
     }];
   });
 
-  return dedupeAnchorCandidates(candidates)
-    .sort((left, right) => right.score - left.score
-      || right.evidence.coverage - left.evidence.coverage
-      || left.startReadingOrder - right.startReadingOrder
-      || left.endReadingOrder - right.endReadingOrder)
-    .slice(0, TEXT_SPAN_GROUNDING_POLICY.maxAnchorCandidatesPerSide);
+  const variants = dedupeAnchorCandidates(candidates);
+  const canonical = canonicalizeAnchorCandidates(variants);
+  return {
+    variants,
+    candidates: canonical.slice(0, TEXT_SPAN_GROUNDING_POLICY.maxAnchorCandidatesPerSide),
+    canonicalCount: canonical.length,
+    dominatedVariantCount: variants.length - canonical.length,
+  };
+}
+
+export function canonicalizeAnchorCandidates(
+  candidates: readonly AnchorSpanCandidate[],
+): readonly AnchorSpanCandidate[] {
+  const byOccurrence = new Map<string, AnchorSpanCandidate>();
+  for (const candidate of dedupeAnchorCandidates(candidates)) {
+    const key = anchorOccurrenceKey(candidate);
+    const existing = byOccurrence.get(key);
+    if (existing === undefined || compareAnchorCandidates(candidate, existing) < 0) {
+      byOccurrence.set(key, candidate);
+    }
+  }
+  return [...byOccurrence.values()].sort(compareAnchorCandidates);
 }
 
 export function buildSpanPairCandidates(
@@ -190,6 +275,27 @@ export function buildSpanPairCandidates(
   endCandidates: readonly AnchorSpanCandidate[],
   focusObjectId?: string,
 ): readonly SpanPairCandidate[] {
+  return buildSpanPairCandidatesDetailed(
+    stream,
+    canonicalizeAnchorCandidates(startCandidates),
+    canonicalizeAnchorCandidates(endCandidates),
+    focusObjectId,
+  ).candidates;
+}
+
+interface SpanPairBuildResult {
+  candidates: readonly SpanPairCandidate[];
+  candidateCountBeforePruning: number;
+  dominatedPairCount: number;
+  candidateCountAfterPruning: number;
+}
+
+function buildSpanPairCandidatesDetailed(
+  stream: CanonicalTextStream,
+  startCandidates: readonly AnchorSpanCandidate[],
+  endCandidates: readonly AnchorSpanCandidate[],
+  focusObjectId?: string,
+): SpanPairBuildResult {
   const pairs: SpanPairCandidate[] = [];
   for (const start of startCandidates) {
     for (const end of endCandidates) {
@@ -207,19 +313,37 @@ export function buildSpanPairCandidates(
           ? 1
           : 0;
       const anchorScore = (start.score + end.score) / 2;
+      const boundaryScore = (
+        start.evidence.boundaryPrecision + end.evidence.boundaryPrecision
+      ) / 2;
+      const coverageScore = (start.evidence.coverage + end.evidence.coverage) / 2;
+      const morphologyScore = (
+        morphologyConfidence(start.evidence.morphology)
+        + morphologyConfidence(end.evidence.morphology)
+      ) / 2;
+      const fullPairSupport = start.evidence.coverage === 1
+        && end.evidence.coverage === 1
+        && start.evidence.boundaryPrecision === 1
+        && end.evidence.boundaryPrecision === 1;
       const structureScore = sameSentence ? 1 : sameParagraph ? 0.72 : 0.28;
       const distanceScore = 1 / (1 + Math.max(0, tokenDistance - start.tokenCount - end.tokenCount) / 40);
       const score = clamp(
         anchorScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairAnchor
+        + morphologyScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairMorphology
+        + coverageScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairCoverage
+        + boundaryScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairBoundary
         + structureScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairStructure
         + distanceScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairDistance
         + TEXT_SPAN_GROUNDING_POLICY.weights.pairMaterializable
+        + (fullPairSupport ? TEXT_SPAN_GROUNDING_POLICY.fullPairSupportBonus : 0)
         + (focusProximity ?? 0) * 0.03,
       );
       pairs.push({
         start,
         end,
         evidence: {
+          startAlignment: { ...start.evidence },
+          endAlignment: { ...end.evidence },
           startAnchorConfidence: start.score,
           endAnchorConfidence: end.score,
           forwardValid: true,
@@ -237,12 +361,27 @@ export function buildSpanPairCandidates(
       });
     }
   }
-  return dedupePairCandidates(pairs)
+  const deduped = dedupePairCandidates(pairs);
+  const pruned = pruneDominatedSpanPairs(deduped);
+  const ranked = pruned
     .sort((left, right) => right.score - left.score
       || left.evidence.tokenDistance - right.evidence.tokenDistance
       || left.range.startIndex - right.range.startIndex
-      || left.range.endIndex - right.range.endIndex)
-    .slice(0, TEXT_SPAN_GROUNDING_POLICY.maxSpanPairCandidates);
+      || left.range.endIndex - right.range.endIndex);
+  return {
+    candidates: ranked.slice(0, TEXT_SPAN_GROUNDING_POLICY.maxSpanPairCandidates),
+    candidateCountBeforePruning: pairs.length,
+    dominatedPairCount: pairs.length - pruned.length,
+    candidateCountAfterPruning: pruned.length,
+  };
+}
+
+export function pruneDominatedSpanPairs(
+  candidates: readonly SpanPairCandidate[],
+): SpanPairCandidate[] {
+  return candidates.filter((candidate, index) => !candidates.some(
+    (other, otherIndex) => otherIndex !== index && spanPairDominates(other, candidate),
+  ));
 }
 
 export function groundTextSpan(input: TextSpanGroundingInput): TextSpanGroundingResult {
@@ -251,29 +390,32 @@ export function groundTextSpan(input: TextSpanGroundingInput): TextSpanGrounding
   const endText = input.query.quote ?? input.query.endAnchor;
   const startChunkCount = startText === undefined ? 0 : countTextSpanAnchorChunks(startText);
   const endChunkCount = endText === undefined ? 0 : countTextSpanAnchorChunks(endText);
-  const startCandidates = startText === undefined ? [] : retrieveAnchorSpanCandidates(
-    input.stream,
-    startText,
-    {
+  const startRetrieval = startText === undefined
+    ? { variants: [], candidates: [], canonicalCount: 0, dominatedVariantCount: 0 }
+    : retrieveAnchorSpanCandidatesDetailed(input.stream, startText, {
       role: isQuote ? "quote" : "start",
       ...(input.speechEvidence === undefined ? {} : { speechEvidence: input.speechEvidence }),
-    },
-  );
-  const endCandidates = isQuote
-    ? startCandidates
-    : endText === undefined ? [] : retrieveAnchorSpanCandidates(
-      input.stream,
-      endText,
-      {
+    });
+  const endRetrieval = isQuote
+    ? startRetrieval
+    : endText === undefined
+      ? { variants: [], candidates: [], canonicalCount: 0, dominatedVariantCount: 0 }
+      : retrieveAnchorSpanCandidatesDetailed(input.stream, endText, {
         role: "end",
         ...(input.speechEvidence === undefined ? {} : { speechEvidence: input.speechEvidence }),
-      },
-    );
+      });
+  const startCandidates = startRetrieval.candidates;
+  const endCandidates = endRetrieval.candidates;
+  const pairBuild = buildSpanPairCandidatesDetailed(
+    input.stream,
+    startCandidates,
+    endCandidates,
+    input.focusObjectId,
+  );
   const pairs = isQuote
-    ? buildSpanPairCandidates(input.stream, startCandidates, startCandidates)
-      .filter((pair) => pair.start.startIndex === pair.end.startIndex
+    ? pairBuild.candidates.filter((pair) => pair.start.startIndex === pair.end.startIndex
         && pair.start.endIndex === pair.end.endIndex)
-    : buildSpanPairCandidates(input.stream, startCandidates, endCandidates, input.focusObjectId);
+    : pairBuild.candidates;
   const top = pairs[0];
   const second = pairs[1];
   const margin = top === undefined ? undefined : top.score - (second?.score ?? 0);
@@ -288,6 +430,15 @@ export function groundTextSpan(input: TextSpanGroundingInput): TextSpanGrounding
     endAnchorCandidateCount: endCandidates.length,
     multiTokenAnchorUsed: (startChunkCount > 1 && startCandidates.some((candidate) => candidate.tokenCount > 1))
       || (endChunkCount > 1 && endCandidates.some((candidate) => candidate.tokenCount > 1)),
+    anchorVariantCount: startRetrieval.variants.length
+      + (isQuote ? 0 : endRetrieval.variants.length),
+    canonicalAnchorCount: startRetrieval.canonicalCount
+      + (isQuote ? 0 : endRetrieval.canonicalCount),
+    dominatedAnchorVariantCount: startRetrieval.dominatedVariantCount
+      + (isQuote ? 0 : endRetrieval.dominatedVariantCount),
+    spanPairCandidateCountBeforePruning: pairBuild.candidateCountBeforePruning,
+    dominatedPairCount: pairBuild.dominatedPairCount,
+    spanPairCandidateCountAfterPruning: pairBuild.candidateCountAfterPruning,
     spanPairCandidateCount: pairs.length,
     ...(top === undefined ? {} : { topSpanPairScore: top.score }),
     ...(margin === undefined ? {} : { topSpanPairMargin: margin }),
@@ -350,7 +501,13 @@ function alignPhrase(
 ): {
   phraseAlignment: number;
   coverage: number;
-  evidence: Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage">;
+  matchedChunkCount: number;
+  alignedStartOffset: number;
+  alignedEndOffset: number;
+  extraPrefixTokens: number;
+  extraSuffixTokens: number;
+  boundaryPrecision: number;
+  evidence: AnchorMatchEvidence;
 } {
   const matrix = chunks.map((chunk) => tokens.map((token) => scoreChunk(chunk, token.text, speechEvidence)));
   const memo = new Map<string, Alignment>();
@@ -365,7 +522,12 @@ function alignPhrase(
       const next = visit(chunkIndex + 1, tokenIndex + 1);
       alternatives.push({
         objective: current.score + 0.18 + next.objective,
-        matches: [{ score: current.score, evidence: current.evidence }, ...next.matches],
+        matches: [{
+          chunkIndex,
+          tokenIndex,
+          score: current.score,
+          evidence: current.evidence,
+        }, ...next.matches],
       });
     }
     const best = alternatives.sort((left, right) => right.objective - left.objective
@@ -378,27 +540,46 @@ function alignPhrase(
   const average = aligned.matches.length === 0
     ? 0
     : aligned.matches.reduce((sum, match) => sum + match.score, 0) / aligned.matches.length;
-  const evidence = aligned.matches.reduce<Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage">>(
+  const evidence = aligned.matches.reduce<AnchorMatchEvidence>(
     (result, match) => mergeAnchorEvidence(result, match.evidence),
     {},
   );
-  return { phraseAlignment: average, coverage, evidence };
+  const firstMatch = aligned.matches[0];
+  const lastMatch = aligned.matches.at(-1);
+  const alignedStartOffset = firstMatch?.tokenIndex ?? 0;
+  const alignedEndOffset = lastMatch?.tokenIndex ?? Math.max(0, tokens.length - 1);
+  const extraPrefixTokens = alignedStartOffset;
+  const extraSuffixTokens = Math.max(0, tokens.length - alignedEndOffset - 1);
+  const boundaryPrecision = tokens.length === 0 ? 0 : aligned.matches.length / tokens.length;
+  return {
+    phraseAlignment: average,
+    coverage,
+    matchedChunkCount: aligned.matches.length,
+    alignedStartOffset,
+    alignedEndOffset,
+    extraPrefixTokens,
+    extraSuffixTokens,
+    boundaryPrecision,
+    evidence,
+  };
 }
 
 function scoreChunk(
   spoken: string,
   actual: string,
   speechEvidence: SpeechGroundingEvidence | undefined,
-): { score: number; evidence: Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage"> } {
+): { score: number; evidence: AnchorMatchEvidence } {
   const spokenCompact = compactGroundingText(normalizeGroundingText(spoken));
   const actualCompact = compactGroundingText(normalizeGroundingText(actual));
-  const evidence: Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage"> = {};
+  const evidence: AnchorMatchEvidence = {};
   if (spoken === actual) evidence.exact = 1;
   if (spokenCompact.length > 0 && spokenCompact === actualCompact) evidence.normalized = 1;
   const fuzzy = fuzzyTextSimilarity(spoken, actual);
   if (fuzzy >= 0.25) evidence.fuzzy = fuzzy;
   const phonetic = phoneticSimilarity(spoken, actual);
   if (phonetic >= 0.25) evidence.phonetic = phonetic;
+  const morphology = phoneticMorphologyCompatibility(spoken, actual);
+  if (morphology !== undefined) evidence.morphology = morphology === 1 ? phonetic : 0;
   const hypothesis = directHypothesisScore(spoken, actualCompact, speechEvidence);
   if (hypothesis > 0) evidence.phonetic = Math.max(evidence.phonetic ?? 0, hypothesis);
   const asrAlternative = bestAsrAlternative(actual, speechEvidence);
@@ -444,11 +625,18 @@ function bestAsrAlternative(actual: string, evidence: SpeechGroundingEvidence | 
 }
 
 function mergeAnchorEvidence(
-  left: Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage">,
-  right: Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage">,
-): Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage"> {
+  left: AnchorMatchEvidence,
+  right: AnchorMatchEvidence,
+): AnchorMatchEvidence {
   const result = { ...left };
-  for (const key of ["exact", "normalized", "fuzzy", "phonetic", "asrAlternative"] as const) {
+  for (const key of [
+    "exact",
+    "normalized",
+    "fuzzy",
+    "phonetic",
+    "morphology",
+    "asrAlternative",
+  ] as const) {
     const value = right[key];
     if (value !== undefined) result[key] = Math.max(result[key] ?? 0, value);
   }
@@ -465,6 +653,24 @@ function dedupeAnchorCandidates(candidates: readonly AnchorSpanCandidate[]): Anc
   return [...result.values()];
 }
 
+function anchorOccurrenceKey(candidate: AnchorSpanCandidate): string {
+  return `${candidate.alignedStartIndex}:${candidate.alignedEndIndex}`;
+}
+
+function compareAnchorCandidates(
+  left: AnchorSpanCandidate,
+  right: AnchorSpanCandidate,
+): number {
+  return right.score - left.score
+    || right.evidence.coverage - left.evidence.coverage
+    || right.evidence.boundaryPrecision - left.evidence.boundaryPrecision
+    || right.evidence.phraseAlignment - left.evidence.phraseAlignment
+    || (left.evidence.extraPrefixTokens + left.evidence.extraSuffixTokens)
+      - (right.evidence.extraPrefixTokens + right.evidence.extraSuffixTokens)
+    || left.startReadingOrder - right.startReadingOrder
+    || left.endReadingOrder - right.endReadingOrder;
+}
+
 function dedupePairCandidates(candidates: readonly SpanPairCandidate[]): SpanPairCandidate[] {
   const result = new Map<string, SpanPairCandidate>();
   for (const candidate of candidates) {
@@ -473,6 +679,43 @@ function dedupePairCandidates(candidates: readonly SpanPairCandidate[]): SpanPai
     if (existing === undefined || candidate.score > existing.score) result.set(key, candidate);
   }
   return [...result.values()];
+}
+
+function spanPairDominates(
+  left: SpanPairCandidate,
+  right: SpanPairCandidate,
+): boolean {
+  if (
+    anchorOccurrenceKey(left.start) !== anchorOccurrenceKey(right.start)
+    || anchorOccurrenceKey(left.end) !== anchorOccurrenceKey(right.end)
+  ) return false;
+  const leftEvidence = pairDominanceVector(left);
+  const rightEvidence = pairDominanceVector(right);
+  const epsilon = 1e-9;
+  return leftEvidence.every((value, index) => value + epsilon >= (rightEvidence[index] ?? 0))
+    && leftEvidence.some((value, index) => value > (rightEvidence[index] ?? 0) + epsilon);
+}
+
+function pairDominanceVector(pair: SpanPairCandidate): readonly number[] {
+  return [
+    pair.start.evidence.coverage,
+    pair.start.evidence.phraseAlignment,
+    pair.start.evidence.boundaryPrecision,
+    pair.end.evidence.coverage,
+    pair.end.evidence.phraseAlignment,
+    pair.end.evidence.boundaryPrecision,
+    Number(pair.evidence.sameSentence),
+    Number(pair.evidence.sameParagraph),
+    1 / Math.max(1, pair.evidence.tokenDistance),
+    Number(pair.evidence.rangeMaterializable),
+  ];
+}
+
+function morphologyConfidence(value: number | undefined): number {
+  if (value === undefined) return 0.5;
+  if (value >= TEXT_SPAN_GROUNDING_POLICY.morphologyConfidence.strong) return 1;
+  if (value >= TEXT_SPAN_GROUNDING_POLICY.morphologyConfidence.medium) return 0.5;
+  return 0;
 }
 
 function contextAround(tokens: readonly CanonicalTextToken[], start: number, end: number): string {
@@ -510,7 +753,9 @@ function clamp(value: number): number {
 interface Alignment {
   objective: number;
   matches: readonly {
+    chunkIndex: number;
+    tokenIndex: number;
     score: number;
-    evidence: Omit<AnchorSpanEvidence, "phraseAlignment" | "coverage">;
+    evidence: AnchorMatchEvidence;
   }[];
 }

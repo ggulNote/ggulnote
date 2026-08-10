@@ -17,6 +17,12 @@ export interface DirectCommandDevelopmentTraceSummary {
   startAnchorCandidateCount?: number;
   endAnchorCandidateCount?: number;
   multiTokenAnchorUsed?: boolean;
+  anchorVariantCount?: number;
+  canonicalAnchorCount?: number;
+  dominatedAnchorVariantCount?: number;
+  spanPairCandidateCountBeforePruning?: number;
+  dominatedPairCount?: number;
+  spanPairCandidateCountAfterPruning?: number;
   spanPairCandidateCount?: number;
   topSpanPairScore?: number;
   topSpanPairMargin?: number;
@@ -101,6 +107,22 @@ export function summarizeDirectCommandTrace(
       ? {} : { endAnchorCandidateCount: trace.endAnchorCandidateCount }),
     ...(trace.multiTokenAnchorUsed === undefined
       ? {} : { multiTokenAnchorUsed: trace.multiTokenAnchorUsed }),
+    ...(trace.anchorVariantCount === undefined
+      ? {} : { anchorVariantCount: trace.anchorVariantCount }),
+    ...(trace.canonicalAnchorCount === undefined
+      ? {} : { canonicalAnchorCount: trace.canonicalAnchorCount }),
+    ...(trace.dominatedAnchorVariantCount === undefined
+      ? {} : { dominatedAnchorVariantCount: trace.dominatedAnchorVariantCount }),
+    ...(trace.spanPairCandidateCountBeforePruning === undefined
+      ? {} : {
+          spanPairCandidateCountBeforePruning: trace.spanPairCandidateCountBeforePruning,
+        }),
+    ...(trace.dominatedPairCount === undefined
+      ? {} : { dominatedPairCount: trace.dominatedPairCount }),
+    ...(trace.spanPairCandidateCountAfterPruning === undefined
+      ? {} : {
+          spanPairCandidateCountAfterPruning: trace.spanPairCandidateCountAfterPruning,
+        }),
     ...(trace.spanPairCandidateCount === undefined
       ? {} : { spanPairCandidateCount: trace.spanPairCandidateCount }),
     ...(trace.topSpanPairScore === undefined

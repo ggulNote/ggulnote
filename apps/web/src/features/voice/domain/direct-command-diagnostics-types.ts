@@ -47,6 +47,12 @@ export interface DirectCommandPlanningDiagnostics {
   startAnchorCandidateCount?: number;
   endAnchorCandidateCount?: number;
   multiTokenAnchorUsed?: boolean;
+  anchorVariantCount?: number;
+  canonicalAnchorCount?: number;
+  dominatedAnchorVariantCount?: number;
+  spanPairCandidateCountBeforePruning?: number;
+  dominatedPairCount?: number;
+  spanPairCandidateCountAfterPruning?: number;
   spanPairCandidateCount?: number;
   topSpanPairScore?: number;
   topSpanPairMargin?: number;
@@ -125,6 +131,12 @@ export interface DirectCommandTrace {
   startAnchorCandidateCount?: number;
   endAnchorCandidateCount?: number;
   multiTokenAnchorUsed?: boolean;
+  anchorVariantCount?: number;
+  canonicalAnchorCount?: number;
+  dominatedAnchorVariantCount?: number;
+  spanPairCandidateCountBeforePruning?: number;
+  dominatedPairCount?: number;
+  spanPairCandidateCountAfterPruning?: number;
   spanPairCandidateCount?: number;
   topSpanPairScore?: number;
   topSpanPairMargin?: number;
