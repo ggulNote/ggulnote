@@ -40,6 +40,17 @@ export {
   rankTargetCandidates,
 } from "./candidate-ranker";
 export { FrozenTargetResolver } from "./frozen-target-resolver";
+export {
+  GroundedTargetRecovery,
+  isRecoverableTargetResolution,
+} from "./grounded-target-recovery";
+export type {
+  GroundedTargetRecoveryAttempt,
+  GroundedTargetRecoveryOptions,
+  GroundedTargetRecoveryPort,
+  GroundedTargetRecoveryRequest,
+  GroundedTargetRecoveryServiceOptions,
+} from "./grounded-target-recovery";
 export { TargetStrategyRouter } from "./target-strategy-router";
 export type {
   TargetEmbeddingSearch,

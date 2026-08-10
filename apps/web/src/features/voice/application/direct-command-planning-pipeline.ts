@@ -22,6 +22,10 @@ import { DirectCommandContextBuilder } from "./direct-command-context-builder";
 import { guardDirectCommandPlan } from "./direct-command-guard";
 import { buildDirectTargetDisambiguationContext } from "./direct-target-disambiguation-context";
 import { FrozenTargetResolver } from "./frozen-target-resolver";
+import {
+  isRecoverableTargetResolution,
+  type GroundedTargetRecoveryPort,
+} from "./grounded-target-recovery";
 
 export interface DirectCommandPlanningOptions {
   signal?: AbortSignal;
@@ -34,6 +38,7 @@ export interface DirectCommandPlanningPipelineOptions {
   planner: DirectCommandPlannerProvider;
   resolver: FrozenTargetResolver;
   disambiguator?: DirectTargetDisambiguatorProvider;
+  recovery?: GroundedTargetRecoveryPort;
   clock: Pick<InteractionClock, "now">;
   getCurrentSceneRevision: () => number;
 }
@@ -50,6 +55,7 @@ export class DirectCommandPlanningPipeline {
     };
     const diagnostics: DirectCommandPlanningDiagnostics = {
       disambiguationUsed: false,
+      targetRecoveryUsed: false,
       guardStatus: "NOT_RUN",
     };
     const built = this.options.contextBuilder.build(turn, {
@@ -125,17 +131,70 @@ export class DirectCommandPlanningPipeline {
     });
     timestamps.resolverCompletedAt = this.now();
     diagnostics.resolutionStatus = resolution.status;
+    diagnostics.initialResolutionStatus = resolution.status;
     if (resolution.diagnostics !== undefined) {
       Object.assign(diagnostics, resolution.diagnostics);
     }
 
     if (resolution.status === "NOT_FOUND") {
-      return {
-        status: "TARGET_NOT_FOUND",
-        turnId: turn.id,
-        timestamps,
-        diagnostics,
-      };
+      const recovery = this.options.recovery;
+      if (
+        recovery === undefined
+        || !isRecoverableTargetResolution(resolutionInput, resolution)
+      ) {
+        diagnostics.finalResolutionStatus = resolution.status;
+        return {
+          status: "TARGET_NOT_FOUND",
+          turnId: turn.id,
+          timestamps,
+          diagnostics,
+        };
+      }
+      timestamps.recoveryRequestedAt = this.now();
+      const attempt = await recovery.recover({
+        context,
+        plan,
+        resolutionInput,
+        initialResolution: resolution,
+      }, {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      timestamps.recoveryCompletedAt = this.now();
+      diagnostics.targetRecoveryUsed = attempt.providerCalled;
+      diagnostics.targetRecoveryKind = attempt.kind;
+      diagnostics.recoveryCandidateCount = attempt.candidateCount;
+      if (attempt.status === "ERROR") {
+        diagnostics.recoveryResult = "ERROR";
+        diagnostics.recoveryErrorCode = attempt.errorCode;
+        diagnostics.finalResolutionStatus = "NOT_FOUND";
+        if (attempt.errorCode === "RECOVERY_ABORTED") {
+          return {
+            status: "ERROR",
+            turnId: turn.id,
+            errorCode: "ABORTED",
+            timestamps,
+            diagnostics,
+          };
+        }
+        return {
+          status: "TARGET_NOT_FOUND",
+          turnId: turn.id,
+          timestamps,
+          diagnostics,
+        };
+      }
+      if (attempt.status !== "RESOLVED") {
+        diagnostics.recoveryResult = attempt.status;
+        diagnostics.finalResolutionStatus = "NOT_FOUND";
+        return {
+          status: "TARGET_NOT_FOUND",
+          turnId: turn.id,
+          timestamps,
+          diagnostics,
+        };
+      }
+      diagnostics.recoveryResult = "SELECTED";
+      resolution = attempt.resolution;
     }
     let disambiguationUsed = false;
     if (resolution.status === "AMBIGUOUS") {
@@ -212,6 +271,7 @@ export class DirectCommandPlanningPipeline {
       }
     }
     diagnostics.resolutionStatus = resolution.status;
+    diagnostics.finalResolutionStatus = resolution.status;
     diagnostics.resolvedTargetKind = resolution.target.kind;
     diagnostics.resolverConfidence = resolution.confidence;
 

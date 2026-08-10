@@ -27,6 +27,26 @@ export type {
   TermHypothesisCandidate,
   TermHypothesisSource,
 } from "./speech-grounding-types";
+export { TARGET_RECOVERY_LIMITS } from "./grounded-target-recovery-types";
+export type {
+  GroundedTargetRecoveryCandidate,
+  GroundedTargetRecoveryInput,
+  GroundedTargetRecoveryKind,
+  GroundedTargetRecoveryResult,
+  GroundedTextAnchorCandidate,
+  ObjectRecoveryInput,
+  SemanticUnitRecoveryInput,
+  TargetRecoveryErrorCode,
+  TargetRecoveryNumberEvidence,
+  TargetRecoverySpeechEvidence,
+  TargetRecoveryTermEvidence,
+  TextSpanRecoveryInput,
+} from "./grounded-target-recovery-types";
+export {
+  GroundedTargetRecoveryValidationError,
+  parseGroundedTargetRecoveryInput,
+  parseGroundedTargetRecoveryResult,
+} from "./grounded-target-recovery-schema";
 export {
   TranscriptAccumulator,
   joinVoiceTranscriptText,

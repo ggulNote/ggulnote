@@ -157,6 +157,7 @@ export type TargetResolutionResult =
   | {
       status: "NOT_FOUND";
       reasonCode: Exclude<TargetResolutionReasonCode, "AMBIGUOUS_MATCH">;
+      recoveryCandidates?: readonly RankedTargetCandidate[];
       diagnostics?: TargetResolutionDiagnostics;
     };
 

@@ -1,4 +1,8 @@
 import type {
+  GroundedTargetRecoveryKind,
+  TargetRecoveryErrorCode,
+} from "./grounded-target-recovery-types";
+import type {
   DirectCommandRouteErrorCode,
   DirectCommandRouteResult,
   DirectPlannerResult,
@@ -41,6 +45,13 @@ export interface DirectCommandPlanningDiagnostics {
   embeddingErrorCode?: string;
   disambiguationUsed: boolean;
   disambiguationResult?: "SELECTED" | "NONE";
+  targetRecoveryUsed?: boolean;
+  targetRecoveryKind?: GroundedTargetRecoveryKind;
+  recoveryCandidateCount?: number;
+  recoveryResult?: "SELECTED" | "NONE" | "INVALID" | "ERROR";
+  recoveryErrorCode?: TargetRecoveryErrorCode;
+  initialResolutionStatus?: TargetResolutionResult["status"];
+  finalResolutionStatus?: TargetResolutionResult["status"];
   guardStatus: "NOT_RUN" | "PASSED" | "REJECTED";
 }
 
@@ -54,6 +65,7 @@ export interface DirectCommandLatencyMetrics {
   plannerMs?: number;
   resolverMs?: number;
   disambiguatorMs?: number;
+  recoveryMs?: number;
   validationMs?: number;
   compileMs?: number;
   commitMs?: number;
@@ -86,6 +98,13 @@ export interface DirectCommandTrace {
   embeddingErrorCode?: string;
   disambiguationUsed: boolean;
   disambiguationResult?: "SELECTED" | "NONE";
+  targetRecoveryUsed?: boolean;
+  targetRecoveryKind?: GroundedTargetRecoveryKind;
+  recoveryCandidateCount?: number;
+  recoveryResult?: "SELECTED" | "NONE" | "INVALID" | "ERROR";
+  recoveryErrorCode?: TargetRecoveryErrorCode;
+  initialResolutionStatus?: TargetResolutionResult["status"];
+  finalResolutionStatus?: TargetResolutionResult["status"];
   guardStatus: DirectCommandPlanningDiagnostics["guardStatus"];
   executionStatus: DirectCommandRouteResult["status"];
   editorOperationId?: string;

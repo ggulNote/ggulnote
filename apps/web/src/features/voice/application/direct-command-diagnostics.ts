@@ -66,6 +66,11 @@ export function calculateDirectCommandLatencyMetrics(
       timestamps.disambiguatorRequestedAt,
       timestamps.disambiguatorCompletedAt,
     ),
+    ...duration(
+      "recoveryMs",
+      timestamps.recoveryRequestedAt,
+      timestamps.recoveryCompletedAt,
+    ),
     ...duration("validationMs", timestamps.validationStartedAt, timestamps.validatedAt),
     ...duration("compileMs", timestamps.compileStartedAt, timestamps.compiledAt),
     ...duration("commitMs", timestamps.commitStartedAt, timestamps.committedAt),

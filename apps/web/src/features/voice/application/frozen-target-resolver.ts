@@ -288,7 +288,11 @@ export class FrozenTargetResolver {
       return { status: "NOT_FOUND", reasonCode: "NO_MATCH" };
     }
     if (first.score < this.policy.minResolvedScore) {
-      return { status: "NOT_FOUND", reasonCode: "LOW_CONFIDENCE" };
+      return {
+        status: "NOT_FOUND",
+        reasonCode: "LOW_CONFIDENCE",
+        recoveryCandidates: ranked.slice(0, this.policy.maxAmbiguousCandidates),
+      };
     }
 
     const second = ranked[1];

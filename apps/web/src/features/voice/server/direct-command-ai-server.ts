@@ -1,6 +1,7 @@
 import { DirectAiProviderError } from "../domain";
 import { LlmDirectCommandPlannerProvider } from "../providers/llm-direct-command-planner-provider";
 import { LlmDirectTargetDisambiguatorProvider } from "../providers/llm-direct-target-disambiguator-provider";
+import { LlmGroundedTargetRecoveryProvider } from "../providers/llm-grounded-target-recovery-provider";
 import {
   OpenAiResponsesDirectTextTransport,
   type OpenAiResponsesFetch,
@@ -50,5 +51,6 @@ export function createDirectCommandAiProviders(
   return {
     planner: new LlmDirectCommandPlannerProvider({ transport }),
     disambiguator: new LlmDirectTargetDisambiguatorProvider(transport),
+    recovery: new LlmGroundedTargetRecoveryProvider(transport),
   };
 }

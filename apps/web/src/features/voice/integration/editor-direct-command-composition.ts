@@ -8,6 +8,7 @@ import {
   DirectCommandRoute,
   DirectCommandTraceStore,
   FrozenTargetResolver,
+  GroundedTargetRecovery,
 } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
 import {
@@ -15,6 +16,7 @@ import {
   HttpDirectTargetDisambiguatorProvider,
   type DirectCommandPlannerProvider,
   type DirectTargetDisambiguatorProvider,
+  type GroundedTargetRecoveryProvider,
 } from "../providers";
 import {
   createDocumentSessionDirectCommandNavigationPort,
@@ -31,6 +33,7 @@ export interface EditorDirectCommandCompositionOptions {
   goToPage(page: number): void;
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
+  recovery?: GroundedTargetRecoveryProvider;
   targetResolver?: FrozenTargetResolver;
 }
 
@@ -52,12 +55,21 @@ export function createEditorDirectCommandComposition(
     ),
     recentOperationsSource: recentOperations,
   });
+  const resolver = options.targetResolver ?? new FrozenTargetResolver();
   const planning = new DirectCommandPlanningPipeline({
     contextBuilder,
     planner: options.planner ?? new HttpDirectCommandPlannerProvider(),
-    resolver: options.targetResolver ?? new FrozenTargetResolver(),
+    resolver,
     disambiguator: options.disambiguator
       ?? new HttpDirectTargetDisambiguatorProvider(),
+    ...(options.recovery === undefined
+      ? {}
+      : {
+          recovery: new GroundedTargetRecovery({
+            provider: options.recovery,
+            resolver,
+          }),
+        }),
     clock: options.clock,
     getCurrentSceneRevision: options.getCurrentSceneRevision,
   });

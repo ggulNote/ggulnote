@@ -14,6 +14,8 @@ export interface DirectCommandPlanningTimestamps {
   resolverCompletedAt?: number;
   disambiguatorRequestedAt?: number;
   disambiguatorCompletedAt?: number;
+  recoveryRequestedAt?: number;
+  recoveryCompletedAt?: number;
   validationStartedAt?: number;
   validatedAt?: number;
 }

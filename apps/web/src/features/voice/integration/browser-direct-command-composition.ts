@@ -5,6 +5,7 @@ import type { FrozenPageGroundingSnapshot } from "../domain";
 import type {
   DirectCommandPlannerProvider,
   DirectTargetDisambiguatorProvider,
+  GroundedTargetRecoveryProvider,
 } from "../providers";
 import {
   createBrowserVoiceTurnComposition,
@@ -27,6 +28,7 @@ export interface BrowserDirectCommandCompositionOptions {
   createTurnId?: () => string;
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
+  recovery?: GroundedTargetRecoveryProvider;
   targetResolver?: FrozenTargetResolver;
 }
 
@@ -60,6 +62,7 @@ export function createBrowserDirectCommandComposition(
     ...(options.disambiguator === undefined
       ? {}
       : { disambiguator: options.disambiguator }),
+    ...(options.recovery === undefined ? {} : { recovery: options.recovery }),
     ...(options.targetResolver === undefined
       ? {}
       : { targetResolver: options.targetResolver }),

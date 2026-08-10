@@ -202,6 +202,30 @@ export function resolveTextSpanWithCanonicalStream(
   return buildPairMatchResult(stream, candidatePairs);
 }
 
+export function materializeCanonicalTextRange(
+  stream: CanonicalTextStream,
+  range: TextSpanRange,
+): TextSpanRangeResolution {
+  if (
+    !Number.isInteger(range.startIndex)
+    || !Number.isInteger(range.endIndex)
+    || range.startIndex < 0
+    || range.endIndex >= stream.tokens.length
+    || range.startIndex > range.endIndex
+  ) {
+    return { status: "NOT_FOUND", reason: "NO_FORWARD_SPAN" };
+  }
+  const materialized = materializeTextSpan(stream.tokens, range);
+  return {
+    status: "RESOLVED",
+    range: { ...range },
+    text: materialized.text,
+    bounds: materialized.bounds,
+    tokens: stream.tokens,
+    selectedTokens: materialized.tokens,
+  };
+}
+
 function isQuerySupported(query: TextSpanTargetQuery): boolean {
   return query.quote !== undefined
     || (query.startAnchor !== undefined && query.endAnchor !== undefined);

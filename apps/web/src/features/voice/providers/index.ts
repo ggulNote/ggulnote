@@ -7,6 +7,10 @@ export type {
   DirectTargetDisambiguatorOptions,
   DirectTargetDisambiguatorProvider,
 } from "./direct-target-disambiguator-provider";
+export type {
+  GroundedTargetRecoveryProvider,
+  GroundedTargetRecoveryProviderOptions,
+} from "./grounded-target-recovery-provider";
 export { HttpDirectCommandPlannerProvider } from "./http-direct-command-planner-provider";
 export type {
   HttpDirectCommandPlannerProviderOptions,
@@ -14,6 +18,10 @@ export type {
 export {
   HttpDirectTargetDisambiguatorProvider,
 } from "./http-direct-target-disambiguator-provider";
+export { HttpGroundedTargetRecoveryProvider } from "./http-grounded-target-recovery-provider";
+export type {
+  HttpGroundedTargetRecoveryProviderOptions,
+} from "./http-grounded-target-recovery-provider";
 export type {
   HttpDirectTargetDisambiguatorProviderOptions,
 } from "./http-direct-target-disambiguator-provider";
@@ -24,6 +32,7 @@ export type {
 export {
   LlmDirectTargetDisambiguatorProvider,
 } from "./llm-direct-target-disambiguator-provider";
+export { LlmGroundedTargetRecoveryProvider } from "./llm-grounded-target-recovery-provider";
 export type {
   DirectTextModelMessage,
   DirectTextModelRequest,

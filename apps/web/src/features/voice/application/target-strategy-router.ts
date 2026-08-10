@@ -217,7 +217,11 @@ export class TargetStrategyRouter {
     const first = ranked[0];
     if (first === undefined) return { status: "NOT_FOUND", reasonCode: "NO_MATCH" };
     if (first.score < policy.minResolvedScore) {
-      return { status: "NOT_FOUND", reasonCode: "LOW_CONFIDENCE" };
+      return {
+        status: "NOT_FOUND",
+        reasonCode: "LOW_CONFIDENCE",
+        recoveryCandidates: ranked.slice(0, this.embeddingTopK),
+      };
     }
     const second = ranked[1];
     if (second !== undefined && first.score - second.score < policy.minResolvedMargin) {

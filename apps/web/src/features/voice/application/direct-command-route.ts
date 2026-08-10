@@ -357,6 +357,25 @@ export class DirectCommandRoute {
             disambiguationResult:
               planningDiagnostics.disambiguationResult,
           }),
+      targetRecoveryUsed: planningDiagnostics?.targetRecoveryUsed ?? false,
+      ...(planningDiagnostics?.targetRecoveryKind === undefined
+        ? {}
+        : { targetRecoveryKind: planningDiagnostics.targetRecoveryKind }),
+      ...(planningDiagnostics?.recoveryCandidateCount === undefined
+        ? {}
+        : { recoveryCandidateCount: planningDiagnostics.recoveryCandidateCount }),
+      ...(planningDiagnostics?.recoveryResult === undefined
+        ? {}
+        : { recoveryResult: planningDiagnostics.recoveryResult }),
+      ...(planningDiagnostics?.recoveryErrorCode === undefined
+        ? {}
+        : { recoveryErrorCode: planningDiagnostics.recoveryErrorCode }),
+      ...(planningDiagnostics?.initialResolutionStatus === undefined
+        ? {}
+        : { initialResolutionStatus: planningDiagnostics.initialResolutionStatus }),
+      ...(planningDiagnostics?.finalResolutionStatus === undefined
+        ? {}
+        : { finalResolutionStatus: planningDiagnostics.finalResolutionStatus }),
       guardStatus: planningDiagnostics?.guardStatus
         ?? (ready === undefined ? "NOT_RUN" : "PASSED"),
       executionStatus: result.status,
