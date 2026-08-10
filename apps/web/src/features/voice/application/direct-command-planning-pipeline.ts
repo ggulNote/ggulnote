@@ -335,6 +335,9 @@ function toResolutionInput(
     catalog: context.pageTargetCatalog,
     frozenContext: context.frozenContext,
     recentOperations: context.recentOperations,
+    ...(context.speechGroundingEvidence === undefined
+      ? {}
+      : { speechGroundingEvidence: context.speechGroundingEvidence }),
     ...(context.historySnapshot?.lastReusableTarget === null
       || context.historySnapshot?.lastReusableTarget === undefined
       ? {}

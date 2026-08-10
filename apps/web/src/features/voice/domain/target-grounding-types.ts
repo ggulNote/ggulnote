@@ -22,6 +22,7 @@ import type {
   CompletedVoiceTurn,
   FrozenVoiceTurnContext,
 } from "./voice-turn-types";
+import type { SpeechGroundingEvidence } from "./speech-grounding-types";
 
 export type PageTargetSource = "pdf" | "ggulnote";
 export type PageTargetCandidateType = SceneObjectKind | "sentence";
@@ -80,6 +81,7 @@ export interface DirectCommandContext {
   pageTargetCatalog: PageTargetCatalog;
   recentOperations: readonly DirectRecentOperation[];
   plannerContext: DirectCommandPlannerInput;
+  speechGroundingEvidence?: SpeechGroundingEvidence;
   historySnapshot?: DirectCommandHistorySnapshot;
 }
 
@@ -199,6 +201,7 @@ export interface TargetResolutionInput {
   catalog: PageTargetCatalog;
   frozenContext: FrozenVoiceTurnContext;
   recentOperations: readonly DirectRecentOperation[];
+  speechGroundingEvidence?: SpeechGroundingEvidence;
   lastReusableTarget?: DirectReusableTargetRecord;
 }
 

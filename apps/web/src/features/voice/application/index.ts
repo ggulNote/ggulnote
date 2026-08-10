@@ -48,6 +48,19 @@ export type {
   TargetStrategyRouterOptions,
 } from "./target-strategy-router";
 export { TARGET_STRATEGY_CONFIG } from "./target-resolution-policy";
+export {
+  buildDocumentLexicon,
+  createMinimalSpeechGroundingEvidence,
+  normalizeSpokenMath,
+  normalizeSpokenNumbers,
+  parseSpokenInteger,
+  TypedSpeechNormalizer,
+} from "./typed-speech-normalizer";
+export type {
+  TypedSpeechNormalizationInput,
+  TypedSpeechNormalizerOptions,
+  TypedSpeechNormalizerPort,
+} from "./typed-speech-normalizer";
 export type {
   TargetEvidenceWeights,
   TargetStrategyConfig,

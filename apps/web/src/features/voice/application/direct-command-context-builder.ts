@@ -12,6 +12,11 @@ import type {
 } from "../domain";
 import { DIRECT_COMMAND_NAMES } from "../domain";
 import { buildPageTargetCatalog } from "./page-target-catalog-builder";
+import {
+  createMinimalSpeechGroundingEvidence,
+  TypedSpeechNormalizer,
+  type TypedSpeechNormalizerPort,
+} from "./typed-speech-normalizer";
 
 export interface FrozenSceneSnapshotSource {
   getSnapshot(
@@ -28,6 +33,7 @@ export interface DirectCommandContextBuilderOptions {
   recentOperationsSource: DirectRecentOperationsSource;
   allowedCommands?: readonly DirectCommandName[];
   maxRecentOperations?: number;
+  speechNormalizer?: TypedSpeechNormalizerPort;
 }
 
 export interface DirectCommandContextBuildOptions {
@@ -37,10 +43,12 @@ export interface DirectCommandContextBuildOptions {
 export class DirectCommandContextBuilder {
   private readonly allowedCommands: readonly DirectCommandName[];
   private readonly maxRecentOperations: number;
+  private readonly speechNormalizer: TypedSpeechNormalizerPort;
 
   public constructor(private readonly options: DirectCommandContextBuilderOptions) {
     this.allowedCommands = options.allowedCommands ?? DIRECT_COMMAND_NAMES;
     this.maxRecentOperations = positiveInteger(options.maxRecentOperations ?? 8);
+    this.speechNormalizer = options.speechNormalizer ?? new TypedSpeechNormalizer();
   }
 
   public build(
@@ -137,6 +145,22 @@ export class DirectCommandContextBuilder {
           }),
       allowedCommands: [...this.allowedCommands],
     } as const;
+    let speechGroundingEvidence;
+    try {
+      speechGroundingEvidence = this.speechNormalizer.normalize({
+        rawFinalTranscript: turn.rawTranscript,
+        pageTargetCatalog,
+        ...(frozenContext.focusObjectId === undefined
+          ? {}
+          : { focusObjectId: frozenContext.focusObjectId }),
+        mode: "command",
+      });
+    } catch {
+      speechGroundingEvidence = createMinimalSpeechGroundingEvidence(
+        turn.rawTranscript,
+        "NORMALIZER_FAILED",
+      );
+    }
 
     return {
       status: "READY",
@@ -146,6 +170,7 @@ export class DirectCommandContextBuilder {
         pageTargetCatalog,
         recentOperations,
         plannerContext,
+        speechGroundingEvidence,
         ...(buildOptions.historySnapshot === undefined
           ? {}
           : { historySnapshot: buildOptions.historySnapshot }),

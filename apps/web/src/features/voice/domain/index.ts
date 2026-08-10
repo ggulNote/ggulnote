@@ -12,6 +12,21 @@ export {
   DEFAULT_COMMAND_RECOGNITION_CONFIG,
   cloneSpeechRecognitionConfig,
 } from "./speech-types";
+export type {
+  ContextualSpeechTerm,
+  DocumentLexiconEntry,
+  DocumentLexiconSourceReference,
+  MathNormalizationResult,
+  MathSpeechToken,
+  NumberHypothesis,
+  SpeechAlternative,
+  SpeechGroundingEvidence,
+  SpeechNormalizationDiagnostics,
+  SpeechNormalizationMode,
+  TermHypothesis,
+  TermHypothesisCandidate,
+  TermHypothesisSource,
+} from "./speech-grounding-types";
 export {
   TranscriptAccumulator,
   joinVoiceTranscriptText,
