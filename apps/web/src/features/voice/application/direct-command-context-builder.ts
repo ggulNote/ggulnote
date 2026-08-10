@@ -1,5 +1,6 @@
 import type {
   CompletedVoiceTurn,
+  DirectCommandContext,
   DirectCommandContextBuildResult,
   DirectCommandHistorySnapshot,
   DirectCommandName,
@@ -10,6 +11,8 @@ import type {
   FrozenSceneSnapshotReference,
   PageTargetCandidate,
   SpeechGroundingEvidence,
+  SpeechRefinementEvidence,
+  TargetQuery,
 } from "../domain";
 import { DIRECT_COMMAND_NAMES } from "../domain";
 import { buildPageTargetCatalog } from "./page-target-catalog-builder";
@@ -145,20 +148,6 @@ export class DirectCommandContextBuilder {
           }),
       allowedCommands: [...this.allowedCommands],
     } as const;
-    let speechGroundingEvidence: SpeechGroundingEvidence | undefined;
-    try {
-      speechGroundingEvidence = this.speechNormalizer.normalize({
-        rawFinalTranscript: turn.rawTranscript,
-        pageTargetCatalog,
-        ...(frozenContext.focusObjectId === undefined
-          ? {}
-          : { focusObjectId: frozenContext.focusObjectId }),
-        mode: "command",
-      });
-    } catch {
-      speechGroundingEvidence = undefined;
-    }
-
     return {
       status: "READY",
       context: {
@@ -167,14 +156,32 @@ export class DirectCommandContextBuilder {
         pageTargetCatalog,
         recentOperations,
         plannerContext,
-        ...(speechGroundingEvidence === undefined
-          ? {}
-          : { speechGroundingEvidence }),
         ...(buildOptions.historySnapshot === undefined
           ? {}
           : { historySnapshot: buildOptions.historySnapshot }),
       },
     };
+  }
+
+  public buildSpeechGroundingEvidence(
+    context: DirectCommandContext,
+    targetQuery: TargetQuery,
+    refinement?: SpeechRefinementEvidence,
+  ): SpeechGroundingEvidence | undefined {
+    try {
+      return this.speechNormalizer.normalize({
+        rawFinalTranscript: context.turn.rawTranscript,
+        targetQuery,
+        pageTargetCatalog: context.pageTargetCatalog,
+        ...(context.frozenContext.focusObjectId === undefined
+          ? {}
+          : { focusObjectId: context.frozenContext.focusObjectId }),
+        ...(refinement === undefined ? {} : { refinement }),
+        mode: "command",
+      });
+    } catch {
+      return undefined;
+    }
   }
 }
 

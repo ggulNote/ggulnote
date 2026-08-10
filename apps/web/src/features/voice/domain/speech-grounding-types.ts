@@ -1,4 +1,5 @@
 import type { PageId } from "@ggulnote/editor-core";
+import type { SpeechRefinementEvidence } from "./speech-refinement-types";
 
 export type SpeechNormalizationMode = "command" | "target" | "math" | "dictation";
 export type TermHypothesisSource =
@@ -22,7 +23,38 @@ export interface DocumentLexiconEntry {
   normalized: string;
   pageId: PageId;
   kind: "word" | "phrase" | "term";
+  readingOrder?: number;
   sourceReferences: readonly DocumentLexiconSourceReference[];
+}
+
+export type TargetGroundingSlotKind =
+  | "quote"
+  | "start_anchor"
+  | "end_anchor"
+  | "semantic_query"
+  | "object_query"
+  | "subrange_selector";
+
+export interface TargetGroundingSlot {
+  kind: TargetGroundingSlotKind;
+  text: string;
+}
+
+export interface GroundingRetrievalEvidence {
+  exact?: number;
+  normalized?: number;
+  fuzzy?: number;
+  phonetic?: number;
+  semantic?: number;
+  asrAlternative?: number;
+  history?: number;
+  focus?: number;
+}
+
+export interface TargetTermCandidate {
+  actualTerm: DocumentLexiconEntry;
+  evidence: GroundingRetrievalEvidence;
+  score: number;
 }
 
 export interface TermHypothesisCandidate {
@@ -81,11 +113,22 @@ export interface SpeechNormalizationDiagnostics {
   documentLexiconSize: number;
   contextTermCount: number;
   normalizationMs: number;
+  targetSlotKind?: string;
+  localTermUniverseSize?: number;
+  exactHitCount?: number;
+  normalizedHitCount?: number;
+  fuzzyHitCount?: number;
+  phoneticHitCount?: number;
+  asrAlternativeHitCount?: number;
+  semanticHitCount?: number;
+  mergedCandidateCount?: number;
   errorCode?: string;
 }
 
 export interface SpeechGroundingEvidence {
   rawFinalTranscript: string;
+  refinement?: SpeechRefinementEvidence;
+  targetSlots?: readonly TargetGroundingSlot[];
   termHypotheses: readonly TermHypothesis[];
   numberHypotheses: readonly NumberHypothesis[];
   mathHypothesis?: MathNormalizationResult;

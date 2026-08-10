@@ -10,6 +10,7 @@ import {
   type DirectEditorCommand,
   type DirectPlannerResult,
   type ExecutableDirectPlan,
+  type SpeechRefinementEvidence,
   type TargetQuery,
   type TargetResolutionInput,
   type TargetResolutionResult,
@@ -26,6 +27,7 @@ import {
   isRecoverableTargetResolution,
   type GroundedTargetRecoveryPort,
 } from "./grounded-target-recovery";
+import type { BoundedSpeechRefinerPort } from "./bounded-speech-refiner";
 
 export interface DirectCommandPlanningOptions {
   signal?: AbortSignal;
@@ -39,6 +41,7 @@ export interface DirectCommandPlanningPipelineOptions {
   resolver: FrozenTargetResolver;
   disambiguator?: DirectTargetDisambiguatorProvider;
   recovery?: GroundedTargetRecoveryPort;
+  speechRefiner?: BoundedSpeechRefinerPort;
   clock: Pick<InteractionClock, "now">;
   getCurrentSceneRevision: () => number;
 }
@@ -72,7 +75,35 @@ export class DirectCommandPlanningPipeline {
         diagnostics,
       };
     }
-    const context = built.context;
+    let context = built.context;
+    let refinement: SpeechRefinementEvidence | undefined;
+    if (this.options.speechRefiner !== undefined) {
+      timestamps.speechRefinerRequestedAt = this.now();
+      refinement = await this.options.speechRefiner.refine({
+        turn,
+        allowedCommands: context.plannerContext.allowedCommands,
+      }, {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      timestamps.speechRefinerCompletedAt = this.now();
+      diagnostics.speechRefinerUsed = refinement.providerCalled;
+      diagnostics.speechRefinerResult = refinement.result;
+      if (refinement.errorCode !== undefined) {
+        diagnostics.speechRefinerErrorCode = refinement.errorCode;
+      }
+      if (refinement.changed) {
+        context = {
+          ...context,
+          plannerContext: {
+            ...context.plannerContext,
+            turn: {
+              ...context.plannerContext.turn,
+              refinedTranscript: refinement.refinedTranscript,
+            },
+          },
+        };
+      }
+    }
 
     let plannerResult: DirectPlannerResult;
     timestamps.plannerRequestedAt = this.now();
@@ -122,6 +153,27 @@ export class DirectCommandPlanningPipeline {
         timestamps,
         diagnostics,
       );
+    }
+
+    const speechGroundingEvidence = this.options.contextBuilder
+      .buildSpeechGroundingEvidence(context, plan.command.target, refinement);
+    if (speechGroundingEvidence !== undefined) {
+      context = { ...context, speechGroundingEvidence };
+      Object.assign(diagnostics, {
+        targetSlotKind: speechGroundingEvidence.diagnostics.targetSlotKind,
+        localTermUniverseSize:
+          speechGroundingEvidence.diagnostics.localTermUniverseSize,
+        exactHitCount: speechGroundingEvidence.diagnostics.exactHitCount,
+        normalizedHitCount:
+          speechGroundingEvidence.diagnostics.normalizedHitCount,
+        fuzzyHitCount: speechGroundingEvidence.diagnostics.fuzzyHitCount,
+        phoneticHitCount: speechGroundingEvidence.diagnostics.phoneticHitCount,
+        asrAlternativeHitCount:
+          speechGroundingEvidence.diagnostics.asrAlternativeHitCount,
+        semanticHitCount: speechGroundingEvidence.diagnostics.semanticHitCount,
+        mergedCandidateCount:
+          speechGroundingEvidence.diagnostics.mergedCandidateCount,
+      });
     }
 
     const resolutionInput = toResolutionInput(context, plan.command.target);

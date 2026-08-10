@@ -6,6 +6,7 @@ import type {
   DirectCommandPlannerProvider,
   DirectTargetDisambiguatorProvider,
   GroundedTargetRecoveryProvider,
+  SpeechRefinerProvider,
 } from "../providers";
 import {
   createBrowserVoiceTurnComposition,
@@ -29,6 +30,7 @@ export interface BrowserDirectCommandCompositionOptions {
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
   recovery?: GroundedTargetRecoveryProvider;
+  speechRefiner?: SpeechRefinerProvider;
   targetResolver?: FrozenTargetResolver;
 }
 
@@ -63,6 +65,9 @@ export function createBrowserDirectCommandComposition(
       ? {}
       : { disambiguator: options.disambiguator }),
     ...(options.recovery === undefined ? {} : { recovery: options.recovery }),
+    ...(options.speechRefiner === undefined
+      ? {}
+      : { speechRefiner: options.speechRefiner }),
     ...(options.targetResolver === undefined
       ? {}
       : { targetResolver: options.targetResolver }),

@@ -9,6 +9,7 @@ import {
   DirectCommandTraceStore,
   FrozenTargetResolver,
   GroundedTargetRecovery,
+  BoundedSpeechRefiner,
 } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
 import {
@@ -17,6 +18,7 @@ import {
   type DirectCommandPlannerProvider,
   type DirectTargetDisambiguatorProvider,
   type GroundedTargetRecoveryProvider,
+  type SpeechRefinerProvider,
 } from "../providers";
 import {
   createDocumentSessionDirectCommandNavigationPort,
@@ -34,6 +36,7 @@ export interface EditorDirectCommandCompositionOptions {
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
   recovery?: GroundedTargetRecoveryProvider;
+  speechRefiner?: SpeechRefinerProvider;
   targetResolver?: FrozenTargetResolver;
 }
 
@@ -70,6 +73,9 @@ export function createEditorDirectCommandComposition(
             resolver,
           }),
         }),
+    ...(options.speechRefiner === undefined
+      ? {}
+      : { speechRefiner: new BoundedSpeechRefiner(options.speechRefiner) }),
     clock: options.clock,
     getCurrentSceneRevision: options.getCurrentSceneRevision,
   });

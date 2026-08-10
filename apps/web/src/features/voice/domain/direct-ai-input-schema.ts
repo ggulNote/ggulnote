@@ -43,7 +43,11 @@ export function parseDirectCommandPlannerInput(
   ], "input");
 
   const turn = readRecord(input.turn, "input.turn");
-  assertOnlyKeys(turn, ["turnId", "language", "rawFinalTranscript"], "input.turn");
+  assertOnlyKeys(
+    turn,
+    ["turnId", "language", "rawFinalTranscript", "refinedTranscript"],
+    "input.turn",
+  );
   const frozen = readRecord(input.frozenContext, "input.frozenContext");
   assertOnlyKeys(frozen, [
     "pageId",
@@ -63,6 +67,14 @@ export function parseDirectCommandPlannerInput(
         turn.rawFinalTranscript,
         "input.turn.rawFinalTranscript",
       ),
+      ...(turn.refinedTranscript === undefined
+        ? {}
+        : {
+            refinedTranscript: readNonEmptyString(
+              turn.refinedTranscript,
+              "input.turn.refinedTranscript",
+            ),
+          }),
     },
     frozenContext: {
       pageId: readNonEmptyString(frozen.pageId, "input.frozenContext.pageId"),

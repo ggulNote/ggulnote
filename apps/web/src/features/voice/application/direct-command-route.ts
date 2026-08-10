@@ -295,6 +295,18 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.plannerStatus === undefined
         ? {}
         : { plannerStatus: planningDiagnostics.plannerStatus }),
+      ...(planningDiagnostics?.speechRefinerUsed === undefined
+        ? {}
+        : { speechRefinerUsed: planningDiagnostics.speechRefinerUsed }),
+      ...(planningDiagnostics?.speechRefinerResult === undefined
+        ? {}
+        : { speechRefinerResult: planningDiagnostics.speechRefinerResult }),
+      ...(planningDiagnostics?.speechRefinerErrorCode === undefined
+        ? {}
+        : {
+            speechRefinerErrorCode:
+              planningDiagnostics.speechRefinerErrorCode,
+          }),
       ...(plan === undefined
         ? {}
         : {
@@ -307,6 +319,42 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.targetQueryKind === undefined
         ? {}
         : { targetQueryKind: planningDiagnostics.targetQueryKind }),
+      ...(planningDiagnostics?.targetSlotKind === undefined
+        ? {}
+        : { targetSlotKind: planningDiagnostics.targetSlotKind }),
+      ...(planningDiagnostics?.localTermUniverseSize === undefined
+        ? {}
+        : {
+            localTermUniverseSize:
+              planningDiagnostics.localTermUniverseSize,
+          }),
+      ...(planningDiagnostics?.exactHitCount === undefined
+        ? {}
+        : { exactHitCount: planningDiagnostics.exactHitCount }),
+      ...(planningDiagnostics?.normalizedHitCount === undefined
+        ? {}
+        : { normalizedHitCount: planningDiagnostics.normalizedHitCount }),
+      ...(planningDiagnostics?.fuzzyHitCount === undefined
+        ? {}
+        : { fuzzyHitCount: planningDiagnostics.fuzzyHitCount }),
+      ...(planningDiagnostics?.phoneticHitCount === undefined
+        ? {}
+        : { phoneticHitCount: planningDiagnostics.phoneticHitCount }),
+      ...(planningDiagnostics?.asrAlternativeHitCount === undefined
+        ? {}
+        : {
+            asrAlternativeHitCount:
+              planningDiagnostics.asrAlternativeHitCount,
+          }),
+      ...(planningDiagnostics?.semanticHitCount === undefined
+        ? {}
+        : { semanticHitCount: planningDiagnostics.semanticHitCount }),
+      ...(planningDiagnostics?.mergedCandidateCount === undefined
+        ? {}
+        : {
+            mergedCandidateCount:
+              planningDiagnostics.mergedCandidateCount,
+          }),
       ...(planningDiagnostics?.resolutionStatus === undefined
         ? {}
         : { resolutionStatus: planningDiagnostics.resolutionStatus }),

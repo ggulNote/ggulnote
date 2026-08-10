@@ -99,6 +99,7 @@ export interface DirectCommandPlannerTurnInput {
   turnId: DirectCommandTurnId;
   language: CompletedVoiceTurn["language"];
   rawFinalTranscript: CompletedVoiceTurn["rawTranscript"];
+  refinedTranscript?: string;
 }
 
 export interface DirectCommandPlannerFocus {

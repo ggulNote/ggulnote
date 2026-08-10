@@ -59,6 +59,11 @@ export function calculateDirectCommandLatencyMetrics(
   timestamps: DirectCommandLifecycleTimestamps,
 ): DirectCommandLatencyMetrics {
   return {
+    ...duration(
+      "speechRefinerMs",
+      timestamps.speechRefinerRequestedAt,
+      timestamps.speechRefinerCompletedAt,
+    ),
     ...duration("plannerMs", timestamps.plannerRequestedAt, timestamps.plannerCompletedAt),
     ...duration("resolverMs", timestamps.resolverStartedAt, timestamps.resolverCompletedAt),
     ...duration(

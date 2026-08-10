@@ -1,5 +1,12 @@
 export type { SpeechRecognitionProvider } from "./speech-recognition-provider";
 export type {
+  SpeechRefinerProvider,
+  SpeechRefinerProviderOptions,
+} from "./speech-refiner-provider";
+export { HttpSpeechRefinerProvider } from "./http-speech-refiner-provider";
+export type { HttpSpeechRefinerProviderOptions } from "./http-speech-refiner-provider";
+export { LlmSpeechRefinerProvider } from "./llm-speech-refiner-provider";
+export type {
   DirectCommandPlannerOptions,
   DirectCommandPlannerProvider,
 } from "./direct-command-planner-provider";

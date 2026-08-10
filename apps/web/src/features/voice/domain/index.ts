@@ -26,7 +26,24 @@ export type {
   TermHypothesis,
   TermHypothesisCandidate,
   TermHypothesisSource,
+  GroundingRetrievalEvidence,
+  TargetGroundingSlot,
+  TargetGroundingSlotKind,
+  TargetTermCandidate,
 } from "./speech-grounding-types";
+export { SPEECH_REFINEMENT_CORRECTION_KINDS } from "./speech-refinement-types";
+export type {
+  SpeechRefinementCorrectionKind,
+  SpeechRefinementEvidence,
+  SpeechRefinementInput,
+  SpeechRefinementProviderResult,
+} from "./speech-refinement-types";
+export {
+  parseSpeechRefinementInput,
+  parseSpeechRefinementProviderResult,
+  parseSpeechRefinementResult,
+  SpeechRefinementValidationError,
+} from "./speech-refinement-schema";
 export { TARGET_RECOVERY_LIMITS } from "./grounded-target-recovery-types";
 export type {
   GroundedTargetRecoveryCandidate,

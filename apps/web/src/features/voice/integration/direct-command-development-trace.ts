@@ -5,7 +5,13 @@ const DIRECT_COMMAND_TRACE_LABEL = "[voice/direct-command]";
 export interface DirectCommandDevelopmentTraceSummary {
   turnId: string;
   command?: string;
+  speechRefinerUsed?: boolean;
+  speechRefinerResult?: DirectCommandTrace["speechRefinerResult"];
   targetQueryKind?: DirectCommandTrace["targetQueryKind"];
+  targetSlotKind?: DirectCommandTrace["targetSlotKind"];
+  localTermUniverseSize?: number;
+  phoneticHitCount?: number;
+  mergedCandidateCount?: number;
   initialResolutionStatus?: DirectCommandTrace["initialResolutionStatus"];
   initialResolutionReason?: DirectCommandTrace["initialResolutionReason"];
   targetRecoveryUsed: boolean;
@@ -56,6 +62,24 @@ export function summarizeDirectCommandTrace(
 ): DirectCommandDevelopmentTraceSummary {
   return {
     turnId: trace.turnId,
+    ...(trace.speechRefinerUsed === undefined
+      ? {}
+      : { speechRefinerUsed: trace.speechRefinerUsed }),
+    ...(trace.speechRefinerResult === undefined
+      ? {}
+      : { speechRefinerResult: trace.speechRefinerResult }),
+    ...(trace.targetSlotKind === undefined
+      ? {}
+      : { targetSlotKind: trace.targetSlotKind }),
+    ...(trace.localTermUniverseSize === undefined
+      ? {}
+      : { localTermUniverseSize: trace.localTermUniverseSize }),
+    ...(trace.phoneticHitCount === undefined
+      ? {}
+      : { phoneticHitCount: trace.phoneticHitCount }),
+    ...(trace.mergedCandidateCount === undefined
+      ? {}
+      : { mergedCandidateCount: trace.mergedCandidateCount }),
     ...(trace.command === undefined
       ? {}
       : { command: `${trace.command.capability}.${trace.command.operation}` }),

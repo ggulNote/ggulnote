@@ -4,7 +4,10 @@ import type { EditorEngine } from "@ggulnote/editor-core";
 import { useEffect, useRef, useState } from "react";
 import type { VoiceTurnContextRead } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
-import { HttpGroundedTargetRecoveryProvider } from "../providers";
+import {
+  HttpGroundedTargetRecoveryProvider,
+  HttpSpeechRefinerProvider,
+} from "../providers";
 import {
   createBrowserDirectCommandComposition,
   type BrowserDirectCommandComposition,
@@ -60,6 +63,7 @@ export function useOwnedBrowserDirectCommandComposition(
       getCurrentPage: readers.getCurrentPage,
       goToPage: readers.goToPage,
       recovery: new HttpGroundedTargetRecoveryProvider(),
+      speechRefiner: new HttpSpeechRefinerProvider(),
     }),
   );
 

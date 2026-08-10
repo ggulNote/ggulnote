@@ -3,6 +3,7 @@ import {
   DirectAiProviderError,
   DirectPlannerResultValidationError,
   DirectTargetDisambiguationValidationError,
+  SpeechRefinementValidationError,
 } from "../domain";
 
 export async function readDirectAiRouteInput(request: Request): Promise<unknown> {
@@ -38,6 +39,7 @@ function normalizeRouteError(error: unknown): DirectAiProviderError {
     error instanceof DirectAiInputValidationError
     || error instanceof DirectPlannerResultValidationError
     || error instanceof DirectTargetDisambiguationValidationError
+    || error instanceof SpeechRefinementValidationError
   ) {
     return new DirectAiProviderError(
       "PLANNER_INVALID_OUTPUT",

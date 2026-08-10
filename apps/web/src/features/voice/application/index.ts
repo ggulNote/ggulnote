@@ -59,6 +59,28 @@ export type {
   TargetStrategyRouterOptions,
 } from "./target-strategy-router";
 export { TARGET_STRATEGY_CONFIG } from "./target-resolution-policy";
+export { BoundedSpeechRefiner } from "./bounded-speech-refiner";
+export type {
+  BoundedSpeechRefinerInput,
+  BoundedSpeechRefinerOptions,
+  BoundedSpeechRefinerPort,
+} from "./bounded-speech-refiner";
+export {
+  buildFrozenPageTermIndex,
+  extractTargetGroundingSlots,
+  phoneticSimilarity,
+  retrieveTargetAwareGroundingEvidence,
+  TARGET_RETRIEVAL_PROFILES,
+} from "./target-aware-grounding-retrieval";
+export type {
+  TargetAwareGroundingRetrievalInput,
+  TargetAwareGroundingRetrievalResult,
+} from "./target-aware-grounding-retrieval";
+export { evaluateCandidateRecallAtK } from "./grounding-retrieval-evaluation";
+export type {
+  CandidateRecallEvaluationCase,
+  CandidateRecallEvaluationResult,
+} from "./grounding-retrieval-evaluation";
 export {
   buildDocumentLexicon,
   normalizeSpokenMath,

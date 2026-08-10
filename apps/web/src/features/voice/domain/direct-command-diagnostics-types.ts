@@ -24,12 +24,24 @@ export interface DirectCommandExecutionTimestamps {
 }
 
 export interface DirectCommandPlanningDiagnostics {
+  speechRefinerUsed?: boolean;
+  speechRefinerResult?: "SKIPPED" | "UNCHANGED" | "REFINED" | "REJECTED" | "ERROR";
+  speechRefinerErrorCode?: string;
   plannerStatus?: DirectPlannerResult["status"];
   planId?: string;
   capability?: string;
   operation?: string;
   relation?: string;
   targetQueryKind?: DirectCommandTarget["kind"];
+  targetSlotKind?: string;
+  localTermUniverseSize?: number;
+  exactHitCount?: number;
+  normalizedHitCount?: number;
+  fuzzyHitCount?: number;
+  phoneticHitCount?: number;
+  asrAlternativeHitCount?: number;
+  semanticHitCount?: number;
+  mergedCandidateCount?: number;
   resolutionStatus?: TargetResolutionResult["status"];
   resolvedTargetKind?: ResolvedTarget["kind"];
   resolverConfidence?: number;
@@ -63,6 +75,7 @@ extends DirectCommandPlanningTimestamps, DirectCommandExecutionTimestamps {
 }
 
 export interface DirectCommandLatencyMetrics {
+  speechRefinerMs?: number;
   plannerMs?: number;
   resolverMs?: number;
   disambiguatorMs?: number;
@@ -78,12 +91,24 @@ export interface DirectCommandTrace {
   turnId: string;
   planId?: string;
   plannerStatus?: DirectPlannerResult["status"];
+  speechRefinerUsed?: boolean;
+  speechRefinerResult?: DirectCommandPlanningDiagnostics["speechRefinerResult"];
+  speechRefinerErrorCode?: string;
   command?: {
     capability: string;
     operation: string;
     relation: string;
   };
   targetQueryKind?: DirectCommandTarget["kind"];
+  targetSlotKind?: string;
+  localTermUniverseSize?: number;
+  exactHitCount?: number;
+  normalizedHitCount?: number;
+  fuzzyHitCount?: number;
+  phoneticHitCount?: number;
+  asrAlternativeHitCount?: number;
+  semanticHitCount?: number;
+  mergedCandidateCount?: number;
   resolutionStatus?: TargetResolutionResult["status"];
   resolvedTargetKind?: ResolvedTarget["kind"];
   resolverConfidence?: number;

@@ -8,6 +8,8 @@ import type {
 
 export interface DirectCommandPlanningTimestamps {
   routeReceivedAt: number;
+  speechRefinerRequestedAt?: number;
+  speechRefinerCompletedAt?: number;
   plannerRequestedAt?: number;
   plannerCompletedAt?: number;
   resolverStartedAt?: number;
