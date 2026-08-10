@@ -350,3 +350,45 @@ Production activation: browser composition includes same-origin HTTP Refiner and
 Evaluation separates Candidate Recall@K from candidate selection. Added fixtures cover command pollution, TextSpan boundary normalization, terms beyond the former 256-entry limit, multilingual phonetic recall, absent-term safety, and exact fast paths.
 
 Known limitations remain ASR N-best production availability, persistent GroundingMemory, Math/Table subranges, ink recognition, and Stage 4 spatial placement.
+
+## TextSpan Grounding Architecture Hardening
+
+Status: COMPLETE
+
+Current flow:
+
+```text
+Canonical exact fast path
+-> target-slot normalization
+-> hybrid seed retrieval over the full Frozen Page term universe
+-> bounded multi-token phrase expansion and alignment
+-> actual anchor occurrences
+-> valid span-pair construction/ranking
+-> deterministic confidence gate
+-> optional supplied-pair-only Recovery (P* | NONE)
+-> Canonical range / Rect[]
+-> existing Guard / Compiler / multi-rect Editor runtime
+```
+
+Implementation state:
+
+- Multi-token anchors use actual contiguous Canonical tokens; no persisted page-wide n-gram index.
+- Pair ranking combines anchor confidence, sentence/paragraph structure, distance, focus and
+  materializability. Distance is not a hard maximum.
+- `TermHypothesis` remains non-authoritative evidence and cannot become normalized exact authority.
+- TextSpan Recovery receives bounded valid pairs, not independent start/end lists.
+- Diagnostics expose chunk/candidate counts, multi-token usage, pair count, top score/margin,
+  deterministic selection and pair Recovery result without candidate text.
+- Evaluation separates Anchor Candidate Recall@K, Anchor Phrase Accuracy, Span Pair Recall@K,
+  Span Pair Selection Accuracy, Final Target Hit@1 and False Commit Rate.
+
+Validation:
+
+- TextSpan/Recovery/production targeted: 32 passed.
+- Canonical/resolver/speech/pipeline/multi-rect regression: 93 passed.
+- Web full: 99 files, 663 tests passed.
+- Editor Core full: 7 files, 52 tests passed.
+- Web and Editor Core strict typecheck passed.
+
+Remaining limitations are unchanged: production ASR N-best/acoustic retrieval, persistent
+GroundingMemory, Math/Table Subrange and Stage 4 Spatial Placement are not implemented.

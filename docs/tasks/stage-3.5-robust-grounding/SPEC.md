@@ -47,6 +47,34 @@ Stage 3 Capability Compiler / Executor
 
 Stage 3의 안전 경계와 Editor Runtime을 유지한다.
 
+## Layered TextSpan Grounding
+
+TextSpan strategy는 exact Canonical fast path 이후 다음 내부 계층을 사용한다.
+
+```text
+AnchorSlotNormalizer
+-> HybridAnchorRetriever
+-> seed-based MultiTokenAnchorResolver
+-> AnchorOccurrenceResolver
+-> SpanPairBuilder
+-> SpanPairRanker
+-> Confidence Gate
+-> optional Grounded LLM Pair Judge
+-> RangeMaterializer
+```
+
+- Single-token과 multi-token anchor는 같은 `AnchorSpanCandidate` 모델을 사용한다.
+- Phrase candidate는 실제 Frozen Page의 연속 Canonical token span만 허용한다.
+- Speech chunk coverage와 monotonic phrase alignment를 별도 evidence로 유지한다.
+- Cross-line phrase는 같은 semantic paragraph의 reading order에서 허용하며, paragraph/column
+  경계를 넘는 synthetic phrase stitching은 금지한다.
+- Start/end occurrence는 forward/materializable `SpanPairCandidate`로 먼저 조합한다.
+- Pair policy는 anchor confidence, sentence/paragraph structure, distance, focus와 geometry를
+  함께 사용한다. 긴 range는 distance만으로 제거하지 않는다.
+- High-confidence pair는 deterministic resolve하고, 낮은 margin만 bounded `P* | NONE`
+  Recovery를 최대 1회 사용한다.
+- Grounding은 annotation operation과 독립적이며 existing Guard/Compiler/Editor를 재사용한다.
+
 ---
 
 # 1. 범위

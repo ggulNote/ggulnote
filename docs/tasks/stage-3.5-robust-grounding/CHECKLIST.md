@@ -335,3 +335,18 @@ Stage 3.5 완료 조건:
 - [x] Preserve candidate-only bounded Grounded Recovery
 - [x] Add Candidate Recall@K evaluation and multilingual recall fixtures
 - [x] Wire Refiner and Recovery providers into browser production composition
+
+## TextSpan Grounding Architecture Hardening
+
+- [x] Single-token/multi-token anchor를 공통 `AnchorSpanCandidate`로 표현한다.
+- [x] Target slot의 `부터`/`까지`를 role-aware하게 정규화한다.
+- [x] Hybrid token seed 주변만 query-length 기반으로 동적 phrase 확장한다.
+- [x] Phrase alignment와 speech chunk coverage를 분리해 평가한다.
+- [x] Actual Canonical token occurrence와 semantic paragraph boundary를 유지한다.
+- [x] Valid forward/materializable `SpanPairCandidate`만 생성한다.
+- [x] Pair ranking policy와 confidence/margin을 중앙화한다.
+- [x] TextSpan Recovery를 bounded pair label `P* | NONE` contract로 전환한다.
+- [x] Reverse/out-of-page/synthetic pair를 Recovery 전에 제거한다.
+- [x] Anchor/Pair/Final/False Commit 평가 지표를 분리한다.
+- [x] Vision capability, multi-token end/both, duplicate, long range, cross-line 및 multi-column tests를 추가한다.
+- [x] Canonical/Recovery/Pipeline/Multi-Rect/Stage 3 regression을 유지한다.
