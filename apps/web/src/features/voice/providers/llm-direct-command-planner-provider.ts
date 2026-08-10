@@ -55,8 +55,14 @@ implements DirectCommandPlannerProvider {
       assertPlannerAuthority(result, input, planId);
       return result;
     } catch (error) {
-      if (error instanceof DirectAiProviderError) throw error;
+      if (error instanceof DirectAiProviderError) {
+        if (error.code === "PLANNER_INVALID_OUTPUT") {
+          logInvalidPlannerOutput(error.cause instanceof Error ? error.cause : error);
+        }
+        throw error;
+      }
       if (error instanceof DirectPlannerResultValidationError || error instanceof Error) {
+        logInvalidPlannerOutput(error);
         throw new DirectAiProviderError(
           "PLANNER_INVALID_OUTPUT",
           "INVALID_OUTPUT",
@@ -66,6 +72,25 @@ implements DirectCommandPlannerProvider {
       throw error;
     }
   }
+}
+
+function logInvalidPlannerOutput(error: Error): void {
+  const schemaError = error instanceof DirectPlannerResultValidationError;
+  console.error("[direct-command-ai] Planner output validation failure", {
+    kind: schemaError ? "SCHEMA_VALIDATION" : "JSON_OR_AUTHORITY",
+    ...(schemaError
+      ? { path: sanitizeDiagnostic(error.path, 200) }
+      : {}),
+    message: sanitizeDiagnostic(error.message, 500),
+  });
+}
+
+function sanitizeDiagnostic(value: string, maxChars: number): string {
+  return value
+    .replace(/sk-[A-Za-z0-9_-]{8,}/gu, "[REDACTED]")
+    .replace(/[\r\n]+/gu, " ")
+    .trim()
+    .slice(0, maxChars);
 }
 
 function assertPlannerAuthority(

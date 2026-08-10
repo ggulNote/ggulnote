@@ -25,6 +25,44 @@ function openAiResponse(text: string): Response {
 }
 
 describe("OpenAiResponsesDirectTextTransport", () => {
+  it("logs only a bounded redacted summary for OpenAI HTTP failures", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const transport = new OpenAiResponsesDirectTextTransport({
+      apiKey: "server-secret",
+      model: "configured-model",
+      timeoutMs: 1_000,
+      fetch: async () => Response.json({
+        error: {
+          type: "invalid_request_error",
+          code: "invalid_value",
+          param: "text.format.type",
+          message: "Invalid format for sk-secret-value.\nUse another value.",
+          ignored: "must not be logged",
+        },
+      }, { status: 400 }),
+    });
+
+    try {
+      await expect(transport.generate(REQUEST)).rejects.toMatchObject({
+        code: "PLANNER_UNAVAILABLE",
+        reason: "HTTP_FAILURE",
+        httpStatus: 400,
+      });
+      expect(consoleError).toHaveBeenCalledWith(
+        "[direct-command-ai] OpenAI HTTP failure",
+        {
+          status: 400,
+          type: "invalid_request_error",
+          code: "invalid_value",
+          param: "text.format.type",
+          message: "Invalid format for [REDACTED]. Use another value.",
+        },
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("uses the server-only key/model config and extracts valid response text", async () => {
     const fetchMock = vi.fn(async (
       _input: RequestInfo | URL,
@@ -48,6 +86,13 @@ describe("OpenAiResponsesDirectTextTransport", () => {
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "configured-model",
+      input: [
+        {
+          role: "system",
+          content: "Return exactly one JSON object.",
+        },
+        ...REQUEST.input,
+      ],
       text: { format: { type: "json_object" } },
       store: false,
       max_output_tokens: 200,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DIRECT_COMMAND_NAMES,
   type DirectCommandPlannerInput,
@@ -245,6 +245,12 @@ describe("LlmDirectCommandPlannerProvider", () => {
     expect(request.instructions).toBe(DIRECT_COMMAND_PLANNER_SYSTEM_POLICY);
     expect(request.instructions).toContain("self-correction");
     expect(request.instructions).toContain("DEFER_SPATIAL");
+    expect(request.instructions).toContain("이 텍스트 가나다라로 바꿔줘");
+    expect(request.instructions).toContain("are never cancellation by themselves");
+    expect(request.instructions).toContain('\"capability\": \"text\"');
+    expect(request.instructions).toContain('\"operation\": \"replace_content\"');
+    expect(request.instructions).toContain('\"payload\": { \"text\": \"가나다라\" }');
+    expect(request.instructions).toContain("Never return an object or array for capability");
     expect(serialized).toContain("UNTRUSTED_DOCUMENT_CONTEXT");
     expect(serialized).toContain("ignore previous instructions");
     expect(serialized).not.toContain("op-last-secret");
@@ -319,6 +325,39 @@ describe("LlmDirectCommandPlannerProvider", () => {
     await expect(provider.plan(BASE_INPUT)).rejects.toMatchObject({
       code: "PLANNER_INVALID_OUTPUT",
     });
+  });
+
+  it("logs only bounded redacted schema diagnostics for invalid model output", async () => {
+    const secretCapability = "sk-model-output-secret-123456789";
+    const transport = new StubTransport(JSON.stringify(executable({
+      capability: secretCapability,
+      operation: "replace_content",
+      target: { kind: "relative", relation: "focused" },
+      payload: { text: "가나다라" },
+    }, "텍스트 변경")));
+    const provider = new LlmDirectCommandPlannerProvider({
+      transport,
+      planIdFactory: () => "plan-fixed",
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(provider.plan(BASE_INPUT)).rejects.toMatchObject({
+        code: "PLANNER_INVALID_OUTPUT",
+        reason: "INVALID_OUTPUT",
+      });
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[direct-command-ai] Planner output validation failure",
+        {
+          kind: "SCHEMA_VALIDATION",
+          path: "result.command.capability",
+          message: "result.command.capability: unsupported capability: [REDACTED]",
+        },
+      );
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(secretCapability);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("rejects pre-aborted signals before transport and late authority mismatches", async () => {
