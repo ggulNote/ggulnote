@@ -134,22 +134,22 @@ Frozen Page semantic retrieval에 사용 가능해야 한다.
 
 # Phase C. Query-Specific Resolver Strategies
 
-- [ ] Target Strategy Router
-- [ ] Relative resolver는 Stage 3 정책 재사용
-- [ ] TextSpan resolver를 Canonical Text Stream 기반으로 전환/확장
-- [ ] SemanticUnit resolver에 embedding evidence 추가
-- [ ] Object resolver의 type/metadata/history evidence 정리
-- [ ] Subrange parent-first contract
-- [ ] query kind별 evidence weight/config
-- [ ] 모든 target에 같은 global scoring 강제하지 않음
-- [ ] semantic query embedding lifecycle
-- [ ] PageTargetCatalog/Embedding index 연결
-- [ ] RESOLVED/AMBIGUOUS/NOT_FOUND reason 정리
-- [ ] Stage 3 Disambiguator compatibility 유지
-- [ ] query-specific resolver tests
-- [ ] semantic retrieval tests
-- [ ] object/history regression
-- [ ] Phase C 문서 갱신
+- [x] Target Strategy Router
+- [x] Relative resolver는 Stage 3 정책 재사용
+- [x] TextSpan resolver를 Canonical Text Stream 기반으로 전환/확장
+- [x] SemanticUnit resolver에 embedding evidence 추가
+- [x] Object resolver의 type/metadata/history evidence 정리
+- [x] Subrange parent-first contract
+- [x] query kind별 evidence weight/config
+- [x] 모든 target에 같은 global scoring 강제하지 않음
+- [x] semantic query embedding lifecycle
+- [x] PageTargetCatalog/Embedding index 연결
+- [x] RESOLVED/AMBIGUOUS/NOT_FOUND reason 정리
+- [x] Stage 3 Disambiguator compatibility 유지
+- [x] query-specific resolver tests
+- [x] semantic retrieval tests
+- [x] object/history regression
+- [x] Phase C 문서 갱신
 
 완료 조건:
 

@@ -6,10 +6,12 @@
 Stage: 3.5 — Robust Multigranular Grounding
 Phase A: COMPLETE
 Phase B: COMPLETE
-Current Milestone: Phase C — Query-Specific Resolver Strategies
+Phase C: COMPLETE
+Current Milestone: Phase D — Typed Speech Normalization
 ```
 
-Phase C Resolver integration은 시작하지 않았다. 기존 `FrozenTargetResolver`의 점수와 실행 동작은 변경하지 않았다.
+`FrozenTargetResolver` facade는 기존 동기 API를 유지하고 production planning용
+async strategy router를 추가했다. Phase D/E/F 구현은 시작하지 않았다.
 
 ## 2. Branch / 기준점
 
@@ -21,6 +23,8 @@ Stage 3.5 branch: feat/stage-3.5-robust-grounding
 Stage 3.5 base: e90efe6
 develop used: NO
 Phase A implementation: 9c66c23
+Phase B implementation: 49f8497
+Phase A/B docs: a3eb4a9
 ```
 
 ## 3. Phase A
@@ -96,7 +100,38 @@ Canvas:
 - index/cache hit/cache miss/generated/batch/index latency와 search latency/candidate count를 bounded diagnostics에 기록할 수 있다.
 - vector와 source text는 diagnostics에 기록하지 않는다.
 
-## 8. Validation
+## 8. Phase C Resolver
+
+- `TargetStrategyRouter`가 relative/text_span/semantic_unit/object/subrange를 exhaustive dispatch한다.
+- Relative는 frozen focus/history/recent authority를 유지하고 embedding을 사용하지 않는다.
+- TextSpan은 Phase A Canonical Text Stream을 우선하고 embedding을 사용하지 않는다.
+- SemanticUnit sentence/paragraph는 frozen page embedding Top-K를 semantic evidence로 사용한다.
+- SemanticUnit line은 embedding granularity가 없어 lexical/fuzzy/structure만 사용한다.
+- Object TEXT는 실제 Canvas annotation source ID의 `canvas_text` embedding을 사용할 수 있다.
+- Subrange는 parent를 먼저 resolve한 뒤 현재 selector model limitation으로 unsupported를 반환한다.
+- query kind별 weight/min score/margin은 `target-resolution-policy.ts` 한 곳에서 관리한다.
+- cosine은 scoring evidence에서 `[0, 1]`로 clamp하며 negative similarity는 0이다.
+- source ID가 Frozen Catalog에 없으면 stale result로 버리고 target으로 승격하지 않는다.
+- query embedding/search 실패 또는 index 부재 시 기존 deterministic evidence로 degrade한다.
+- planning pipeline만 async resolver를 await하며 기존 동기 `resolve()`와 Disambiguator contract는 유지한다.
+
+Privacy:
+
+- 기본 production composition은 embedding provider/search를 자동 생성하지 않는다.
+- 명시적으로 embedding-enabled resolver를 주입한 경우에만 query text가 server provider boundary로 전달된다.
+- vector/query/source text는 Direct Command trace에 기록하지 않는다.
+
+Diagnostics:
+
+```text
+targetStrategy / evidenceUsed
+embeddingUsed / embeddingCandidateCount
+topSemanticScore / topSemanticMargin
+queryEmbeddingMs / embeddingSearchMs
+embeddingErrorCode
+```
+
+## 9. Validation
 
 ```text
 Phase B targeted: 6 files / 20 tests PASS
@@ -109,6 +144,13 @@ Editor Core typecheck: PASS
 Editor Core lint: PASS (existing config warnings only)
 git diff --check: PASS
 Actual network smoke: SKIPPED
+Phase C targeted: PASS
+Stage 3.5 Phase A/B regression: PASS
+Voice/Web regression: PASS
+Editor Core regression: PASS
+Web/Editor Core typecheck: PASS
+targeted/package lint: PASS
+git diff --check: PASS
 ```
 
 Web full regression에서는 기존 `voice-debug-panel` happy-path 1건이 fake speech
@@ -124,9 +166,9 @@ Environment:
 - Web full run의 기존 jsdom canvas `getContext` stderr가 출력됐다.
 - Editor Core lint의 기존 React detect/pages-directory warning이 출력됐다.
 
-## 9. Current Limitations
+## 10. Current Limitations
 
-- embedding Top-K는 아직 `FrozenTargetResolver` scoring에 연결되지 않았다.
+- embedding resolver integration은 sentence/paragraph/Canvas TEXT로 제한된다.
 - PDF/Canvas 자동 외부 전송 production wiring은 없다. explicit index composition에서만 provider를 호출한다.
 - English phonetic, document lexicon recovery, LLM recovery는 없다.
 - Number/Math normalization은 없다.
@@ -134,17 +176,15 @@ Environment:
 - 별도 Memo type이 없어 `memo` granularity record는 생성하지 않는다.
 - server vector DB/full-document default search는 없다.
 
-## 10. Next Milestone
+## 11. Next Milestone
 
 ```text
-Phase C — Query-Specific Resolver Strategies
+Phase D — Typed Speech Normalization
 ```
 
-- Target Strategy Router
-- Relative resolver Stage 3 policy reuse
-- Canonical TextSpan resolver
-- SemanticUnit resolver + embedding Top-K semanticMatch
-- Object/history resolver
-- Subrange parent-first contract
-- query kind별 evidence/weight
-- threshold와 ambiguity policy
+- Raw STT 보존
+- Document Lexicon
+- 한국어식 영어 음차 hypothesis
+- NumberHypothesis
+- MathNormalizationResult
+- optional STT contextual bias
