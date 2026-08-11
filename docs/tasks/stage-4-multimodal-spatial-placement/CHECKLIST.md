@@ -540,3 +540,50 @@ Geometry-first safe candidates
 + render-and-validate
 + existing transactional Editor commit
 ```
+
+---
+
+# Stage 4 UX Hardening — Natural Text Placement Defaults
+
+## Planner Draft / Effective Plan
+
+- [x] `text.create` missing `placementQuery` draft 수용
+- [x] omission 외 unknown/coordinate/bounds/objectId/candidateId strict reject 유지
+- [x] normalization 후 기존 strict executable parser 재검증
+- [x] Planner call exactly once
+- [x] recoverable omission same-origin HTTP 502 제거
+
+## Placement Intent
+
+- [x] `EXPLICIT_REGION`
+- [x] `CONTEXTUAL_RELATIVE`
+- [x] `AUTO_FLOW`
+- [x] `AUTO_FREE_SPACE`
+- [x] explicit transcript evidence 우선 및 conflict diagnostic
+- [x] placement provenance/recovery diagnostic
+- [x] Focus → trusted last text → Page origin 지원
+- [x] deictic reference unresolved 시 typed no-commit
+- [x] content span의 spatial phrase 오인 방지
+
+## Choice / Safety
+
+- [x] AUTO_FLOW layout tie deterministic stable selection
+- [x] EXPLICIT_REGION layout tie deterministic stable selection
+- [x] AUTO_FREE_SPACE provider available 시 bounded Phase C 유지
+- [x] AUTO_FREE_SPACE provider unavailable 시 safe shortlist fallback
+- [x] provider error/NONE/stale fallback 금지
+- [x] 모든 성공 path Preview/Validation/commit guard 통과
+- [x] duplicate turn exactly once
+- [x] Undo/Redo 기존 runtime 재사용
+
+## Verification
+
+- [x] 원래 실패한 네 음성 명령 production composition fixture
+- [x] planner omission/conflict/content negative/context tests
+- [x] targeted 10 files / 92 PASS
+- [x] Web full 122 test files PASS
+- [x] Editor Core 7 files / 52 PASS
+- [x] Web/Editor typecheck PASS
+- [x] Web/Editor lint PASS
+- [x] `git diff --check` PASS
+- [ ] manual microphone/browser smoke — stable CompletedVoiceTurn injection UI가 없어 자동 production composition fixture로 대체

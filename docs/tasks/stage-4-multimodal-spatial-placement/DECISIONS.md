@@ -636,3 +636,53 @@ PDF source mutation
 Gaze integration
 무한 visual self-reflection
 ```
+
+---
+
+# D19. Natural text placement는 Planner Draft 이후 코드로 보완한다
+
+`text.create`에서 content는 유효하지만 `placementQuery`만 누락된 경우를
+recoverable Planner Draft로 취급한다. 다른 command field와 최종 실행 계획은 계속
+기존 strict schema를 통과해야 한다.
+
+```text
+Raw transcript
+→ Planner Draft
+→ conservative spatial phrase evidence
+→ text placement normalizer
+→ strict Effective Executable Plan
+→ existing Stage 4 pipeline
+```
+
+허용되는 draft 완화는 다음 하나뿐이다.
+
+```text
+text.create + valid content + missing placementQuery
+```
+
+좌표, bounds, objectId/candidateId, unknown field, malformed payload는 복구하거나
+제거하지 않고 기존처럼 거부한다. Planner 재호출이나 clarification agent도 만들지 않는다.
+
+Transcript의 명확한 locative phrase는 planner content span을 제외한 영역에서만
+추출한다. 명확한 transcript와 planner가 충돌하면 transcript를 우선하고
+`PLACEMENT_CONFLICT_RECOVERED`를 기록한다. 둘 다 위치를 주지 않으면 `AUTO_FLOW`다.
+
+---
+
+# D20. Layout tie와 semantic ambiguity를 분리한다
+
+text placement mode와 choice policy는 다음으로 고정한다.
+
+```text
+EXPLICIT_REGION  → 명시 region을 만족하는 stable safe candidate
+AUTO_FLOW        → writing-flow stable safe candidate
+AUTO_FREE_SPACE  → provider 사용 가능 시 bounded multimodal choice
+CONTEXTUAL_RELATIVE → 기존 semantic/reference grounding 유지
+```
+
+`AUTO_FREE_SPACE`에서 provider가 unavailable이면 기존 Phase B safe shortlist의 stable
+첫 후보를 사용한다. provider error, NONE, stale response에는 fallback하지 않는다.
+실제 reference가 해소되지 않으면 기존 typed no-commit을 유지한다.
+
+모든 선택은 기존 Ghost Preview, deterministic validation, commit-time guard를 통과한다.
+새 좌표, 후보, weighted score를 생성하지 않는다.

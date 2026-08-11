@@ -1121,3 +1121,72 @@ Editor Core regression PASS
 typecheck/lint/git diff --check 기록
 STATUS COMPLETE
 ```
+
+---
+
+# 22. Stage 4 UX Hardening — Natural Text Placement Defaults
+
+## 22.1 Planner Draft / Effective Plan
+
+same-origin/server planner boundary는 `text.create`의 유효한 content와 누락된
+`placementQuery`를 draft로 반환할 수 있다. application planning pipeline은 다음 순서로
+이를 실행 가능한 strict plan으로 만든다.
+
+```text
+Planner call exactly once
+→ parseDirectPlannerDraftResult
+→ extractSpatialPhraseEvidence
+→ normalizeTextPlacementIntent
+→ parseDirectPlannerResult
+→ existing guard/spatial execution
+```
+
+따라서 recoverable omission은 HTTP 502가 아니며, upstream transport failure와 malformed
+output만 기존 provider error contract를 따른다.
+
+## 22.2 Placement mode
+
+```text
+"왼쪽 위에 가나다라라고 써 줘"
+→ PAGE / FREE_SPACE / TOP / START
+→ EXPLICIT_REGION
+
+"가나다라라고 써 줘"
+→ AUTO_FLOW
+→ FOCUS, trusted last text, PAGE TOP/START 순서
+
+"빈 공간에 가나다라라고 써 줘"
+→ PAGE / FREE_SPACE / AUTO
+→ AUTO_FREE_SPACE
+
+"위에 가나다라라고 써 줘"
+→ Focus가 있으면 ABOVE FOCUS
+→ 없고 deictic이 아니면 PAGE / TOP / START
+
+"그 위에 가나다라라고 써 줘"
+→ Focus/history가 없으면 semantic TARGET query 유지
+→ typed no-commit
+```
+
+현재 repository에는 frozen caret/insertion point와 일반 default용 canonical viewport
+writing origin이 없다. 따라서 AUTO_FLOW production 우선순위는 실제 지원되는
+FOCUS → trusted current-page last text → PAGE origin이다.
+
+## 22.3 Phrase evidence와 content 보호
+
+한국어 horizontal/vertical, page/view scope, free-space delegation, deictic/object reference를
+작은 compositional grammar로 조합한다. Planner payload의 exact content span을 먼저 mask하여
+`"왼쪽 위라고 써 줘"`, `"빈 공간이라고 써 줘"`의 content를 placement로 오인하지 않는다.
+
+## 22.4 Choice policy와 safety
+
+EXPLICIT_REGION과 AUTO_FLOW의 layout-only tie는 Phase B stable order에서 선택하며
+screenshot/VLM을 호출하지 않는다. AUTO_FREE_SPACE는 provider가 있으면 기존 Phase C를
+최대 한 번 사용하고, provider unavailable일 때만 safe shortlist stable fallback을 쓴다.
+
+```text
+additional planner calls = 0
+candidate geometry generation = Phase B only
+Preview/Validation bypass = 0
+failure side effects = 0
+```

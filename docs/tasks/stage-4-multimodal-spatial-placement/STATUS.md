@@ -849,3 +849,135 @@ move/reposition operation: annotation move는 존재, generic spatial compiler �
 
 Phase A에서는 위 제한을 숨기기 위한 fallback geometry, screenshot, preview,
 candidate generator 또는 runtime integration을 추가하지 않았다.
+
+---
+
+# 10. Stage 4 UX Hardening — Natural Text Placement Defaults
+
+Status:
+
+```text
+COMPLETE
+```
+
+작업 기준:
+
+```text
+start HEAD: 754569b (docs(spatial): complete production multimodal placement)
+implementation/test commit: 189f76c (fix(voice): recover natural text placement intents)
+docs commit: 이 STATUS/CHECKLIST/DECISIONS/SPEC commit (git log 기준)
+branch: feat/stage-4-multimodal-spatial-placement
+```
+
+Root cause와 해결:
+
+```text
+root cause:
+  server planner parser가 text.create의 유효 content를 이해한 뒤에도
+  placementQuery 누락을 최종 strict schema에서 즉시 거부해 HTTP 502를 반환했다.
+
+boundary:
+  parseDirectPlannerDraftResult는 text.create missing placementQuery 하나만 허용한다.
+  DirectCommandPlanningPipeline이 transcript/context를 normalizer에 전달하고,
+  생성된 Effective Plan을 parseDirectPlannerResult와 기존 guard로 다시 검증한다.
+
+HTTP:
+  recoverable omission은 same-origin response 200 draft로 전달된다.
+  실제 transport/malformed/authority failure의 기존 error mapping은 유지한다.
+```
+
+실제 구현:
+
+```text
+draft/schema:
+  apps/web/src/features/voice/domain/direct-command-types.ts
+  apps/web/src/features/voice/domain/direct-planner-schema.ts
+
+evidence/normalization:
+  apps/web/src/features/voice/application/spatial-phrase-evidence.ts
+  apps/web/src/features/voice/application/text-placement-intent-normalizer.ts
+
+choice policy:
+  apps/web/src/features/voice/application/placement-choice-policy.ts
+  apps/web/src/features/voice/application/spatial-placement-execution.ts
+
+production path:
+  LLM/HTTP planner providers → DirectCommandPlanningPipeline
+  → existing Phase B/C/D/E route
+```
+
+정책:
+
+```text
+explicit region:
+  transcript PAGE/VIEWPORT region + alignment을 보존하고 placement VLM 0회.
+
+AUTO_FLOW:
+  frozen Focus → trusted current-page last text → PAGE TOP/START.
+  frozen caret와 generic viewport writing origin은 현재 contract가 없어 사용하지 않는다.
+
+AUTO_FREE_SPACE:
+  provider available이면 existing bounded multimodal judge를 최대 1회 사용한다.
+  provider unavailable이면 Phase B safe shortlist stable fallback을 사용한다.
+  provider error/NONE/stale은 기존 no-commit이다.
+
+semantic reference:
+  기존 TARGET/FOCUS query와 Stage 3.5 grounding을 유지하며 unresolved reference를
+  PAGE default로 바꾸지 않는다.
+```
+
+Diagnostics:
+
+```text
+planner placement present, evidence kind/tokens, normalized mode, provenance,
+conflict/recovery reason, auto-flow source, choice policy, provider use,
+stable fallback, preview/runtime result를 trace에서 확인할 수 있다.
+screenshot base64, full PDF text, full Scene JSON은 추가로 기록하지 않는다.
+```
+
+검증 결과:
+
+```text
+UX hardening + production Stage 4 targeted: 10 files / 92 PASS
+original four-command production composition: 1 file / 5 PASS
+production multimodal regression: 1 file / 6 PASS
+Web full: 122 test files / PASS
+Editor Core full: 7 files / 52 PASS
+Web/Editor typecheck: PASS
+Web/Editor lint: PASS
+git diff --check: PASS
+
+known non-failure:
+  Node 20.19.4 (repo requires >=22) engine warning,
+  expected strict-provider validation stderr,
+  existing jsdom canvas getContext stderr,
+  Editor Core React/pages-directory lint warnings.
+```
+
+Smoke:
+
+```text
+실제 microphone/browser smoke는 stable CompletedVoiceTurn injection UI가 없어 실행하지 않았다.
+production composition integration은 실제 EditorEngine, Stage 4 candidate/preview/guard/runtime,
+duplicate registry와 Undo/Redo를 사용해 네 명령의 commit과 deictic failure no-commit을 검증했다.
+실제 OpenAI planner network는 호출하지 않았고 LLM provider와 same-origin HTTP boundary를
+fixture transport로 검증했다.
+```
+
+남은 제한:
+
+```text
+frozen caret/insertion-point source 없음
+AUTO_FLOW용 canonical current-viewport origin 없음
+manual browser/microphone smoke 미실행
+spatial MOVE/REVISE_LAST/CONTINUE와 새 table/graph/math capability는 범위 밖
+```
+
+Stage 4 final status:
+
+```text
+COMPLETE
+```
+
+Natural text placement omission blocker는 해소됐다. 기존 Stage 4 A~F production
+multimodal/preview/runtime completion criteria도 전체 회귀에서 유지된다.
