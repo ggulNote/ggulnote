@@ -426,47 +426,47 @@ VLM이 S* 또는 NONE 하나만 선택해야 한다.
 
 ## E1. Routing
 
-- [ ] placementQuery 없음 → 기존 Direct Route
-- [ ] placementQuery 있음 → Spatial Route
-- [ ] existing `DEFER_SPATIAL` migration
-- [ ] direct command behavior 변경 없음
-- [ ] Stage 3.5 Grounder reuse
-- [ ] cancel/no-op route
+- [x] placementQuery 없음 → 기존 Direct Route
+- [x] placementQuery 있음 → Spatial Route
+- [x] existing `DEFER_SPATIAL` migration
+- [x] direct command behavior 변경 없음
+- [x] Stage 3.5 Grounder reuse
+- [x] cancel/no-op route
 
 ## E2. Compiler / Runtime
 
-- [ ] ResolvedPlacement를 existing capability compiler input으로 연결
-- [ ] existing create operation 연결
+- [x] ResolvedPlacement를 existing capability compiler input으로 연결
+- [x] existing create operation 연결
 - [ ] existing move operation은 지원될 때만 연결
-- [ ] PDF source mutation 차단
-- [ ] one logical operation
-- [ ] source turnId 기록
-- [ ] duplicate turnId commit 차단
-- [ ] commit failure normalize
-- [ ] no new runtime/undo stack
+- [x] PDF source mutation 차단
+- [x] one logical operation
+- [x] source turnId 기록
+- [x] duplicate turnId commit 차단
+- [x] commit failure normalize
+- [x] no new runtime/undo stack
 
 ## E3. History / Relation
 
-- [ ] last successful spatial operation 기록
-- [ ] failed/NONE/stale turn이 history를 덮어쓰지 않음
+- [x] last successful spatial operation 기록
+- [x] failed/NONE/stale turn이 history를 덮어쓰지 않음
 - [ ] REVISE_LAST compatibility
 - [ ] CONTINUE compatibility
-- [ ] undo/redo compatibility
+- [x] undo/redo compatibility
 
 ## E4. Integration Tests
 
-- [ ] note/text create in unique space
-- [ ] anchor-based create
-- [ ] free-space create
-- [ ] ambiguous multimodal create
-- [ ] no feasible → no commit
-- [ ] provider NONE → no commit
-- [ ] stale → no commit
-- [ ] preview invalid → no commit
-- [ ] duplicate turn → one commit
-- [ ] one operation → one Undo
-- [ ] direct underline/highlight regression
-- [ ] semantic/text-span grounding regression
+- [x] note/text create in unique space
+- [x] anchor-based create
+- [x] free-space create
+- [x] ambiguous multimodal create
+- [x] no feasible → no commit
+- [x] provider NONE → no commit
+- [x] stale → no commit
+- [x] preview invalid → no commit
+- [x] duplicate turn → one commit
+- [x] one operation → one Undo
+- [x] direct underline/highlight regression
+- [x] semantic/text-span grounding regression
 
 완료 조건:
 
@@ -481,55 +481,55 @@ Validated ResolvedPlacement만 기존 Editor Runtime으로 commit되고,
 
 ## F1. Diagnostics
 
-- [ ] route selection
-- [ ] snapshot/page/revision
-- [ ] anchor result
-- [ ] generated/filtered/final candidate count
-- [ ] deterministic vs multimodal
-- [ ] multimodal call count
-- [ ] provider result
-- [ ] preview result
-- [ ] final result/error
-- [ ] candidate generation latency
-- [ ] multimodal latency
-- [ ] preview latency
-- [ ] commit latency
-- [ ] document raw content logging 최소화
+- [x] route selection
+- [x] snapshot/page/revision
+- [x] anchor result
+- [x] generated/filtered/final candidate count
+- [x] deterministic vs multimodal
+- [x] multimodal call count
+- [x] provider result
+- [x] preview result
+- [x] final result/error
+- [x] candidate generation latency
+- [x] multimodal latency
+- [x] preview latency
+- [x] commit latency
+- [x] document raw content logging 최소화
 
 ## F2. Evaluation
 
-- [ ] Placement Validity Rate
-- [ ] Hard Overlap Rate
-- [ ] Relation Satisfaction
-- [ ] Preferred Size Preservation
-- [ ] Deterministic Resolution Rate
-- [ ] Multimodal Fallback Rate
-- [ ] Multimodal Choice Accuracy
-- [ ] False Commit Rate
-- [ ] No-Commit Precision
-- [ ] p50/p95 placement latency
-- [ ] Undo integrity
+- [x] Placement Validity Rate
+- [x] Hard Overlap Rate
+- [x] Relation Satisfaction
+- [x] Preferred Size Preservation
+- [x] Deterministic Resolution Rate
+- [x] Multimodal Fallback Rate
+- [x] Multimodal Choice Accuracy
+- [x] False Commit Rate
+- [x] No-Commit Precision
+- [x] p50/p95 placement latency
+- [x] Undo integrity
 
 ## F3. Full Regression
 
-- [ ] Stage 2 Voice Turn
-- [ ] Stage 3 Direct Route
-- [ ] Stage 3.5 Robust Grounding
-- [ ] Editor Core full tests
-- [ ] Web full tests
-- [ ] typecheck
-- [ ] lint
-- [ ] `git diff --check`
-- [ ] known pre-existing failure 구분
-- [ ] unrelated code 변경 없음 확인
+- [x] Stage 2 Voice Turn
+- [x] Stage 3 Direct Route
+- [x] Stage 3.5 Robust Grounding
+- [x] Editor Core full tests
+- [x] Web full tests
+- [x] typecheck
+- [x] lint
+- [x] `git diff --check`
+- [x] known pre-existing failure 구분
+- [x] unrelated code 변경 없음 확인
 
 ## F4. Completion
 
-- [ ] `CHECKLIST.md` 실제 완료 항목만 `[x]`
-- [ ] `STATUS.md`에 final commits/test/limitations 기록
+- [x] `CHECKLIST.md` 실제 완료 항목만 `[x]`
+- [x] `STATUS.md`에 final commits/test/limitations 기록
 - [ ] Stage 4 `Status: COMPLETE`
 - [ ] next-stage handoff 기록
-- [ ] branch clean 또는 의도된 잔여 변경 명시
+- [x] branch clean 또는 의도된 잔여 변경 명시
 
 Stage 4 완료 정의:
 

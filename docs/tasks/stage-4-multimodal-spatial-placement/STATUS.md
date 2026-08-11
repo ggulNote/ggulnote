@@ -4,8 +4,8 @@
 
 ```text
 Stage: 4 — Candidate-Constrained Multimodal Spatial Placement
-Status: IN PROGRESS
-Current Milestone: Phase E — Planner / Compiler / Runtime Integration (NEXT; NOT STARTED)
+Status: BLOCKED
+Current Milestone: Phase F — verification complete; production multimodal opt-in required
 ```
 
 Stage 4는 Stage 3 / 3.5를 대체하지 않는다.
@@ -59,6 +59,7 @@ Phase A docs commit 후 clean (최종 검증에서 재확인)
 Phase B docs commit과 최종 검증 후 clean
 Phase C implementation/docs commit과 최종 검증 후 clean
 Phase D implementation/docs commit과 최종 검증 후 clean
+Phase E/F implementation/docs commit과 최종 검증 후 clean
 ```
 
 중요:
@@ -599,20 +600,73 @@ next milestone: Phase E — Planner / Compiler / Runtime Integration
 Status:
 
 ```text
-PENDING
+IMPLEMENTED WITH LIMITATIONS
 ```
 
-완료 후 기록:
+구현 결과:
 
 ```text
+start HEAD: f65a5e4c789d47ec26d63f33f8b2f39b6270a9d9
+implementation commit: ec2c42e8628c627e54cbf8f7922d690f4c369243
+test commit: 153f238d583809253f7f49833e285dde6db896a2
+
 routing:
+  placementQuery가 없으면 기존 DirectCommandRoute를 그대로 사용한다.
+  placementQuery가 있으면 SpatialPlacementExecutionPipeline만 진입한다.
+  지원되는 text.create는 기존 DEFER_SPATIAL no-commit 경계에서 승격되며,
+  지원되지 않는 spatial capability는 UNSUPPORTED_CAPABILITY로 종료한다.
+
+orchestration:
+  ExistingSceneSpatialSceneSource → Stage 3.5 trusted anchor → capability-owned
+  PlacementProfile/MeasuredDraft → Phase B candidate/gate → Phase C bounded choice
+  → Phase D preview validation → ValidatedSpatialPlacement → final guard 순서다.
+  기존 Phase A-D component를 재사용하며 candidate/search/validation을 복제하지 않는다.
+
+production composition:
+  DocumentWorkspace가 current PDF base canvas, annotation canvas, ephemeral preview
+  mount를 existing browser composition에 주입한다. CanvasSpatialScreenshotSource와
+  NativeCanvasRenderer 기반 CanvasAnnotationSpatialPreviewRenderer를 재사용한다.
+  React component는 dependency wiring만 소유한다.
+
 supported capabilities:
+  CREATE: text.create → 기존 TEXT annotation / EditorEngine.createAnnotation
+  MOVE: 미지원. 기존 generic move는 있지만 trusted subject exclusion과 capability-owned
+    materialization을 포함한 spatial move contract가 아직 없어 억지 연결하지 않았다.
+  table/graph/math create: 해당 deterministic runtime capability가 없어 미지원.
+
 compiler/runtime:
-operation log:
-undo:
+  compileValidatedSpatialCommand만 spatial compiler entry다. raw candidate, VLM alias,
+  screenshot pixel은 입력될 수 없다. capability registry가 preview/commit에 동일한
+  TEXT payload factory를 제공하며 기존 CREATE_ANNOTATION과 EditorEngine을 사용한다.
+
+final guard:
+  pageId, sceneRevision, snapshot/candidate identity, active page, AbortSignal,
+  capability registration을 commit 직전에 확인한다. stale/abort/unsupported는 no commit이다.
+
+operation/history/persistence:
+  successful spatial turn은 기존 CommandManager operation 한 건만 만들고 operation
+  subscriber/persistence 경계를 그대로 통과한다. Preview는 Scene/Operation Log/Undo/
+  IndexedDB를 변경하지 않는다. Undo/Redo로 동일 TEXT object를 제거/복원했다.
+  Direct trace는 turnId와 editor operationId를 연결하지만 기존 Editor operation schema는
+  변경하지 않는다. DirectOperationRecord에는 source turnId를 보존한다.
+  spatial REVISE_LAST/CONTINUE는 아직 지원하지 않는다.
+
 idempotency:
-E2E:
-next milestone: Phase F
+  기존 DirectCommandExecutionRegistry가 동일 turnId의 in-flight/completed 요청을 공유해
+  planning/spatial execution/editor mutation을 정확히 한 번만 수행한다.
+
+call counts:
+  non-spatial: spatial/screenshot/placement VLM/preview 0
+  deterministic spatial: screenshot 0, placement VLM 0, preview 1, commit 1
+  ambiguous (injected Fake provider): screenshot 1, placement VLM 1, preview 1, commit 1
+  provider NONE/no feasible/preview failure/stale/abort: commit 0
+
+production multimodal boundary:
+  placement judge는 explicit injected dependency다. DocumentWorkspace 기본 구성에는
+  provider를 등록하지 않는다. 따라서 deterministic spatial create는 production route로
+  실행되지만 ambiguous production turn은 PROVIDER_UNAVAILABLE/no commit이다.
+  실제 document screenshot을 same-origin server/model로 전송하는 기본 활성화는
+  별도 사용자 승인과 제품 consent/configuration 결정이 필요하다.
 ```
 
 ---
@@ -622,22 +676,74 @@ next milestone: Phase F
 Status:
 
 ```text
-PENDING
+VERIFIED; STAGE COMPLETION BLOCKED
 ```
 
-완료 후 기록:
+검증 결과:
 
 ```text
 metrics:
-full regressions:
-typecheck:
-lint:
-git diff --check:
-known issues:
-final implementation commit:
-final docs commit:
-Stage 4 status:
+  spatial trace에 page/revision, anchor, raw/filtered/final candidate count,
+  deterministic gate, provider result/call count, screenshot count, selection source,
+  preview attempts/result, commit guard, runtime/operation 여부와 단계별 latency를 기록한다.
+  image/base64, full PDF text, full Scene JSON은 기록하지 않는다.
+
+evaluation:
+  pure fixture aggregator로 Placement Validity, Hard Overlap, Relation, Preferred Size,
+  deterministic/multimodal rates, multimodal choice accuracy, false commit/no-commit
+  precision, p50/p95 latency, Undo integrity를 계산한다.
+
+tests:
+  Phase E/F targeted: 9 files / 72 PASS
+  Phase D targeted: 3 files / 31 PASS
+  Phase C targeted: 7 files / 50 PASS
+  Phase B targeted: 3 files / 38 PASS
+  Phase A targeted: 4 files / 39 PASS
+  Stage 3.5 current targeted: 3 files / 28 PASS
+  Web split full scope: 117 files / 832 PASS
+    (마지막 NONE/free-space tests 추가 후 current total 834; affected targeted suite PASS)
+  Editor Core full: 7 files / 52 PASS
+  Web/Editor typecheck: PASS
+  Web/Editor full lint: PASS
+  git diff --check: PASS
+
+full-run note:
+  단일 Web full command는 이 환경에서 10분 이상 runner가 정체되어 종료했고,
+  동일 117개 파일 전부를 domain/application/integration/providers/UI/non-voice/tests로
+  분할 실행해 failure 없이 검증했다. maxWorkers 단독 옵션은 Vitest worker config와
+  충돌하므로 minWorkers=1/maxWorkers=4를 함께 사용했다.
+
+browser smoke:
+  안정적인 CompletedVoiceTurn UI injection harness가 없어 실제 수동 browser smoke는
+  실행하지 않았다. jsdom DocumentWorkspace composition과 실제 EditorEngine integration,
+  operation/undo/redo를 자동 테스트했다. 실제 OpenAI network call은 0이다.
+  PDF/Blank Canvas는 Phase A/B의 공통 canonical engine fixture를 재검증했고 PDF source는
+  immutable HARD obstacle로 유지된다. 실제 browser PDF smoke도 같은 이유로 미실행이다.
+
+known non-failure output:
+  Node 20.19.4 (repo requires >=22) engine warning,
+  expected strict provider validation stderr, existing jsdom canvas getContext stderr,
+  Editor Core lint React/pages-directory warnings.
+
+final implementation commit: ec2c42e8628c627e54cbf8f7922d690f4c369243
+final test commit: 153f238d583809253f7f49833e285dde6db896a2
+final docs commit: 이 STATUS/CHECKLIST commit (git log 기준)
+Stage 4 status: BLOCKED
+
+completion blocker:
+  production ambiguous path의 document screenshot 전송 및 multimodal provider 기본
+  활성화에 대한 명시적 승인/consent가 없다. 이 경계가 해결되기 전에는 Phase C
+  production screenshot/VLM exactly-once criterion이 충족되지 않으므로 COMPLETE로
+  표시하지 않는다. 승인 후 기존 optional placementJudge 포트에 same-origin provider를
+  주입하고 browser ambiguous/failure smoke를 수행해야 한다.
+
+remaining capability coverage:
+  spatial MOVE, table/graph/math runtime, new-page/canvas expansion은 Stage 4 pipeline
+  완료를 위해 새로 만들지 않았다. TEXT는 기존 NativeCanvasRenderer의 assigned bounds
+  clipping semantics를 Preview/Commit 양쪽에서 동일하게 유지한다.
+
 next-stage handoff:
+  없음. 위 production multimodal consent blocker 해소와 browser smoke가 먼저다.
 ```
 
 ---
