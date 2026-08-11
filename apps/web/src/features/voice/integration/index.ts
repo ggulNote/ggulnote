@@ -71,3 +71,10 @@ export {
 export type { CanvasSpatialScreenshotSourceOptions } from "./canvas-spatial-screenshot-source";
 export { BrowserSpatialObservationImageProcessor } from "./browser-spatial-observation-image-processor";
 export type { BrowserSpatialObservationImageProcessorOptions } from "./browser-spatial-observation-image-processor";
+export {
+  CanvasAnnotationSpatialPreviewRenderer,
+  measurePaintedCanonicalBounds,
+} from "./canvas-annotation-spatial-preview-renderer";
+export type {
+  CanvasAnnotationSpatialPreviewRendererOptions,
+} from "./canvas-annotation-spatial-preview-renderer";

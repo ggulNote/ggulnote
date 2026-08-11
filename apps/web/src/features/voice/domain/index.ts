@@ -216,6 +216,15 @@ export type {
   SpatialSemanticRole,
   SpatialSourceLayer,
 } from "./spatial-placement-types";
+export type {
+  SelectedSpatialPlacement,
+  SpatialPlacementSelectionSource,
+  SpatialPreviewResolutionFailureStatus,
+  SpatialPreviewValidationEvidence,
+  SpatialPreviewValidationFailureReason,
+  SpatialPreviewValidationResult,
+  ValidatedSpatialPlacement,
+} from "./spatial-preview-types";
 export {
   MULTIMODAL_PLACEMENT_LIMITS,
   parseMultimodalPlacementChoice,

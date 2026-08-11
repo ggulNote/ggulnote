@@ -181,7 +181,34 @@ export {
   generatePlacementCandidates,
   pruneDominatedPlacementCandidates,
   resolveDeterministically,
+  satisfiesSpatialPlacementRelation,
 } from "./placement-candidate-engine";
+export {
+  InMemorySpatialPreviewRendererRegistry,
+  SpatialPreviewUnavailableError,
+} from "./spatial-preview-renderer";
+export type {
+  SpatialPreviewRenderInput,
+  SpatialPreviewRenderer,
+  SpatialPreviewRendererRegistry,
+  SpatialPreviewSession,
+} from "./spatial-preview-renderer";
+export {
+  SPATIAL_PREVIEW_RENDER_TOLERANCE,
+  validateSpatialPreview,
+} from "./spatial-preview-validator";
+export type { SpatialPreviewValidationInput } from "./spatial-preview-validator";
+export {
+  PreviewValidationOrchestrator,
+  selectedSpatialPlacementFromResult,
+} from "./preview-validation-orchestrator";
+export type {
+  PreviewValidationDiagnostics,
+  PreviewValidationInput,
+  PreviewValidationOrchestratorOptions,
+  PreviewValidationResolution,
+  SpatialPreviewAttemptDiagnostics,
+} from "./preview-validation-orchestrator";
 export type {
   SpatialScreenshot,
   SpatialScreenshotCaptureInput,

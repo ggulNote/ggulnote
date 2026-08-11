@@ -99,6 +99,13 @@ export type {
   MultimodalPlacementRequest,
   MultimodalSoftOverlapCategory,
   PlacementCandidateAlias,
+  SelectedSpatialPlacement,
+  SpatialPlacementSelectionSource,
+  SpatialPreviewResolutionFailureStatus,
+  SpatialPreviewValidationEvidence,
+  SpatialPreviewValidationFailureReason,
+  SpatialPreviewValidationResult,
+  ValidatedSpatialPlacement,
 } from "./domain";
 export type {
   DirectCommandPlannerOptions,
@@ -145,11 +152,18 @@ export {
   pruneDominatedPlacementCandidates,
   resolveDeterministically,
   resolveSpatialAnchor,
+  satisfiesSpatialPlacementRelation,
   toSpatialSceneObject,
   BoundedMultimodalPlacementResolver,
   MultimodalPlacementObservationBuilder,
+  InMemorySpatialPreviewRendererRegistry,
+  PreviewValidationOrchestrator,
+  SPATIAL_PREVIEW_RENDER_TOLERANCE,
+  SpatialPreviewUnavailableError,
   buildMultimodalPlacementRenderPlan,
   canonicalRectToScreenshotPixels,
+  selectedSpatialPlacementFromResult,
+  validateSpatialPreview,
 } from "./application";
 export {
   HttpDirectCommandPlannerProvider,
@@ -233,6 +247,16 @@ export type {
   SpatialScreenshotCaptureInput,
   SpatialScreenshotSource,
   SpatialScreenshotSourceResult,
+  PreviewValidationDiagnostics,
+  PreviewValidationInput,
+  PreviewValidationOrchestratorOptions,
+  PreviewValidationResolution,
+  SpatialPreviewAttemptDiagnostics,
+  SpatialPreviewRenderInput,
+  SpatialPreviewRenderer,
+  SpatialPreviewRendererRegistry,
+  SpatialPreviewSession,
+  SpatialPreviewValidationInput,
 } from "./application";
 export { useVoiceTurn } from "./hooks";
 export type { UseVoiceTurnResult, VoiceTurnControllerPort } from "./hooks";
@@ -255,6 +279,8 @@ export {
   BrowserSpatialObservationImageProcessor,
   CanvasSpatialScreenshotSource,
   MAX_SPATIAL_SCREENSHOT_EDGE,
+  CanvasAnnotationSpatialPreviewRenderer,
+  measurePaintedCanonicalBounds,
 } from "./integration";
 export type {
   BrowserVoiceTurnComposition,
@@ -278,4 +304,5 @@ export type {
   VoiceTriggerControlProps,
   BrowserSpatialObservationImageProcessorOptions,
   CanvasSpatialScreenshotSourceOptions,
+  CanvasAnnotationSpatialPreviewRendererOptions,
 } from "./integration";

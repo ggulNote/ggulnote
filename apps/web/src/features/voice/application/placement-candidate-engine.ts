@@ -490,7 +490,7 @@ function evaluateRawCandidate(
   if (occupancy.violatesHardClearance(raw.bounds)) {
     return "MINIMUM_CLEARANCE";
   }
-  const relationSatisfied = satisfiesRelation(
+  const relationSatisfied = satisfiesSpatialPlacementRelation(
     raw.bounds,
     input.anchor?.bounds,
     input.query.relation,
@@ -788,44 +788,56 @@ function shiftPastBlockers(
   }
 }
 
-function satisfiesRelation(
+export function satisfiesSpatialPlacementRelation(
   bounds: Rect,
   anchor: Rect | undefined,
   relation: SpatialPlacementRelation,
   clearance: number,
+  tolerance = SPATIAL_GEOMETRY_EPSILON,
 ): boolean {
   if (relation === "FREE_SPACE") return true;
   if (anchor === undefined) return false;
   switch (relation) {
     case "ABOVE":
       return rectBottom(bounds) <= anchor.y - clearance
-        + SPATIAL_GEOMETRY_EPSILON;
+        + tolerance;
     case "BELOW":
       return bounds.y >= rectBottom(anchor) + clearance
-        - SPATIAL_GEOMETRY_EPSILON;
+        - tolerance;
     case "LEFT_OF":
       return rectRight(bounds) <= anchor.x - clearance
-        + SPATIAL_GEOMETRY_EPSILON;
+        + tolerance;
     case "RIGHT_OF":
       return bounds.x >= rectRight(anchor) + clearance
-        - SPATIAL_GEOMETRY_EPSILON;
+        - tolerance;
     case "INSIDE":
-      return isRectInside(bounds, anchor);
+      return isRectInsideWithTolerance(bounds, anchor, tolerance);
     case "AT":
-      return centerInside(bounds, anchor);
+      return centerInside(bounds, anchor, tolerance);
     case "NEAR":
       return rectDistance(bounds, anchor) >= clearance
-        - SPATIAL_GEOMETRY_EPSILON;
+        - tolerance;
   }
 }
 
-function centerInside(bounds: Rect, anchor: Rect): boolean {
+function isRectInsideWithTolerance(
+  bounds: Rect,
+  container: Rect,
+  tolerance: number,
+): boolean {
+  return bounds.x >= container.x - tolerance
+    && bounds.y >= container.y - tolerance
+    && rectRight(bounds) <= rectRight(container) + tolerance
+    && rectBottom(bounds) <= rectBottom(container) + tolerance;
+}
+
+function centerInside(bounds: Rect, anchor: Rect, tolerance: number): boolean {
   const centerX = bounds.x + bounds.width / 2;
   const centerY = bounds.y + bounds.height / 2;
-  return centerX >= anchor.x - SPATIAL_GEOMETRY_EPSILON
-    && centerX <= rectRight(anchor) + SPATIAL_GEOMETRY_EPSILON
-    && centerY >= anchor.y - SPATIAL_GEOMETRY_EPSILON
-    && centerY <= rectBottom(anchor) + SPATIAL_GEOMETRY_EPSILON;
+  return centerX >= anchor.x - tolerance
+    && centerX <= rectRight(anchor) + tolerance
+    && centerY >= anchor.y - tolerance
+    && centerY <= rectBottom(anchor) + tolerance;
 }
 
 function requestedAlignments(

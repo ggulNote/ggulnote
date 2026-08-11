@@ -9,6 +9,8 @@ export type { NormalizedPoint, NormalizedRect, Size } from "@ggulnote/shared-typ
 
 export type { Annotation } from "./annotations/annotation";
 export type { AnnotationType, CreateAnnotationInput } from "./annotations/annotation-types";
+export { AnnotationFactory } from "./annotations/annotation-factory";
+export type { AnnotationFactoryOptions } from "./annotations/annotation-factory";
 export {
   DEFAULT_ANNOTATION_STYLE,
   MAX_ANNOTATION_RECT_COUNT,
