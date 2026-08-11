@@ -5,7 +5,7 @@
 ```text
 Stage: 4 — Candidate-Constrained Multimodal Spatial Placement
 Status: IN PROGRESS
-Current Milestone: Phase C — Bounded Multimodal Placement Judge (NEXT; NOT STARTED)
+Current Milestone: Phase D — Ghost Preview / Deterministic Validation (NEXT; NOT STARTED)
 ```
 
 Stage 4는 Stage 3 / 3.5를 대체하지 않는다.
@@ -57,6 +57,7 @@ Working tree:
 Stage 3.5 branch handoff 시 clean
 Phase A docs commit 후 clean (최종 검증에서 재확인)
 Phase B docs commit과 최종 검증 후 clean
+Phase C implementation/docs commit과 최종 검증 후 clean
 ```
 
 중요:
@@ -367,8 +368,8 @@ deterministic gate: 0 -> NO_FEASIBLE_PLACEMENT, 1 -> RESOLVED,
 
 debug surface: JSON-safe diagnostics에 anchor/editable/draft, HARD/SOFT bounds,
   raw/filtered/deduped/pruned/final count, filtered reason, candidate evidence,
-  PAGE_CANONICAL identity와 gate result를 제공한다. visual S1 overlay는 이번 Phase B의
-  screenshot/Set-of-Mark 금지에 따라 Phase C로 남겼다.
+  PAGE_CANONICAL identity와 gate result를 제공한다. Phase B 완료 당시 남겨 둔
+  visual S1 overlay는 Phase C local candidate crop에서 구현했다.
 
 tests:
   Phase B targeted: 3 files / 38 PASS
@@ -389,7 +390,7 @@ boundaries: AI/VLM/provider/network/screenshot/candidate image/preview/runtime m
   CommandManager/Operation Log/Undo/IndexedDB write를 추가하지 않았다.
   placement route와 move subject grounding/runtime 연결은 Phase E에 남아 있다.
 
-next milestone: Phase C — Bounded Multimodal Placement Judge (미착수)
+next milestone: Phase C — 완료; 아래 Phase C 기록 참조
 ```
 
 ---
@@ -399,21 +400,97 @@ next milestone: Phase C — Bounded Multimodal Placement Judge (미착수)
 Status:
 
 ```text
-NEXT — NOT STARTED
+COMPLETE (candidate-constrained multimodal choice; preview/commit 없음)
 ```
 
-완료 후 기록:
+완료 기록:
 
 ```text
+start HEAD: 12cd26afde9173b3837e0045e4db289e89b464b0
+implementation commit: 9e6ad1b
+docs commit: 이 STATUS/CHECKLIST 갱신 commit
+
 observation builder:
-global screenshot:
-local crop:
-candidate marks:
-provider:
+  apps/web/src/features/voice/application/multimodal-placement-observation.ts
+  AMBIGUOUS의 final candidates 2~6개만 받아 request-scoped S1...Sn을 발급한다.
+  instruction/draft/anchor text는 중앙 limit로 축약하고 exact geometry는 outbound
+  metadata에 포함하지 않는다. diagnostics에는 image dimension/byte size/latency와
+  alias/count만 기록하며 image data와 document raw text를 기록하지 않는다.
+
+actual screenshot source / composed capture:
+  apps/web/src/features/voice/integration/canvas-spatial-screenshot-source.ts
+  기존 PDF base canvas와 Editor annotation/canvas layer를 흰색 bounded canvas에
+  합성하는 얇은 adapter다. PDF는 두 layer 중 하나라도 없으면 UNAVAILABLE이고,
+  Blank는 white base + Editor overlay를 사용한다. 새 renderer/dependency는 없다.
+  editor-core buildCompositeRenderSnapshot으로 capture 전후 page/revision을 검증한다.
+
+global overview / local crop:
+  capture max edge 2048, global max edge 1280, local max edge 1536의 중앙 config.
+  global은 page 전체 aspect ratio를 유지한다. local은 anchor+candidates union 또는
+  FREE_SPACE candidate union에 canonical padding을 더한 뒤 image crop만 clamp한다.
+
+canonical -> pixel / candidate marks:
+  PAGE_CANONICAL page bounds와 screenshot pixel size의 명시적 scaleX/scaleY만 쓴다.
+  execution candidate rect는 수정하지 않는다. local crop에는 footprint outline과
+  alias badge만 그리며 실제 draft preview는 하지 않는다. badge는 outside/inside
+  corner의 bounded deterministic 순서로 배치하고 이전 badge와의 충돌을 피한다.
+
+alias / metadata boundary:
+  Phase B internalId/기존 alias와 무관하게 observation 순서로 outbound S1...Sn을
+  다시 발급하고 현재 observation의 Map에서만 resolve한다. objectId, candidateId,
+  neighbor ID, draft key, Scene JSON, 전체 PDF text, raw x/y/width/height/bounds는
+  provider request에 포함하지 않는다. clearance/soft overlap은 category만 보낸다.
+
+provider / production boundary:
+  MultimodalPlacementJudgeProvider, Fake provider,
+  HttpMultimodalPlacementJudgeProvider, Llm provider를 추가했다.
+  browser는 same-origin /api/voice/direct-command/placement-judge만 호출한다.
+  server-only OpenAI Responses multimodal transport가 기존 OPENAI_API_KEY,
+  DIRECT_COMMAND_MODEL, DIRECT_COMMAND_AI_TIMEOUT_MS 설정을 그대로 사용한다.
+  browser secret은 없고 unit/integration test actual network call도 없다.
+
 strict response:
-call policy:
+  정확히 { choice: current S* } 또는 { choice: NONE }만 허용한다.
+  plain object/exact key/current alias를 runtime parser가 검증하며 unknown field,
+  coordinate, confidence, free text, stale/unknown alias를 reject한다.
+  OpenAI transport에도 dynamic enum JSON schema를 사용하지만 runtime validation을
+  별도로 유지한다.
+
+invocation / stale / failure policy:
+  Phase B AMBIGUOUS에서만 screenshot/image encoding/provider를 각 1회 수행한다.
+  deterministic RESOLVED, NO_FEASIBLE_PLACEMENT, STALE_SCENE는 모두 0회다.
+  provider retry는 없다. request/transport AbortSignal과 server timeout을 normalize한다.
+  응답 적용 전 current page/revision을 다시 확인해 stale response를 reject한다.
+  NONE은 NO_FEASIBLE_PLACEMENT(no selection), missing config는 PROVIDER_UNAVAILABLE,
+  network/HTTP/timeout은 PROVIDER_ERROR, invalid output은 INVALID_PROVIDER_CHOICE다.
+
+no-side-effect boundary:
+  Phase C result는 source=MULTIMODAL인 selected candidate일 뿐 실행 허가가 아니다.
+  preview, Editor mutation, CommandManager, Operation Log, Undo, IndexedDB write는 0이다.
+
 tests:
-next milestone: Phase D
+  Phase C targeted: 7 files / 50 PASS
+  Phase B targeted: 3 files / 38 PASS
+  Phase A targeted: 4 files / 39 PASS
+  Stage 3.5 current targeted: 3 files / 36 PASS
+  Web full: 112 files / 793 PASS
+  Editor Core full: 7 files / 52 PASS
+  Web/Editor typecheck: PASS
+  Web/Editor full lint: PASS
+  git diff --check: PASS
+
+known non-failure output:
+  Node 20.19.4 (repo requires >=22) engine warning,
+  expected strict provider validation stderr, existing jsdom canvas getContext stderr,
+  Editor Core lint existing React/pages-directory warnings.
+
+remaining limitations:
+  production capture adapter는 실제 renderer canvas accessor를 받도록 준비됐지만
+  spatial runtime route wiring은 Phase E 범위라 아직 DocumentWorkspace에 연결하지 않았다.
+  실제 브라우저 page smoke는 그 route가 없어 이번 Phase C에서는 fixture canvas와
+  mock server transport로 검증했다. Ghost preview/actual bounds validation은 없다.
+
+next milestone: Phase D — Ghost Preview / Deterministic Validation
 ```
 
 ---
@@ -571,7 +648,8 @@ AI provider/server: Http providers -> /api/voice/direct-command/* -> server-only
 기존 renderer offscreen measurement: 미지원; canvas renderer 내부 measureText만 존재
 scratch/ghost layer: 없음
 Canvas object renderBounds: 별도 필드 없음; SceneObject.bounds만 canonical
-composed screenshot API: contract만 있고 production capture 없음
+composed screenshot API: Phase C에 existing PDF/Editor canvas thin adapter 구현;
+  runtime route wiring은 Phase E까지 없음
 move/reposition operation: annotation move는 존재, generic spatial compiler 연결은 없음
 새 page/canvas expansion capability: 없음
 기존 spatial index/collision utility: rect-based occupancy/placement/validator 존재

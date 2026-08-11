@@ -248,7 +248,7 @@ typed spatial plan
 
 ## B6. Debug / Diagnostics
 
-- [ ] S1...Sn overlay
+- [x] S1...Sn overlay
 - [x] candidate JSON
 - [x] filtered reason
 - [x] deterministic/ambiguous reason
@@ -276,7 +276,8 @@ typed spatial plan
 
 이번 세션의 Phase B 완료 범위에서는 순수 후보 엔진까지만 구현했다.
 위에 남은 runtime route/move subject grounding은 Phase E,
-visual `S1...Sn` overlay는 screenshot/Set-of-Mark와 함께 Phase C에서 진행한다.
+visual `S1...Sn` overlay는 Phase B 완료 시점에는 미구현이었고,
+Phase C observation builder의 local candidate crop에서 구현했다.
 
 완료 조건:
 
@@ -292,67 +293,67 @@ visual `S1...Sn` overlay는 screenshot/Set-of-Mark와 함께 Phase C에서 진�
 
 ## C1. Observation Builder
 
-- [ ] composed page/canvas screenshot source 재사용
-- [ ] global overview 생성
-- [ ] anchor/candidates local crop 생성
-- [ ] candidate footprint mark
-- [ ] alias mark 충돌 방지
-- [ ] screenshot pixel과 execution geometry 분리
-- [ ] compact draft summary
-- [ ] compact anchor summary
-- [ ] compact candidate metadata
-- [ ] 전체 PDF text 미전송
-- [ ] 전체 Scene JSON 미전송
-- [ ] actual internal candidate ID 미전송
+- [x] composed page/canvas screenshot source 재사용
+- [x] global overview 생성
+- [x] anchor/candidates local crop 생성
+- [x] candidate footprint mark
+- [x] alias mark 충돌 방지
+- [x] screenshot pixel과 execution geometry 분리
+- [x] compact draft summary
+- [x] compact anchor summary
+- [x] compact candidate metadata
+- [x] 전체 PDF text 미전송
+- [x] 전체 Scene JSON 미전송
+- [x] actual internal candidate ID 미전송
 
 ## C2. Provider Contract
 
-- [ ] `MultimodalPlacementJudgeProvider`
-- [ ] `FakeMultimodalPlacementJudgeProvider`
-- [ ] AbortSignal
-- [ ] timeout/error normalization
-- [ ] browser secret 노출 없음
-- [ ] existing server/AI provider pattern 재사용
-- [ ] unit tests에서 network 호출 없음
+- [x] `MultimodalPlacementJudgeProvider`
+- [x] `FakeMultimodalPlacementJudgeProvider`
+- [x] AbortSignal
+- [x] timeout/error normalization
+- [x] browser secret 노출 없음
+- [x] existing server/AI provider pattern 재사용
+- [x] unit tests에서 network 호출 없음
 
 ## C3. Strict Output
 
-- [ ] `{ choice: "S1" }`
-- [ ] `{ choice: "NONE" }`
-- [ ] current alias만 accept
-- [ ] stale alias reject
-- [ ] unknown alias reject
-- [ ] unknown field reject
-- [ ] coordinate output reject
-- [ ] free text reject
-- [ ] confidence를 실행 근거로 사용하지 않음
+- [x] `{ choice: "S1" }`
+- [x] `{ choice: "NONE" }`
+- [x] current alias만 accept
+- [x] stale alias reject
+- [x] unknown alias reject
+- [x] unknown field reject
+- [x] coordinate output reject
+- [x] free text reject
+- [x] confidence를 실행 근거로 사용하지 않음
 
 ## C4. Invocation Policy
 
-- [ ] AMBIGUOUS에서만 호출
-- [ ] deterministic path call 0
-- [ ] turn당 call <= 1
-- [ ] no candidate일 때 호출하지 않음
-- [ ] provider unavailable → no commit
-- [ ] provider error → no commit
-- [ ] NONE → no commit
-- [ ] invalid choice → no commit
-- [ ] autonomous retry/tool loop 없음
+- [x] AMBIGUOUS에서만 호출
+- [x] deterministic path call 0
+- [x] turn당 call <= 1
+- [x] no candidate일 때 호출하지 않음
+- [x] provider unavailable → no commit
+- [x] provider error → no commit
+- [x] NONE → no commit
+- [x] invalid choice → no commit
+- [x] autonomous retry/tool loop 없음
 
 ## C5. Tests
 
-- [ ] unique candidate no call
-- [ ] dominant candidate no call
-- [ ] ambiguous exactly one call
-- [ ] valid S* choice
-- [ ] NONE
-- [ ] invalid alias
-- [ ] stale request
-- [ ] provider error
-- [ ] screenshot/crop mapping
-- [ ] metadata redaction
-- [ ] typecheck/lint/diff-check
-- [ ] Phase C STATUS/commits
+- [x] unique candidate no call
+- [x] dominant candidate no call
+- [x] ambiguous exactly one call
+- [x] valid S* choice
+- [x] NONE
+- [x] invalid alias
+- [x] stale request
+- [x] provider error
+- [x] screenshot/crop mapping
+- [x] metadata redaction
+- [x] typecheck/lint/diff-check
+- [x] Phase C STATUS/commits
 
 완료 조건:
 
