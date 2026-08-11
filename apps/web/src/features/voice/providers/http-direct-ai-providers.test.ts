@@ -3,9 +3,11 @@ import {
   DIRECT_COMMAND_NAMES,
   type DirectCommandPlannerInput,
   type DirectTargetDisambiguationInput,
+  type GroundedTargetRecoveryInput,
 } from "../domain";
 import { HttpDirectCommandPlannerProvider } from "./http-direct-command-planner-provider";
 import { HttpDirectTargetDisambiguatorProvider } from "./http-direct-target-disambiguator-provider";
+import { HttpGroundedTargetRecoveryProvider } from "./http-grounded-target-recovery-provider";
 
 const PLANNER_INPUT: DirectCommandPlannerInput = {
   turn: {
@@ -40,6 +42,26 @@ const DISAMBIGUATION_INPUT: DirectTargetDisambiguationInput = {
     { label: "C1", source: "pdf", type: "sentence", text: "첫 문장" },
     { label: "C2", source: "pdf", type: "sentence", text: "둘째 문장" },
   ],
+};
+
+const RECOVERY_INPUT: GroundedTargetRecoveryInput = {
+  kind: "object",
+  turnId: "turn-1",
+  rawFinalTranscript: "역전파 설명한 텍스트",
+  normalizedIntent: "역전파 텍스트 선택",
+  targetQuery: { kind: "object", objectType: "text", query: "역전파" },
+  frozenContext: {
+    pageId: "page-1",
+    sceneMode: "pdf",
+    sceneRevision: 7,
+    focusSource: "page",
+  },
+  candidates: [{
+    label: "O1",
+    source: "ggulnote",
+    type: "text",
+    text: "역전파의 핵심은 연쇄법칙이다",
+  }],
 };
 
 describe("same-origin direct AI providers", () => {
@@ -111,6 +133,25 @@ describe("same-origin direct AI providers", () => {
       signal: controller.signal,
     })).rejects.toMatchObject({ code: "ABORTED" });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the same-origin recovery boundary with strict selected labels", async () => {
+    const fetchMock = vi.fn(async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => Response.json({
+      result: { status: "SELECTED", candidateLabel: "O1" },
+    }));
+    const provider = new HttpGroundedTargetRecoveryProvider({ fetch: fetchMock });
+
+    await expect(provider.recover(RECOVERY_INPUT)).resolves.toEqual({
+      status: "SELECTED",
+      candidateLabel: "O1",
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/voice/direct-command/recover");
+    expect(String(init?.body)).not.toContain("OPENAI_API_KEY");
+    expect(String(init?.body)).not.toContain("objectId");
   });
 
   it("does not promote a response body that completes after in-flight abort", async () => {

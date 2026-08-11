@@ -1,10 +1,12 @@
 import type { EditorEngine } from "@ggulnote/editor-core";
 import { InteractionClock } from "@ggulnote/interaction-core";
-import type { VoiceTurnContextRead } from "../application";
+import type { FrozenTargetResolver, VoiceTurnContextRead } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
 import type {
   DirectCommandPlannerProvider,
   DirectTargetDisambiguatorProvider,
+  GroundedTargetRecoveryProvider,
+  SpeechRefinerProvider,
 } from "../providers";
 import {
   createBrowserVoiceTurnComposition,
@@ -27,6 +29,9 @@ export interface BrowserDirectCommandCompositionOptions {
   createTurnId?: () => string;
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
+  recovery?: GroundedTargetRecoveryProvider;
+  speechRefiner?: SpeechRefinerProvider;
+  targetResolver?: FrozenTargetResolver;
 }
 
 export interface BrowserDirectCommandComposition {
@@ -59,6 +64,13 @@ export function createBrowserDirectCommandComposition(
     ...(options.disambiguator === undefined
       ? {}
       : { disambiguator: options.disambiguator }),
+    ...(options.recovery === undefined ? {} : { recovery: options.recovery }),
+    ...(options.speechRefiner === undefined
+      ? {}
+      : { speechRefiner: options.speechRefiner }),
+    ...(options.targetResolver === undefined
+      ? {}
+      : { targetResolver: options.targetResolver }),
   });
   const bridge = new DirectCommandVoiceTurnBridge({
     controller: voice.controller,

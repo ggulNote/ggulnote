@@ -12,12 +12,14 @@ import type {
 } from "../domain";
 import { FakeDirectCommandPlannerProvider } from "../providers/testing/fake-direct-command-planner-provider";
 import { FakeDirectTargetDisambiguatorProvider } from "../providers/testing/fake-direct-target-disambiguator-provider";
+import { FakeGroundedTargetRecoveryProvider } from "../providers/testing/fake-grounded-target-recovery-provider";
 import {
   CurrentRevisionSceneSnapshotSource,
   DirectCommandContextBuilder,
 } from "./direct-command-context-builder";
 import { DirectCommandPlanningPipeline } from "./direct-command-planning-pipeline";
 import { FrozenTargetResolver } from "./frozen-target-resolver";
+import { GroundedTargetRecovery } from "./grounded-target-recovery";
 
 const FOCUS_LINE: PdfSceneObject = {
   id: "pdf:line:focus",
@@ -153,12 +155,16 @@ function createPipeline(
   disambiguatorResult: ConstructorParameters<
     typeof FakeDirectTargetDisambiguatorProvider
   >[0]["result"] = { status: "NONE" },
+  recoveryResult: ConstructorParameters<
+    typeof FakeGroundedTargetRecoveryProvider
+  >[0] = { status: "NONE" },
 ) {
   const planner = new FakeDirectCommandPlannerProvider({ result: plannerResult });
   const disambiguator = new FakeDirectTargetDisambiguatorProvider({
     result: disambiguatorResult,
   });
   const resolver = new FrozenTargetResolver();
+  const recoveryProvider = new FakeGroundedTargetRecoveryProvider(recoveryResult);
   let now = 100;
   const clock = new InteractionClock(() => now++);
   const pipeline = new DirectCommandPlanningPipeline({
@@ -171,10 +177,14 @@ function createPipeline(
     planner,
     resolver,
     disambiguator,
+    recovery: new GroundedTargetRecovery({
+      provider: recoveryProvider,
+      resolver,
+    }),
     clock,
     getCurrentSceneRevision: () => 7,
   });
-  return { pipeline, planner, disambiguator, resolver };
+  return { pipeline, planner, disambiguator, recoveryProvider, resolver };
 }
 
 describe("DirectCommandPlanningPipeline", () => {
@@ -213,6 +223,7 @@ describe("DirectCommandPlanningPipeline", () => {
     });
     expect(harness.planner.planCallCount).toBe(1);
     expect(harness.disambiguator.disambiguateCallCount).toBe(0);
+    expect(harness.recoveryProvider.recoverCallCount).toBe(0);
     expect(result).not.toHaveProperty("operationId");
   });
 
@@ -274,6 +285,7 @@ describe("DirectCommandPlanningPipeline", () => {
       },
     });
     expect(harness.disambiguator.disambiguateCallCount).toBe(1);
+    expect(harness.recoveryProvider.recoverCallCount).toBe(0);
     const exposed = JSON.stringify(harness.disambiguator.lastInput);
     expect(exposed).not.toContain(AMBIGUOUS_A.id);
     expect(exposed).not.toContain(AMBIGUOUS_B.id);
@@ -319,6 +331,78 @@ describe("DirectCommandPlanningPipeline", () => {
       .resolves.toMatchObject({ status: "TARGET_NOT_FOUND" });
     expect(harness.planner.planCallCount).toBe(1);
     expect(harness.disambiguator.disambiguateCallCount).toBe(0);
+    expect(harness.recoveryProvider.recoverCallCount).toBe(0);
+  });
+
+  it("calls grounded recovery exactly once for recoverable object NOT_FOUND", async () => {
+    const harness = createPipeline(executable({
+      capability: "annotation",
+      operation: "highlight",
+      target: {
+        kind: "object",
+        objectType: "text",
+        query: "역전파 설명한 텍스트",
+      },
+      payload: {},
+    }), { status: "NONE" }, {
+      status: "SELECTED",
+      candidateLabel: "O1",
+    });
+    vi.spyOn(harness.resolver, "resolveAsync").mockResolvedValueOnce({
+      status: "NOT_FOUND",
+      reasonCode: "LOW_CONFIDENCE",
+    });
+
+    await expect(harness.pipeline.plan(createTurn("역전파 설명한 텍스트")))
+      .resolves.toMatchObject({
+        status: "READY_FOR_EXECUTION",
+        target: { objectId: EDITABLE_TEXT.id },
+        diagnostics: {
+          initialResolutionStatus: "NOT_FOUND",
+          finalResolutionStatus: "RESOLVED",
+          targetRecoveryUsed: true,
+          targetRecoveryKind: "object",
+          recoveryResult: "SELECTED",
+          guardStatus: "PASSED",
+        },
+      });
+    expect(harness.recoveryProvider.recoverCallCount).toBe(1);
+    expect(harness.planner.planCallCount).toBe(1);
+    expect(harness.disambiguator.disambiguateCallCount).toBe(0);
+  });
+
+  it("does not recover non-recoverable relative or unsupported subrange results", async () => {
+    const relative = createPipeline(executable({
+      capability: "annotation",
+      operation: "underline",
+      target: { kind: "relative", relation: "focused" },
+      payload: {},
+    }));
+    vi.spyOn(relative.resolver, "resolveAsync").mockResolvedValueOnce({
+      status: "NOT_FOUND",
+      reasonCode: "FOCUS_NOT_AVAILABLE",
+    });
+    await expect(relative.pipeline.plan(createTurn("여기 밑줄")))
+      .resolves.toMatchObject({ status: "TARGET_NOT_FOUND" });
+    expect(relative.recoveryProvider.recoverCallCount).toBe(0);
+
+    const subrange = createPipeline(executable({
+      capability: "annotation",
+      operation: "underline",
+      target: {
+        kind: "subrange",
+        parent: { kind: "object", objectType: "math", query: "수식" },
+        query: "2x",
+      },
+      payload: {},
+    }));
+    vi.spyOn(subrange.resolver, "resolveAsync").mockResolvedValueOnce({
+      status: "NOT_FOUND",
+      reasonCode: "SUBRANGE_UNSUPPORTED",
+    });
+    await expect(subrange.pipeline.plan(createTurn("수식의 2x 밑줄")))
+      .resolves.toMatchObject({ status: "TARGET_NOT_FOUND" });
+    expect(subrange.recoveryProvider.recoverCallCount).toBe(0);
   });
 
   it("P5 defers spatial plans before resolver/disambiguator", async () => {

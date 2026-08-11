@@ -8,6 +8,8 @@ import {
   DirectCommandRoute,
   DirectCommandTraceStore,
   FrozenTargetResolver,
+  GroundedTargetRecovery,
+  BoundedSpeechRefiner,
 } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
 import {
@@ -15,6 +17,8 @@ import {
   HttpDirectTargetDisambiguatorProvider,
   type DirectCommandPlannerProvider,
   type DirectTargetDisambiguatorProvider,
+  type GroundedTargetRecoveryProvider,
+  type SpeechRefinerProvider,
 } from "../providers";
 import {
   createDocumentSessionDirectCommandNavigationPort,
@@ -31,6 +35,9 @@ export interface EditorDirectCommandCompositionOptions {
   goToPage(page: number): void;
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
+  recovery?: GroundedTargetRecoveryProvider;
+  speechRefiner?: SpeechRefinerProvider;
+  targetResolver?: FrozenTargetResolver;
 }
 
 export interface EditorDirectCommandComposition {
@@ -51,12 +58,24 @@ export function createEditorDirectCommandComposition(
     ),
     recentOperationsSource: recentOperations,
   });
+  const resolver = options.targetResolver ?? new FrozenTargetResolver();
   const planning = new DirectCommandPlanningPipeline({
     contextBuilder,
     planner: options.planner ?? new HttpDirectCommandPlannerProvider(),
-    resolver: new FrozenTargetResolver(),
+    resolver,
     disambiguator: options.disambiguator
       ?? new HttpDirectTargetDisambiguatorProvider(),
+    ...(options.recovery === undefined
+      ? {}
+      : {
+          recovery: new GroundedTargetRecovery({
+            provider: options.recovery,
+            resolver,
+          }),
+        }),
+    ...(options.speechRefiner === undefined
+      ? {}
+      : { speechRefiner: new BoundedSpeechRefiner(options.speechRefiner) }),
     clock: options.clock,
     getCurrentSceneRevision: options.getCurrentSceneRevision,
   });

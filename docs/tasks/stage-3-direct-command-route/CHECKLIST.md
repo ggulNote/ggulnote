@@ -1,0 +1,385 @@
+# Stage 3 — Direct Command Route: CHECKLIST
+
+## 사용법
+
+- `[ ]` 미완료
+- `[x]` 완료
+- 완료 시 관련 commit / test 결과를 `STATUS.md`에 기록한다.
+- Stage 3 작업 중 Stage 2 Voice Turn / Voice Lens를 대규모 리팩터링하지 않는다.
+- 체크 순서는 구현 순서를 의미한다.
+- Phase A는 완료 상태를 유지한다. Phase B 시작 시 최종 Grounding Architecture에 맞춘 **contract alignment**는 허용한다.
+
+---
+
+# Phase 0. Preflight / Existing Architecture 확인
+
+- [x] 현재 branch / HEAD / `git status` 확인
+- [x] `AGENTS.md` 재독
+- [x] Stage 2 `DECISIONS.md` 재독
+- [x] Stage 2 `SPEC.md` 재독
+- [x] Stage 2 `CHECKLIST.md` 완료 상태 확인
+- [x] Stage 2 `STATUS.md`에서 완료 commit / known issue 확인
+- [x] `CompletedVoiceTurn` 실제 타입과 생성 위치 확인
+- [x] Frozen Context 타입 / Scene Revision 타입 확인
+- [x] Scene Core의 Object lookup API 확인
+- [x] 기존 Annotation action / compiler / executor 확인
+- [x] 기존 Page navigation API 확인
+- [x] 기존 Operation Log / Undo API 확인
+- [x] 기존 editable text mutation API 확인
+- [x] 기존 AI provider / server boundary가 있는지 검색
+- [x] reset / clean / stash 없이 기존 미커밋 변경 보존
+- [x] Stage 3 branch가 없으면 현재 Stage 2 완료 HEAD에서 `feat/stage-3-direct-command-route` 생성
+
+완료 조건:
+
+```text
+새 코드를 쓰기 전에 Stage 3가 재사용해야 할 실제 타입/API 목록이 정리되어 있어야 한다.
+```
+
+---
+
+# Phase A. Direct Command Domain / Provider Contracts
+
+- [x] `CommandRelation` 정의
+- [x] `DirectTargetRef` 정의
+- [x] Direct command discriminated union 정의
+- [x] Planner result union 정의
+- [x] Route result / error code 정의
+- [x] 기존 Scene / Voice / Editor ID 타입 재사용
+- [x] `DirectCommandPlannerProvider` 계약 정의
+- [x] `FakeDirectCommandPlannerProvider` 구현
+- [x] strict runtime schema validation 구현
+- [x] unknown capability reject 테스트
+- [x] unknown operation reject 테스트
+- [x] coordinate field 등 금지 field reject 테스트
+- [x] `DEFER_SPATIAL` schema 테스트
+- [x] Phase A 문서 상태 갱신
+
+완료 조건:
+
+```text
+LLM/network 없이 Fake Provider로
+typed DirectPlannerResult 계약을 테스트할 수 있어야 한다.
+```
+
+Phase B contract alignment:
+
+```text
+FROZEN_FOCUS / LAST_TARGET
+→ RelativeTargetQuery로 일반화
+
+CURRENT_PAGE / LAST_OPERATION
+→ navigation/history control target으로 유지
+
+Phase A의 provider/fake/strict parser 기반은 그대로 재사용
+```
+
+---
+
+# Phase B. Command Context / Frozen Target Grounding / Eligibility Guard
+
+## B0. Architecture Contract Alignment
+
+- [x] DECISIONS / SPEC의 TargetQuery 구조 확인
+- [x] 기존 `DirectTargetRef`를 최소 변경으로 TargetQuery 구조에 정렬
+- [x] `FROZEN_FOCUS` → `RelativeTargetQuery(focused)` 의미 정렬
+- [x] `LAST_TARGET` → `RelativeTargetQuery(last_target)` 의미 정렬
+- [x] `CURRENT_PAGE` / `LAST_OPERATION` control target 유지 여부 결정 및 문서화
+- [x] Phase A strict parser를 새 TargetQuery union에 맞게 확장
+- [x] arbitrary objectId reject 유지
+- [x] coordinate x/y reject 유지
+- [x] Phase A provider/fake provider 재사용
+
+## B1. Existing Grounding Sources 조사
+
+- [x] Frozen revision의 SceneSnapshot을 얻는 실제 경로 확인
+- [x] historical snapshot 미지원 시 stale 처리 정책 구현
+- [x] PDF Scene object/source 타입 확인
+- [x] Semantic paragraph/sentence/line 표현 확인
+- [x] text offset/range/bounds 표현 확인
+- [x] Canvas / Annotation object 타입 확인
+- [x] editable/source 판별 경로 확인
+- [x] operation timestamp / created object / target 추적 가능 여부 확인
+- [x] 없는 semantic type을 새로 invent하지 않음
+
+## B2. TargetQuery / ResolvedTarget Domain
+
+- [x] `TextSpanTargetQuery` 구현
+- [x] `SemanticUnitTargetQuery` 구현
+- [x] `ObjectTargetQuery` 구현
+- [x] `RelativeTargetQuery` 구현
+- [x] `SubrangeTargetQuery` 확장 계약 구현
+- [x] `ResolvedTextSpan` 구현
+- [x] `ResolvedObject` 구현
+- [x] `ResolvedMathSpan` / `ResolvedObjectSubrange`는 실제 모델 지원 수준에 맞춰 contract 또는 unsupported path 정의
+- [x] TargetResolutionResult: `RESOLVED`
+- [x] TargetResolutionResult: `AMBIGUOUS`
+- [x] TargetResolutionResult: `NOT_FOUND`
+
+## B3. PageTargetCatalog
+
+- [x] `PageTargetCatalog` 구현
+- [x] Frozen Page의 PDF/document candidate adapter
+- [x] Frozen Page의 Ggulnote editable candidate adapter
+- [x] `source: pdf | ggulnote` 표현
+- [x] `editable` 표현
+- [x] `annotatable` 표현 가능한 경우 연결
+- [x] text/type/bounds metadata 연결
+- [x] recent operation metadata 연결 가능한 경우 연결
+- [x] 다른 page candidate 제외
+- [x] internal candidateId를 Planner authority로 사용하지 않음
+
+## B4. DirectCommandContextBuilder
+
+- [x] `DirectCommandContextBuilder` 구현
+- [x] Raw Final Transcript 그대로 보존
+- [x] Frozen Context 그대로 authority로 사용
+- [x] Frozen page/revision snapshot 사용
+- [x] 최신 page로 drift하지 않음
+- [x] 최신 focus로 drift하지 않음
+- [x] PageTargetCatalog 포함
+- [x] recent operations 포함
+- [x] Planner용 bounded context 분리
+- [x] Planner context에 internal objectId/candidateId 미노출
+- [x] screenshot/image 미생성
+- [x] frozen snapshot unavailable 시 `STALE_SCENE`
+
+## B5. Candidate Evidence / Ranking
+
+- [x] `CandidateEvidence` 정의
+- [x] `typeMatch`
+- [x] `lexicalMatch`
+- [x] `fuzzyMatch`
+- [x] `temporalMatch`
+- [x] `structuralMatch`
+- [x] `focusMatch`
+- [x] `semanticMatch` optional/unavailable 정책
+- [x] `mathMatch` optional/unavailable 정책
+- [x] Unicode/text normalization
+- [x] 한국어 spacing 차이 완화
+- [x] 경미한 STT mismatch용 deterministic fuzzy similarity
+- [x] 외부 embedding service 추가하지 않음
+- [x] threshold/margin을 단일 policy/config로 관리
+
+## B6. FrozenTargetResolver
+
+- [x] Relative focused target resolve
+- [x] Relative last target resolve
+- [x] Relative recent target ranking
+- [x] TextSpan target resolve
+- [x] SemanticUnit target resolve — 현재 semantic layer 지원 범위
+- [x] Object target resolve — 현재 editable object 지원 범위
+- [x] Subrange target은 실제 지원 수준에 맞게 resolve/unsupported
+- [x] `RESOLVED` high confidence 처리
+- [x] `AMBIGUOUS` 후보 반환
+- [x] `NOT_FOUND` 처리
+- [x] `AMBIGUOUS`에서 임의 top1 선택 금지
+- [x] 가짜 offset/token/stroke mapping 생성 금지
+
+## B7. Direct Eligibility / Guard
+
+- [x] Scene Revision validation
+- [x] target 존재 validation
+- [x] capability allowlist
+- [x] operation allowlist
+- [x] payload schema validation
+- [x] target type compatibility
+- [x] PDF source read-only guard
+- [x] PDF text + underline 허용
+- [x] PDF text + highlight 허용
+- [x] PDF source + `text.replace_content` 차단
+- [x] Ggulnote editable text + `text.replace_content` 허용
+- [x] spatial-required typed plan no-commit guard
+- [x] 실제 Editor mutation은 아직 하지 않음
+
+## B8. Tests / Docs
+
+- [x] RelativeTargetQuery schema 테스트
+- [x] TextSpanTargetQuery schema 테스트
+- [x] SemanticUnitTargetQuery schema 테스트
+- [x] ObjectTargetQuery schema 테스트
+- [x] SubrangeTargetQuery schema 테스트
+- [x] arbitrary objectId reject regression
+- [x] coordinate x/y reject regression
+- [x] Frozen page/revision context test
+- [x] PageTargetCatalog PDF + editable source test
+- [x] focus resolution test
+- [x] text span resolution test
+- [x] fuzzy ranking test
+- [x] recent/last target test
+- [x] ambiguous no-auto-select test
+- [x] not found test
+- [x] stale scene test
+- [x] PDF read-only guard test
+- [x] editable text guard test
+- [x] Phase B 문서 상태 갱신
+
+완료 조건:
+
+```text
+TargetQuery
+→ Frozen PageTargetCatalog
+→ deterministic candidate ranking
+→ ResolvedTarget | AMBIGUOUS | NOT_FOUND
+→ permission/revision guard
+```
+
+까지 LLM/network와 Editor mutation 없이 테스트할 수 있어야 한다.
+
+---
+
+# Phase C. Single Text Planner + Conditional Text Disambiguation
+
+- [x] Stage 3 전용 server-side AI boundary 설계
+- [x] 브라우저 secret 노출 없음 확인
+- [x] 최초 Planner 한 번으로 refine + intent + relation + command + TargetQuery 생성
+- [x] Planner prompt에서 document text를 untrusted data로 분리
+- [x] allowed capability / operation 명시
+- [x] arbitrary objectId 생성 금지
+- [x] coordinate 생성 금지
+- [x] spatial request는 `DEFER_SPATIAL`
+- [x] self-correction 처리
+- [x] "방금 거 취소" → `history.undo`
+- [x] timeout / abort / network error normalize
+- [x] malformed model output reject
+- [x] provider/model을 domain 코드에 하드코딩하지 않음
+- [x] Resolver `AMBIGUOUS` 시에만 candidate-only Text Disambiguator 연결
+- [x] Disambiguator는 `C1..Cn | NONE`만 반환
+- [x] candidate 밖 objectId 생성 금지
+- [x] VLM 사용하지 않음
+- [x] provider unit test
+- [x] mocked integration test
+- [x] Phase C 문서 상태 갱신
+
+완료 조건:
+
+```text
+최초 Planner는 1회 호출로 refine + intent + TargetQuery를 만들고,
+AMBIGUOUS인 경우에만 제한된 후보 선택용 Text LLM을 조건부 호출한다.
+```
+
+---
+
+# Phase D. Capability Compile / Editor Runtime Integration
+
+- [x] `annotation.underline` existing editor action으로 compile
+- [x] `annotation.highlight` existing editor action으로 compile
+- [x] PDF 원문 변경 없이 Editable Layer annotation 생성
+- [x] highlight default color는 existing editor setting 사용
+- [x] `navigation.next_page` 연결
+- [x] `navigation.previous_page` 연결
+- [x] `history.undo` existing history에 연결
+- [x] `text.replace_content` Ggulnote editable text에 연결
+- [x] PDF source text replace compile 차단
+- [x] 별도 undo stack 생성하지 않음
+- [x] 별도 editor runtime 생성하지 않음
+- [x] compile 실패 시 no commit
+- [x] commit 실패 시 error normalize
+- [x] operation에 source turnId 추적 가능
+- [x] underline integration test
+- [x] text span underline integration test
+- [x] highlight integration test
+- [x] navigation integration test
+- [x] undo integration test
+- [x] text replace integration test
+- [x] Phase D 문서 상태 갱신
+
+완료 조건:
+
+```text
+ResolvedTarget + CommandPlan이 실제 기존 Editor Runtime을 통해
+deterministic mutation으로 commit되어야 한다.
+```
+
+---
+
+# Phase E. Relation / History / Idempotency
+
+- [x] `NEW` 처리
+- [x] `REVISE_LAST` 처리
+- [x] replacement plan은 full plan으로 생성
+- [x] `RelativeTargetQuery(last_target)` grounding
+- [x] replace는 가능한 한 atomic transaction으로 처리
+- [x] `CONTINUE`의 last target 재사용
+- [x] `CANCEL`은 no mutation
+- [x] duplicate turnId commit 방지
+- [x] duplicate in-flight planner call 방지
+- [x] last successful Direct Operation record 관리
+- [x] failed/deferred/ambiguous turn이 last successful operation을 덮어쓰지 않음
+- [x] revise last integration test
+- [x] continue target integration test
+- [x] cancel no-op test
+- [x] duplicate turn integration test
+- [x] Phase E 문서 상태 갱신
+
+완료 조건:
+
+```text
+연속 발화에서도 이전 작업 맥락을 안전하게 재사용하고,
+동일 turn이 중복 commit되지 않아야 한다.
+```
+
+---
+
+# Phase F. Diagnostics / Regression / Stage Completion
+
+- [x] Stage 2 completed turn → production Direct Route 자동 wiring
+- [x] interim transcript는 route를 호출하지 않음
+- [x] no-speech / cancelled turn은 route를 호출하지 않음
+- [x] integration subscription / route dispose lifecycle 연결
+- [x] in-flight dispose 후 late result no-commit 테스트
+- [x] route lifecycle timestamp 추가
+- [x] plannerMs 계산
+- [x] resolverMs 계산
+- [x] disambiguatorMs 계산 가능
+- [x] validationMs 계산
+- [x] compileMs 계산
+- [x] commitMs 계산
+- [x] directRouteMs 계산
+- [x] voiceEndToCommitMs 계산 가능
+- [x] debug payload에서 turnId / planId / operationId 추적
+- [x] targetQueryKind / resolvedTargetKind / resolverConfidence 추적
+- [x] bounded trace storage 구현
+- [x] raw transcript / raw document / prompt / model response를 기본 trace에 남기지 않음
+- [x] spatial request → `DEFER_SPATIAL` integration test
+- [x] ambiguous target no-commit/disambiguation test
+- [x] stale scene no-commit integration test
+- [x] invalid planner output no-commit integration test
+- [x] error 이후 다음 completed turn 복구 테스트
+- [x] 기존 Stage 1/2 테스트 regression 실행
+- [x] lint / typecheck / test 실행
+- [x] `git diff --check`
+- [x] `STATUS.md` 최종 갱신
+- [x] 완료 commit 기록
+- [x] known issue / deferred item 기록
+
+Stage 3 최종 완료 조건:
+
+```text
+CompletedVoiceTurn
+→ 최초 Planner 1회
+→ strict DirectCommandPlan + TargetQuery
+→ FrozenTargetResolver
+→ ResolvedTarget
+→ target/revision/capability/permission validation
+→ deterministic compile
+→ existing Editor commit
+```
+
+최소 E2E 시나리오:
+
+- [x] "여기 밑줄 쳐줘"
+- [x] "세종대왕의부터 업적까지 밑줄 쳐줘"
+- [x] "노란색으로 하이라이트해줘"
+- [x] "AI의 문제점을 설명하는 문장 하이라이트"
+- [x] "밑줄 아니 밑줄 말고 노란색 하이라이트"
+- [x] "노란색 말고 파란색으로"
+- [x] "다음 페이지"
+- [x] "이전 페이지"
+- [x] "방금 거 취소해"
+- [x] editable text replace
+- [x] PDF source text replace 차단
+- [x] ambiguous target 추측 실행 없음
+- [x] spatial command `DEFER_SPATIAL`
+- [x] duplicate turn exactly-once commit
+- [x] stale scene no commit

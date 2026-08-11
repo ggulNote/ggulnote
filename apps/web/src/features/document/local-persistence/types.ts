@@ -2,6 +2,7 @@ import type { DocumentId, PageId, AnnotationId } from "@ggulnote/shared-types";
 import type { EditorOperation } from "@ggulnote/editor-core";
 import type { PageSceneSnapshot } from "@ggulnote/editor-core";
 import type { SerializedSemanticPage } from "@ggulnote/document-core";
+import type { EmbeddingRecord } from "../embedding/embedding-types";
 
 export const GGULNOTE_DATABASE_NAME = "ggulnote-local";
 export const GGULNOTE_DATABASE_VERSION = 1;
@@ -11,6 +12,7 @@ export const PERSISTENCE_SCHEMA_VERSION = 1;
 export const SEMANTIC_SCHEMA_VERSION = 3;
 export const SEMANTIC_EXTRACTOR_VERSION = "8";
 export const SEMANTIC_DATABASE_VERSION = 2;
+export const EMBEDDING_DATABASE_VERSION = 3;
 
 export type PersistedDocumentKind = "pdf" | "blank";
 export type PersistedZoomMode = "custom" | "fit-width";
@@ -80,6 +82,8 @@ export interface PersistedSemanticPageRecord {
   createdAt: number;
   updatedAt: number;
 }
+
+export type PersistedEmbeddingRecord = EmbeddingRecord;
 
 export interface PersistedAppStateRecord {
   key: "editor";

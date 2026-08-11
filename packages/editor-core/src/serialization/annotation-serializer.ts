@@ -7,6 +7,8 @@ import { ShapeAnnotation } from "../annotations/shape-annotation";
 import { LineAnnotation } from "../annotations/line-annotation";
 import { TableAnnotation } from "../annotations/table-annotation";
 import type { SerializedAnnotation } from "./serialized-annotation";
+import { MAX_ANNOTATION_RECT_COUNT } from "../annotations/annotation-types";
+import { unionAnnotationRects } from "../geometry/multi-rect-geometry";
 
 export const serializeAnnotation = (annotation: Annotation): SerializedAnnotation => annotation.serialize();
 
@@ -37,6 +39,29 @@ const ensureRect = (value: unknown): SerializedAnnotation["bounds"] => {
     width: candidate.width,
     height: candidate.height,
   };
+};
+
+const ensureRects = (value: unknown): SerializedAnnotation["rects"] => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_ANNOTATION_RECT_COUNT) {
+    throw new Error("Invalid annotation rects");
+  }
+  return value.map((rect, index) => {
+    const normalized = ensureRect(rect);
+    if (
+      !Number.isFinite(normalized.x)
+      || !Number.isFinite(normalized.y)
+      || !Number.isFinite(normalized.width)
+      || !Number.isFinite(normalized.height)
+      || normalized.width <= 0
+      || normalized.height <= 0
+    ) {
+      throw new Error(`Invalid annotation rect at index ${index}`);
+    }
+    return normalized;
+  });
 };
 
 const ensureNumber = (value: unknown): number => {
@@ -136,30 +161,36 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         ensureFontWeight(base.properties.textFontWeight),
       );
 
-    case "UNDERLINE":
+    case "UNDERLINE": {
+      const rects = ensureRects(raw.rects);
       return new UnderlineAnnotation(
         base.id,
         base.pageId,
-        ensureRect(raw.bounds),
+        rects === undefined ? ensureRect(raw.bounds) : unionAnnotationRects(rects),
         base.zIndex,
         base.createdAt,
         base.updatedAt,
         Math.max(1, Math.round(ensureNumber(base.properties.thickness ?? 1))),
         ensureLineStyle(base.properties.lineStyle),
         ensureColor(base.properties.color, "#1f2937"),
+        rects,
       );
+    }
 
-    case "HIGHLIGHT":
+    case "HIGHLIGHT": {
+      const rects = ensureRects(raw.rects);
       return new HighlightAnnotation(
         base.id,
         base.pageId,
-        ensureRect(raw.bounds),
+        rects === undefined ? ensureRect(raw.bounds) : unionAnnotationRects(rects),
         base.zIndex,
         base.createdAt,
         base.updatedAt,
         ensureOpacity(base.properties.opacity ?? 0.35),
         ensureColor(base.properties.color, "#facc15"),
+        rects,
       );
+    }
 
     case "SHAPE": {
       const shape =

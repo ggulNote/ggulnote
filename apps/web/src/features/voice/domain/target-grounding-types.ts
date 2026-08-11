@@ -1,4 +1,5 @@
 import type {
+  DocumentId,
   EditorHistoryAction,
   EditorOperation,
   PageId,
@@ -21,6 +22,7 @@ import type {
   CompletedVoiceTurn,
   FrozenVoiceTurnContext,
 } from "./voice-turn-types";
+import type { SpeechGroundingEvidence } from "./speech-grounding-types";
 
 export type PageTargetSource = "pdf" | "ggulnote";
 export type PageTargetCandidateType = SceneObjectKind | "sentence";
@@ -40,6 +42,7 @@ export interface PageTargetCandidate {
   source: PageTargetSource;
   type: PageTargetCandidateType;
   pageId: PageId;
+  sourceObjectId?: string;
   sceneObjectId?: string;
   semanticObjectId?: string;
   objectRevision?: number;
@@ -54,12 +57,15 @@ export interface PageTargetCandidate {
 }
 
 export interface PageTargetCatalog {
+  documentId?: DocumentId;
   pageId: PageId;
   sceneRevision: SceneSnapshot["sceneRevision"];
+  semanticModel?: PageSemanticModel;
   candidates: readonly PageTargetCandidate[];
 }
 
 export interface FrozenPageGroundingSnapshot {
+  documentId?: DocumentId;
   scene: SceneSnapshot;
   semanticModel?: PageSemanticModel;
 }
@@ -75,6 +81,7 @@ export interface DirectCommandContext {
   pageTargetCatalog: PageTargetCatalog;
   recentOperations: readonly DirectRecentOperation[];
   plannerContext: DirectCommandPlannerInput;
+  speechGroundingEvidence?: SpeechGroundingEvidence;
   historySnapshot?: DirectCommandHistorySnapshot;
 }
 
@@ -139,21 +146,64 @@ export type TargetResolutionResult =
       target: ResolvedTarget;
       confidence: number;
       evidence: CandidateEvidence;
+      diagnostics?: TargetResolutionDiagnostics;
     }
   | {
       status: "AMBIGUOUS";
       candidates: readonly RankedTargetCandidate[];
       reasonCode: "AMBIGUOUS_MATCH";
+      diagnostics?: TargetResolutionDiagnostics;
     }
   | {
       status: "NOT_FOUND";
       reasonCode: Exclude<TargetResolutionReasonCode, "AMBIGUOUS_MATCH">;
+      recoveryCandidates?: readonly RankedTargetCandidate[];
+      diagnostics?: TargetResolutionDiagnostics;
     };
 
 export interface TargetResolutionPolicy {
   minResolvedScore: number;
   minResolvedMargin: number;
   maxAmbiguousCandidates: number;
+}
+
+export type TargetStrategyKind = TargetQuery["kind"];
+
+export interface TargetEvidenceUsage {
+  type: boolean;
+  lexical: boolean;
+  fuzzy: boolean;
+  embedding: boolean;
+  structure: boolean;
+  focus: boolean;
+  temporal: boolean;
+}
+
+export interface TargetResolutionDiagnostics {
+  targetStrategy: TargetStrategyKind;
+  evidenceUsed: TargetEvidenceUsage;
+  embeddingUsed: boolean;
+  embeddingCandidateCount: number;
+  topSemanticScore?: number;
+  topSemanticMargin?: number;
+  queryEmbeddingMs?: number;
+  embeddingSearchMs?: number;
+  embeddingErrorCode?: string;
+  startAnchorChunkCount?: number;
+  endAnchorChunkCount?: number;
+  startAnchorCandidateCount?: number;
+  endAnchorCandidateCount?: number;
+  multiTokenAnchorUsed?: boolean;
+  spanPairCandidateCount?: number;
+  topSpanPairScore?: number;
+  runnerUpSpanPairScore?: number;
+  topSpanPairMargin?: number;
+  spanPairResolvedDeterministically?: boolean;
+  rawAnchorCandidateCount?: number;
+  canonicalAnchorCandidateCount?: number;
+  rawPairCandidateCount?: number;
+  nonDominatedPairCount?: number;
+  confidenceDecision?: "deterministic" | "recovery" | "not_found";
 }
 
 export const DEFAULT_TARGET_RESOLUTION_POLICY = {
@@ -167,6 +217,7 @@ export interface TargetResolutionInput {
   catalog: PageTargetCatalog;
   frozenContext: FrozenVoiceTurnContext;
   recentOperations: readonly DirectRecentOperation[];
+  speechGroundingEvidence?: SpeechGroundingEvidence;
   lastReusableTarget?: DirectReusableTargetRecord;
 }
 

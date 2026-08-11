@@ -5,9 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import type { VoiceTurnContextRead } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
 import {
+  HttpGroundedTargetRecoveryProvider,
+  HttpSpeechRefinerProvider,
+} from "../providers";
+import {
   createBrowserDirectCommandComposition,
   type BrowserDirectCommandComposition,
 } from "./browser-direct-command-composition";
+import { subscribeToDevelopmentDirectCommandTraces } from "./direct-command-development-trace";
 
 export interface OwnedBrowserDirectCommandCompositionOptions {
   editorEngine: EditorEngine;
@@ -57,6 +62,8 @@ export function useOwnedBrowserDirectCommandComposition(
       getCurrentSceneRevision: readers.getCurrentSceneRevision,
       getCurrentPage: readers.getCurrentPage,
       goToPage: readers.goToPage,
+      recovery: new HttpGroundedTargetRecoveryProvider(),
+      speechRefiner: new HttpSpeechRefinerProvider(),
     }),
   );
 
@@ -75,6 +82,11 @@ export function useOwnedBrowserDirectCommandComposition(
       });
     };
   }, [composition]);
+
+  useEffect(
+    () => subscribeToDevelopmentDirectCommandTraces(composition.direct.traces),
+    [composition],
+  );
 
   return composition;
 }

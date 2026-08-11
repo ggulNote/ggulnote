@@ -1,5 +1,7 @@
 import {
   canonicalToNormalizedRect,
+  MAX_ANNOTATION_RECT_COUNT,
+  unionAnnotationRects,
   type Rect,
   type Size,
 } from "@ggulnote/editor-core";
@@ -132,19 +134,25 @@ function compileAnnotation(
     return failed("TARGET_KIND_UNSUPPORTED");
   }
 
-  const canonicalBounds = singleTargetBounds(target);
+  const canonicalBounds = targetBounds(target);
   if (
     canonicalBounds === null
-    || !isPositiveFiniteRect(canonicalBounds)
+    || canonicalBounds.length > MAX_ANNOTATION_RECT_COUNT
+    || canonicalBounds.some((rect) => !isPositiveFiniteRect(rect))
     || context.pageSize === undefined
     || !isPositiveFiniteSize(context.pageSize)
   ) {
     return failed("COMPILE_FAILED");
   }
-  const bounds = canonicalToNormalizedRect(canonicalBounds, context.pageSize);
-  if (!isPositiveFiniteRect(bounds)) {
+  const rects = canonicalBounds.map((rect) =>
+    canonicalToNormalizedRect(rect, context.pageSize as Size));
+  if (rects.some((rect) => !isPositiveFiniteRect(rect))) {
     return failed("COMPILE_FAILED");
   }
+  const bounds = rects.length === 1
+    ? { ...rects[0] }
+    : unionAnnotationRects(rects);
+  const geometry = rects.length === 1 ? { bounds } : { bounds, rects };
 
   if (command.operation === "underline") {
     return {
@@ -154,7 +162,7 @@ function compileAnnotation(
         input: {
           type: "UNDERLINE",
           pageId: target.pageId,
-          bounds,
+          ...geometry,
         },
       },
     };
@@ -171,7 +179,7 @@ function compileAnnotation(
       input: {
         type: "HIGHLIGHT",
         pageId: target.pageId,
-        bounds,
+        ...geometry,
         ...(color === undefined ? {} : { color }),
       },
     },
@@ -251,14 +259,14 @@ function sameReusableTarget(
     && previous.objectId === current.objectId;
 }
 
-function singleTargetBounds(target: ResolvedTarget): Rect | null {
+function targetBounds(target: ResolvedTarget): readonly Rect[] | null {
   if (target.kind === "object") {
-    return target.bounds === undefined ? null : { ...target.bounds };
+    return target.bounds === undefined ? null : [{ ...target.bounds }];
   }
-  if (target.bounds === undefined || target.bounds.length !== 1) {
+  if (target.bounds === undefined || target.bounds.length === 0) {
     return null;
   }
-  return { ...target.bounds[0] };
+  return target.bounds.map((rect) => ({ ...rect }));
 }
 
 function isPositiveFiniteRect(rect: Rect): boolean {

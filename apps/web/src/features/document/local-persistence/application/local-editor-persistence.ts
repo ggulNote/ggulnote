@@ -7,6 +7,7 @@ import { PageSnapshotRepository } from "../repositories/page-snapshot-repository
 import { SemanticPageRepository, type SemanticPageQueryOptions, type SaveSemanticPageInput } from "../repositories/semantic-page-repository";
 import { ANNOTATION_SCHEMA_VERSION, type CreateDocumentInput, type PersistedAppStateRecord, type PersistedDocumentRecord, type PersistedDocumentFileRecord, type PersistedOperationRecord, type PersistedPageSnapshotRecord, type PersistedSemanticPageRecord, type DocumentRecordViewState } from "../types";
 import { openLocalDatabase, type OpenDatabaseOptions } from "../database";
+import { IndexedDbEmbeddingStore } from "../repositories/indexed-db-embedding-store";
 
 const createPageSnapshotId = (documentId: DocumentId, pageId: PageId): string =>
   `${documentId}:${pageId}`;
@@ -54,6 +55,7 @@ export class LocalEditorPersistence {
   private readonly operationRepository: OperationRepository;
   private readonly appStateRepository: AppStateRepository;
   private readonly semanticPageRepository: SemanticPageRepository;
+  private readonly embeddingStore: IndexedDbEmbeddingStore;
 
   public constructor(private readonly options: OpenDatabaseOptions = {}) {
     this.documentRepository = new DocumentRepository(options);
@@ -61,6 +63,7 @@ export class LocalEditorPersistence {
     this.operationRepository = new OperationRepository(options);
     this.appStateRepository = new AppStateRepository(options);
     this.semanticPageRepository = new SemanticPageRepository(options);
+    this.embeddingStore = new IndexedDbEmbeddingStore(options);
   }
 
   public async getEditorState(): Promise<PersistedAppStateRecord> {
@@ -193,7 +196,7 @@ export class LocalEditorPersistence {
 
     let createdOperation: PersistedOperationRecord;
 
-    await db.transaction("rw", [db.documents, db.operations, db.pageSnapshots, db.appState, db.semanticPages], async () => {
+    await db.transaction("rw", [db.documents, db.operations, db.pageSnapshots, db.appState, db.semanticPages, db.embeddings], async () => {
       await this.snapshotRepository.savePageSnapshot(snapshot);
       createdOperation = await this.operationRepository.appendOperation({
         documentId: input.event.documentId,
@@ -217,11 +220,12 @@ export class LocalEditorPersistence {
 
   public async deleteDocument(documentId: DocumentId): Promise<void> {
     const db = await openLocalDatabase(this.options);
-    await db.transaction("rw", [db.documents, db.documentFiles, db.pageSnapshots, db.operations, db.appState, db.semanticPages], async () => {
+    await db.transaction("rw", [db.documents, db.documentFiles, db.pageSnapshots, db.operations, db.appState, db.semanticPages, db.embeddings], async () => {
       await this.documentRepository.deleteDocument(documentId);
       await this.snapshotRepository.deleteByDocumentId(documentId);
       await this.operationRepository.deleteByDocumentId(documentId);
       await this.semanticPageRepository.deleteByDocumentId(documentId);
+      await this.embeddingStore.deleteByDocument(documentId);
 
       const editorState = await this.appStateRepository.getEditorState();
       if (editorState.lastOpenedDocumentId === documentId) {

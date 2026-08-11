@@ -9,7 +9,14 @@ export type { NormalizedPoint, NormalizedRect, Size } from "@ggulnote/shared-typ
 
 export type { Annotation } from "./annotations/annotation";
 export type { AnnotationType, CreateAnnotationInput } from "./annotations/annotation-types";
-export { DEFAULT_ANNOTATION_STYLE } from "./annotations/annotation-types";
+export {
+  DEFAULT_ANNOTATION_STYLE,
+  MAX_ANNOTATION_RECT_COUNT,
+} from "./annotations/annotation-types";
+export {
+  normalizeAnnotationRects,
+  unionAnnotationRects,
+} from "./geometry/multi-rect-geometry";
 
 export type { EditorCommand, EditorCommandContext } from "./commands/editor-command";
 export type { AnnotationRenderer, RenderFrameContext } from "./rendering/annotation-renderer";

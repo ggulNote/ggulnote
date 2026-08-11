@@ -295,6 +295,18 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.plannerStatus === undefined
         ? {}
         : { plannerStatus: planningDiagnostics.plannerStatus }),
+      ...(planningDiagnostics?.speechRefinerUsed === undefined
+        ? {}
+        : { speechRefinerUsed: planningDiagnostics.speechRefinerUsed }),
+      ...(planningDiagnostics?.speechRefinerResult === undefined
+        ? {}
+        : { speechRefinerResult: planningDiagnostics.speechRefinerResult }),
+      ...(planningDiagnostics?.speechRefinerErrorCode === undefined
+        ? {}
+        : {
+            speechRefinerErrorCode:
+              planningDiagnostics.speechRefinerErrorCode,
+          }),
       ...(plan === undefined
         ? {}
         : {
@@ -307,6 +319,103 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.targetQueryKind === undefined
         ? {}
         : { targetQueryKind: planningDiagnostics.targetQueryKind }),
+      ...(planningDiagnostics?.targetSlotKind === undefined
+        ? {}
+        : { targetSlotKind: planningDiagnostics.targetSlotKind }),
+      ...(planningDiagnostics?.localTermUniverseSize === undefined
+        ? {}
+        : {
+            localTermUniverseSize:
+              planningDiagnostics.localTermUniverseSize,
+          }),
+      ...(planningDiagnostics?.exactHitCount === undefined
+        ? {}
+        : { exactHitCount: planningDiagnostics.exactHitCount }),
+      ...(planningDiagnostics?.normalizedHitCount === undefined
+        ? {}
+        : { normalizedHitCount: planningDiagnostics.normalizedHitCount }),
+      ...(planningDiagnostics?.fuzzyHitCount === undefined
+        ? {}
+        : { fuzzyHitCount: planningDiagnostics.fuzzyHitCount }),
+      ...(planningDiagnostics?.phoneticHitCount === undefined
+        ? {}
+        : { phoneticHitCount: planningDiagnostics.phoneticHitCount }),
+      ...(planningDiagnostics?.asrAlternativeHitCount === undefined
+        ? {}
+        : {
+            asrAlternativeHitCount:
+              planningDiagnostics.asrAlternativeHitCount,
+          }),
+      ...(planningDiagnostics?.semanticHitCount === undefined
+        ? {}
+        : { semanticHitCount: planningDiagnostics.semanticHitCount }),
+      ...(planningDiagnostics?.mergedCandidateCount === undefined
+        ? {}
+        : {
+            mergedCandidateCount:
+              planningDiagnostics.mergedCandidateCount,
+          }),
+      ...(planningDiagnostics?.startAnchorChunkCount === undefined
+        ? {} : { startAnchorChunkCount: planningDiagnostics.startAnchorChunkCount }),
+      ...(planningDiagnostics?.endAnchorChunkCount === undefined
+        ? {} : { endAnchorChunkCount: planningDiagnostics.endAnchorChunkCount }),
+      ...(planningDiagnostics?.startAnchorCandidateCount === undefined
+        ? {} : { startAnchorCandidateCount: planningDiagnostics.startAnchorCandidateCount }),
+      ...(planningDiagnostics?.endAnchorCandidateCount === undefined
+        ? {} : { endAnchorCandidateCount: planningDiagnostics.endAnchorCandidateCount }),
+      ...(planningDiagnostics?.multiTokenAnchorUsed === undefined
+        ? {} : { multiTokenAnchorUsed: planningDiagnostics.multiTokenAnchorUsed }),
+      ...(planningDiagnostics?.anchorVariantCount === undefined
+        ? {} : { anchorVariantCount: planningDiagnostics.anchorVariantCount }),
+      ...(planningDiagnostics?.canonicalAnchorCount === undefined
+        ? {} : { canonicalAnchorCount: planningDiagnostics.canonicalAnchorCount }),
+      ...(planningDiagnostics?.dominatedAnchorVariantCount === undefined
+        ? {} : {
+            dominatedAnchorVariantCount: planningDiagnostics.dominatedAnchorVariantCount,
+          }),
+      ...(planningDiagnostics?.spanPairCandidateCountBeforePruning === undefined
+        ? {} : {
+            spanPairCandidateCountBeforePruning:
+              planningDiagnostics.spanPairCandidateCountBeforePruning,
+          }),
+      ...(planningDiagnostics?.dominatedPairCount === undefined
+        ? {} : { dominatedPairCount: planningDiagnostics.dominatedPairCount }),
+      ...(planningDiagnostics?.spanPairCandidateCountAfterPruning === undefined
+        ? {} : {
+            spanPairCandidateCountAfterPruning:
+              planningDiagnostics.spanPairCandidateCountAfterPruning,
+          }),
+      ...(planningDiagnostics?.spanPairCandidateCount === undefined
+        ? {} : { spanPairCandidateCount: planningDiagnostics.spanPairCandidateCount }),
+      ...(planningDiagnostics?.topSpanPairScore === undefined
+        ? {} : { topSpanPairScore: planningDiagnostics.topSpanPairScore }),
+      ...(planningDiagnostics?.runnerUpSpanPairScore === undefined
+        ? {} : { runnerUpSpanPairScore: planningDiagnostics.runnerUpSpanPairScore }),
+      ...(planningDiagnostics?.topSpanPairMargin === undefined
+        ? {} : { topSpanPairMargin: planningDiagnostics.topSpanPairMargin }),
+      ...(planningDiagnostics?.spanPairResolvedDeterministically === undefined
+        ? {} : {
+            spanPairResolvedDeterministically:
+              planningDiagnostics.spanPairResolvedDeterministically,
+          }),
+      ...(planningDiagnostics?.spanPairRecoveryUsed === undefined
+        ? {} : { spanPairRecoveryUsed: planningDiagnostics.spanPairRecoveryUsed }),
+      ...(planningDiagnostics?.spanPairRecoveryResult === undefined
+        ? {} : { spanPairRecoveryResult: planningDiagnostics.spanPairRecoveryResult }),
+      ...(planningDiagnostics?.rawAnchorCandidateCount === undefined
+        ? {} : { rawAnchorCandidateCount: planningDiagnostics.rawAnchorCandidateCount }),
+      ...(planningDiagnostics?.canonicalAnchorCandidateCount === undefined
+        ? {} : {
+            canonicalAnchorCandidateCount: planningDiagnostics.canonicalAnchorCandidateCount,
+          }),
+      ...(planningDiagnostics?.rawPairCandidateCount === undefined
+        ? {} : { rawPairCandidateCount: planningDiagnostics.rawPairCandidateCount }),
+      ...(planningDiagnostics?.nonDominatedPairCount === undefined
+        ? {} : { nonDominatedPairCount: planningDiagnostics.nonDominatedPairCount }),
+      ...(planningDiagnostics?.confidenceDecision === undefined
+        ? {} : { confidenceDecision: planningDiagnostics.confidenceDecision }),
+      ...(planningDiagnostics?.recoveryPairCount === undefined
+        ? {} : { recoveryPairCount: planningDiagnostics.recoveryPairCount }),
       ...(planningDiagnostics?.resolutionStatus === undefined
         ? {}
         : { resolutionStatus: planningDiagnostics.resolutionStatus }),
@@ -321,6 +430,33 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.candidateCount === undefined
         ? {}
         : { candidateCount: planningDiagnostics.candidateCount }),
+      ...(planningDiagnostics?.targetStrategy === undefined
+        ? {}
+        : { targetStrategy: planningDiagnostics.targetStrategy }),
+      ...(planningDiagnostics?.evidenceUsed === undefined
+        ? {}
+        : { evidenceUsed: { ...planningDiagnostics.evidenceUsed } }),
+      ...(planningDiagnostics?.embeddingUsed === undefined
+        ? {}
+        : { embeddingUsed: planningDiagnostics.embeddingUsed }),
+      ...(planningDiagnostics?.embeddingCandidateCount === undefined
+        ? {}
+        : { embeddingCandidateCount: planningDiagnostics.embeddingCandidateCount }),
+      ...(planningDiagnostics?.topSemanticScore === undefined
+        ? {}
+        : { topSemanticScore: planningDiagnostics.topSemanticScore }),
+      ...(planningDiagnostics?.topSemanticMargin === undefined
+        ? {}
+        : { topSemanticMargin: planningDiagnostics.topSemanticMargin }),
+      ...(planningDiagnostics?.queryEmbeddingMs === undefined
+        ? {}
+        : { queryEmbeddingMs: planningDiagnostics.queryEmbeddingMs }),
+      ...(planningDiagnostics?.embeddingSearchMs === undefined
+        ? {}
+        : { embeddingSearchMs: planningDiagnostics.embeddingSearchMs }),
+      ...(planningDiagnostics?.embeddingErrorCode === undefined
+        ? {}
+        : { embeddingErrorCode: planningDiagnostics.embeddingErrorCode }),
       disambiguationUsed: planningDiagnostics?.disambiguationUsed
         ?? ready?.disambiguationUsed
         ?? false,
@@ -330,6 +466,28 @@ export class DirectCommandRoute {
             disambiguationResult:
               planningDiagnostics.disambiguationResult,
           }),
+      targetRecoveryUsed: planningDiagnostics?.targetRecoveryUsed ?? false,
+      ...(planningDiagnostics?.targetRecoveryKind === undefined
+        ? {}
+        : { targetRecoveryKind: planningDiagnostics.targetRecoveryKind }),
+      ...(planningDiagnostics?.recoveryCandidateCount === undefined
+        ? {}
+        : { recoveryCandidateCount: planningDiagnostics.recoveryCandidateCount }),
+      ...(planningDiagnostics?.recoveryResult === undefined
+        ? {}
+        : { recoveryResult: planningDiagnostics.recoveryResult }),
+      ...(planningDiagnostics?.recoveryErrorCode === undefined
+        ? {}
+        : { recoveryErrorCode: planningDiagnostics.recoveryErrorCode }),
+      ...(planningDiagnostics?.initialResolutionReason === undefined
+        ? {}
+        : { initialResolutionReason: planningDiagnostics.initialResolutionReason }),
+      ...(planningDiagnostics?.initialResolutionStatus === undefined
+        ? {}
+        : { initialResolutionStatus: planningDiagnostics.initialResolutionStatus }),
+      ...(planningDiagnostics?.finalResolutionStatus === undefined
+        ? {}
+        : { finalResolutionStatus: planningDiagnostics.finalResolutionStatus }),
       guardStatus: planningDiagnostics?.guardStatus
         ?? (ready === undefined ? "NOT_RUN" : "PASSED"),
       executionStatus: result.status,

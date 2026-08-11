@@ -59,12 +59,22 @@ export function calculateDirectCommandLatencyMetrics(
   timestamps: DirectCommandLifecycleTimestamps,
 ): DirectCommandLatencyMetrics {
   return {
+    ...duration(
+      "speechRefinerMs",
+      timestamps.speechRefinerRequestedAt,
+      timestamps.speechRefinerCompletedAt,
+    ),
     ...duration("plannerMs", timestamps.plannerRequestedAt, timestamps.plannerCompletedAt),
     ...duration("resolverMs", timestamps.resolverStartedAt, timestamps.resolverCompletedAt),
     ...duration(
       "disambiguatorMs",
       timestamps.disambiguatorRequestedAt,
       timestamps.disambiguatorCompletedAt,
+    ),
+    ...duration(
+      "recoveryMs",
+      timestamps.recoveryRequestedAt,
+      timestamps.recoveryCompletedAt,
     ),
     ...duration("validationMs", timestamps.validationStartedAt, timestamps.validatedAt),
     ...duration("compileMs", timestamps.compileStartedAt, timestamps.compiledAt),
@@ -87,6 +97,9 @@ function cloneTrace(trace: DirectCommandTrace): DirectCommandTrace {
   return {
     ...trace,
     ...(trace.command === undefined ? {} : { command: { ...trace.command } }),
+    ...(trace.evidenceUsed === undefined
+      ? {}
+      : { evidenceUsed: { ...trace.evidenceUsed } }),
     timestamps: { ...trace.timestamps },
     metrics: { ...trace.metrics },
   };

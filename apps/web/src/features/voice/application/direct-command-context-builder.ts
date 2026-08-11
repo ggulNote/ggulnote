@@ -1,5 +1,6 @@
 import type {
   CompletedVoiceTurn,
+  DirectCommandContext,
   DirectCommandContextBuildResult,
   DirectCommandHistorySnapshot,
   DirectCommandName,
@@ -9,9 +10,16 @@ import type {
   FrozenPageGroundingSnapshot,
   FrozenSceneSnapshotReference,
   PageTargetCandidate,
+  SpeechGroundingEvidence,
+  SpeechRefinementEvidence,
+  TargetQuery,
 } from "../domain";
 import { DIRECT_COMMAND_NAMES } from "../domain";
 import { buildPageTargetCatalog } from "./page-target-catalog-builder";
+import {
+  TypedSpeechNormalizer,
+  type TypedSpeechNormalizerPort,
+} from "./typed-speech-normalizer";
 
 export interface FrozenSceneSnapshotSource {
   getSnapshot(
@@ -28,6 +36,7 @@ export interface DirectCommandContextBuilderOptions {
   recentOperationsSource: DirectRecentOperationsSource;
   allowedCommands?: readonly DirectCommandName[];
   maxRecentOperations?: number;
+  speechNormalizer?: TypedSpeechNormalizerPort;
 }
 
 export interface DirectCommandContextBuildOptions {
@@ -37,10 +46,12 @@ export interface DirectCommandContextBuildOptions {
 export class DirectCommandContextBuilder {
   private readonly allowedCommands: readonly DirectCommandName[];
   private readonly maxRecentOperations: number;
+  private readonly speechNormalizer: TypedSpeechNormalizerPort;
 
   public constructor(private readonly options: DirectCommandContextBuilderOptions) {
     this.allowedCommands = options.allowedCommands ?? DIRECT_COMMAND_NAMES;
     this.maxRecentOperations = positiveInteger(options.maxRecentOperations ?? 8);
+    this.speechNormalizer = options.speechNormalizer ?? new TypedSpeechNormalizer();
   }
 
   public build(
@@ -71,6 +82,9 @@ export class DirectCommandContextBuilder {
       .sort((left, right) => right.createdAt - left.createdAt)
       .slice(0, this.maxRecentOperations);
     const pageTargetCatalog = buildPageTargetCatalog({
+      ...(snapshot.documentId === undefined
+        ? {}
+        : { documentId: snapshot.documentId }),
       scene: snapshot.scene,
       ...(snapshot.semanticModel === undefined
         ? {}
@@ -134,7 +148,6 @@ export class DirectCommandContextBuilder {
           }),
       allowedCommands: [...this.allowedCommands],
     } as const;
-
     return {
       status: "READY",
       context: {
@@ -148,6 +161,27 @@ export class DirectCommandContextBuilder {
           : { historySnapshot: buildOptions.historySnapshot }),
       },
     };
+  }
+
+  public buildSpeechGroundingEvidence(
+    context: DirectCommandContext,
+    targetQuery: TargetQuery,
+    refinement?: SpeechRefinementEvidence,
+  ): SpeechGroundingEvidence | undefined {
+    try {
+      return this.speechNormalizer.normalize({
+        rawFinalTranscript: context.turn.rawTranscript,
+        targetQuery,
+        pageTargetCatalog: context.pageTargetCatalog,
+        ...(context.frozenContext.focusObjectId === undefined
+          ? {}
+          : { focusObjectId: context.frozenContext.focusObjectId }),
+        ...(refinement === undefined ? {} : { refinement }),
+        mode: "command",
+      });
+    } catch {
+      return undefined;
+    }
   }
 }
 

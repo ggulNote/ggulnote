@@ -92,6 +92,7 @@ export interface ImageSceneObject extends BaseSceneObject {
 export interface TextSceneObject extends BaseSceneObject {
   kind: "text";
   source: "canvas";
+  sourceObjectId?: string;
   text: string;
   style: {
     fontFamily?: string;

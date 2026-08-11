@@ -6,9 +6,25 @@ import type {
   TargetResolutionInput,
   TargetResolutionPolicy,
   TargetResolutionResult,
+  TextSpanTargetQuery,
 } from "../domain";
 import { DEFAULT_TARGET_RESOLUTION_POLICY } from "../domain";
+import {
+  buildCanonicalTextStream,
+  resolveTextSpanWithCanonicalStream,
+  type TextSpanRangeResolution,
+} from "./canonical-text-stream";
+import {
+  countTextSpanAnchorChunks,
+  groundTextSpan,
+  type TextSpanGroundingDiagnostics,
+} from "./text-span-grounder";
 import { rankTargetCandidates } from "./candidate-ranker";
+import {
+  TargetStrategyRouter,
+  type TargetStrategyResolveOptions,
+} from "./target-strategy-router";
+import type { Rect } from "@ggulnote/editor-core";
 
 const TEXT_LIKE_TARGET_TYPES = new Set([
   "sentence",
@@ -19,11 +35,36 @@ const TEXT_LIKE_TARGET_TYPES = new Set([
 ]);
 
 export class FrozenTargetResolver {
+  private readonly policy: TargetResolutionPolicy;
+  private readonly strategyRouter?: TargetStrategyRouter;
+
   public constructor(
-    private readonly policy: TargetResolutionPolicy =
-      DEFAULT_TARGET_RESOLUTION_POLICY,
+    policyOrOptions: TargetResolutionPolicy | {
+      policy?: TargetResolutionPolicy;
+      strategyRouter?: TargetStrategyRouter;
+    } = DEFAULT_TARGET_RESOLUTION_POLICY,
   ) {
-    assertPolicy(policy);
+    this.policy = isTargetResolutionPolicy(policyOrOptions)
+      ? policyOrOptions
+      : policyOrOptions.policy ?? DEFAULT_TARGET_RESOLUTION_POLICY;
+    this.strategyRouter = isTargetResolutionPolicy(policyOrOptions)
+      ? undefined
+      : policyOrOptions.strategyRouter;
+    assertPolicy(this.policy);
+  }
+
+  public resolveAsync(
+    input: TargetResolutionInput,
+    options: TargetStrategyResolveOptions = {},
+  ): Promise<TargetResolutionResult> {
+    if (this.strategyRouter === undefined) {
+      return Promise.resolve(this.resolve(input));
+    }
+    return this.strategyRouter.resolve(input, {
+      resolveDeterministic: (nextInput) => this.resolve(nextInput),
+      resolveRankedCandidate: (nextInput, candidate) =>
+        this.resolveRankedCandidate(nextInput, candidate),
+    }, options);
   }
 
   public resolve(input: TargetResolutionInput): TargetResolutionResult {
@@ -32,6 +73,12 @@ export class FrozenTargetResolver {
       || input.catalog.sceneRevision !== input.frozenContext.sceneRevision
     ) {
       return { status: "NOT_FOUND", reasonCode: "NO_MATCH" };
+    }
+    if (input.query.kind === "text_span" && input.catalog.semanticModel !== undefined) {
+      const canonical = this.resolveTextSpanCanonical(input, input.query);
+      if (canonical !== undefined) {
+        return canonical;
+      }
     }
     if (input.query.kind === "subrange") {
       return { status: "NOT_FOUND", reasonCode: "SUBRANGE_UNSUPPORTED" };
@@ -168,6 +215,112 @@ export class FrozenTargetResolver {
     );
   }
 
+  private resolveTextSpanCanonical(
+    input: TargetResolutionInput,
+    query: TextSpanTargetQuery,
+  ): TargetResolutionResult | undefined {
+    if (input.catalog.semanticModel === undefined) {
+      return undefined;
+    }
+    const boundsBySourceObjectId = new Map<string, Rect>();
+    const sourceObjectCandidates = new Map<string, PageTargetCandidate>();
+    for (const candidate of input.catalog.candidates) {
+      if (
+        candidate.source === "pdf"
+        && candidate.sourceObjectId !== undefined
+        && candidate.bounds !== undefined
+      ) {
+        const bounds = candidate.bounds;
+        boundsBySourceObjectId.set(candidate.sourceObjectId, { ...bounds });
+        sourceObjectCandidates.set(candidate.sourceObjectId, candidate);
+      }
+    }
+    if (boundsBySourceObjectId.size === 0) {
+      return undefined;
+    }
+
+    const stream = buildCanonicalTextStream({
+      semanticModel: input.catalog.semanticModel,
+      pageId: input.frozenContext.pageId,
+      boundsBySourceObjectId,
+    });
+    const resolution = resolveTextSpanWithCanonicalStream(stream, query);
+    if (resolution.status === "RESOLVED") {
+      return this.toResolvedTextSpan(
+        input,
+        resolution,
+        sourceObjectCandidates,
+        1,
+        exactTextSpanDiagnostics(query),
+      );
+    }
+
+    const grounding = groundTextSpan({
+      stream,
+      query,
+      ...(input.speechGroundingEvidence === undefined
+        ? {}
+        : { speechEvidence: input.speechGroundingEvidence }),
+      ...(input.frozenContext.focusObjectId === undefined
+        ? {}
+        : { focusObjectId: input.frozenContext.focusObjectId }),
+    });
+    if (grounding.status === "RESOLVED") {
+      return this.toResolvedTextSpan(
+        input,
+        grounding.pair.materialized,
+        sourceObjectCandidates,
+        grounding.pair.score,
+        grounding.diagnostics,
+      );
+    }
+    return {
+      status: "NOT_FOUND",
+      reasonCode: grounding.status === "AMBIGUOUS" ? "LOW_CONFIDENCE" : "NO_MATCH",
+      diagnostics: targetTextSpanDiagnostics(grounding.diagnostics),
+    };
+  }
+
+  private toResolvedTextSpan(
+    input: TargetResolutionInput,
+    resolution: Extract<TextSpanRangeResolution, { status: "RESOLVED" }>,
+    sourceObjectCandidates: ReadonlyMap<string, PageTargetCandidate>,
+    confidence: number,
+    diagnostics: TextSpanGroundingDiagnostics,
+  ): TargetResolutionResult | undefined {
+    const sourceObjectId = resolution.selectedTokens[0]?.sourceObjectId;
+    const startCandidate = sourceObjectId === undefined
+      ? undefined
+      : sourceObjectCandidates.get(sourceObjectId);
+    if (startCandidate === undefined || startCandidate.source === "ggulnote") return undefined;
+    return {
+      status: "RESOLVED",
+      confidence,
+      target: {
+        candidateId: startCandidate.candidateId,
+        kind: "text_span",
+        pageId: startCandidate.pageId,
+        sceneRevision: input.catalog.sceneRevision,
+        source: startCandidate.source,
+        type: startCandidate.type,
+        editable: startCandidate.editable,
+        annotatable: startCandidate.annotatable,
+        ...(startCandidate.sceneObjectId === undefined
+          ? {}
+          : { objectId: startCandidate.sceneObjectId }),
+        text: resolution.text,
+        bounds: [...resolution.bounds],
+      },
+      evidence: {
+        ...emptyEvidence(),
+        typeMatch: 1,
+        lexicalMatch: confidence,
+        fuzzyMatch: confidence,
+      },
+      diagnostics: targetTextSpanDiagnostics(diagnostics),
+    };
+  }
+
   private resolveRanked(input: TargetResolutionInput): TargetResolutionResult {
     const ranked = rankTargetCandidates(input);
     const first = ranked[0];
@@ -175,7 +328,11 @@ export class FrozenTargetResolver {
       return { status: "NOT_FOUND", reasonCode: "NO_MATCH" };
     }
     if (first.score < this.policy.minResolvedScore) {
-      return { status: "NOT_FOUND", reasonCode: "LOW_CONFIDENCE" };
+      return {
+        status: "NOT_FOUND",
+        reasonCode: "LOW_CONFIDENCE",
+        recoveryCandidates: ranked.slice(0, this.policy.maxAmbiguousCandidates),
+      };
     }
 
     const second = ranked[1];
@@ -197,6 +354,54 @@ export class FrozenTargetResolver {
       first.score,
     );
   }
+}
+
+function exactTextSpanDiagnostics(query: TextSpanTargetQuery): TextSpanGroundingDiagnostics {
+  const startChunks = countTextSpanAnchorChunks(query.quote ?? query.startAnchor ?? "");
+  const endChunks = countTextSpanAnchorChunks(query.quote ?? query.endAnchor ?? "");
+  return {
+    startAnchorChunkCount: startChunks,
+    endAnchorChunkCount: endChunks,
+    startAnchorCandidateCount: 1,
+    endAnchorCandidateCount: 1,
+    multiTokenAnchorUsed: startChunks > 1 || endChunks > 1,
+    anchorVariantCount: 2,
+    canonicalAnchorCount: 2,
+    dominatedAnchorVariantCount: 0,
+    spanPairCandidateCountBeforePruning: 1,
+    dominatedPairCount: 0,
+    spanPairCandidateCountAfterPruning: 1,
+    spanPairCandidateCount: 1,
+    topSpanPairScore: 1,
+    runnerUpSpanPairScore: 0,
+    topSpanPairMargin: 1,
+    spanPairResolvedDeterministically: true,
+    rawAnchorCandidateCount: 2,
+    canonicalAnchorCandidateCount: 2,
+    rawPairCandidateCount: 1,
+    nonDominatedPairCount: 1,
+    confidenceDecision: "deterministic",
+  };
+}
+
+function targetTextSpanDiagnostics(
+  diagnostics: TextSpanGroundingDiagnostics,
+): NonNullable<TargetResolutionResult["diagnostics"]> {
+  return {
+    targetStrategy: "text_span",
+    evidenceUsed: {
+      type: true,
+      lexical: true,
+      fuzzy: true,
+      embedding: false,
+      structure: true,
+      focus: false,
+      temporal: false,
+    },
+    embeddingUsed: false,
+    embeddingCandidateCount: 0,
+    ...diagnostics,
+  };
 }
 
 function relationForQuery(
@@ -316,4 +521,15 @@ function assertPolicy(policy: TargetResolutionPolicy): void {
   ) {
     throw new RangeError("Invalid target resolution policy.");
   }
+}
+
+function isTargetResolutionPolicy(
+  value: TargetResolutionPolicy | {
+    policy?: TargetResolutionPolicy;
+    strategyRouter?: TargetStrategyRouter;
+  },
+): value is TargetResolutionPolicy {
+  return "minResolvedScore" in value
+    && "minResolvedMargin" in value
+    && "maxAmbiguousCandidates" in value;
 }

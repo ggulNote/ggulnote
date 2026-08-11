@@ -1,5 +1,5 @@
 ﻿import type { AnnotationType } from "../annotations/annotation-types";
-import type { AnnotationId, PageId } from "@ggulnote/shared-types";
+import type { AnnotationId, NormalizedRect, PageId } from "@ggulnote/shared-types";
 
 export interface SerializedAnnotation {
   schemaVersion: 1;
@@ -12,6 +12,7 @@ export interface SerializedAnnotation {
     width: number;
     height: number;
   };
+  rects?: NormalizedRect[];
   zIndex: number;
   properties: Record<string, unknown>;
   createdAt: number;

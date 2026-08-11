@@ -40,6 +40,88 @@ export {
   rankTargetCandidates,
 } from "./candidate-ranker";
 export { FrozenTargetResolver } from "./frozen-target-resolver";
+export {
+  GroundedTargetRecovery,
+  isRecoverableTargetResolution,
+} from "./grounded-target-recovery";
+export type {
+  GroundedTargetRecoveryAttempt,
+  GroundedTargetRecoveryOptions,
+  GroundedTargetRecoveryPort,
+  GroundedTargetRecoveryRequest,
+  GroundedTargetRecoveryServiceOptions,
+} from "./grounded-target-recovery";
+export { TargetStrategyRouter } from "./target-strategy-router";
+export type {
+  TargetEmbeddingSearch,
+  TargetStrategyResolutionPort,
+  TargetStrategyResolveOptions,
+  TargetStrategyRouterOptions,
+} from "./target-strategy-router";
+export { TARGET_STRATEGY_CONFIG } from "./target-resolution-policy";
+export { BoundedSpeechRefiner } from "./bounded-speech-refiner";
+export type {
+  BoundedSpeechRefinerInput,
+  BoundedSpeechRefinerOptions,
+  BoundedSpeechRefinerPort,
+} from "./bounded-speech-refiner";
+export {
+  buildFrozenPageTermIndex,
+  extractTargetGroundingSlots,
+  phoneticSimilarity,
+  phoneticMorphologyCompatibility,
+  retrieveTargetAwareGroundingEvidence,
+  TARGET_RETRIEVAL_PROFILES,
+} from "./target-aware-grounding-retrieval";
+export type {
+  TargetAwareGroundingRetrievalInput,
+  TargetAwareGroundingRetrievalResult,
+} from "./target-aware-grounding-retrieval";
+export {
+  buildSpanPairCandidates,
+  canonicalizeAnchorCandidates,
+  countTextSpanAnchorChunks,
+  groundTextSpan,
+  normalizeTextSpanAnchorSlot,
+  pruneDominatedSpanPairs,
+  retrieveAnchorSpanCandidates,
+  TEXT_SPAN_GROUNDING_POLICY,
+} from "./text-span-grounder";
+export type {
+  AnchorSpanCandidate,
+  AnchorSpanEvidence,
+  SpanPairCandidate,
+  SpanPairEvidence,
+  TextSpanGroundingDiagnostics,
+  TextSpanGroundingInput,
+  TextSpanGroundingResult,
+} from "./text-span-grounder";
+export {
+  evaluateCandidateRecallAtK,
+  evaluateTextSpanGroundingStages,
+} from "./grounding-retrieval-evaluation";
+export type {
+  CandidateRecallEvaluationCase,
+  CandidateRecallEvaluationResult,
+  TextSpanGroundingEvaluationCase,
+  TextSpanGroundingEvaluationResult,
+} from "./grounding-retrieval-evaluation";
+export {
+  buildDocumentLexicon,
+  normalizeSpokenMath,
+  normalizeSpokenNumbers,
+  parseSpokenInteger,
+  TypedSpeechNormalizer,
+} from "./typed-speech-normalizer";
+export type {
+  TypedSpeechNormalizationInput,
+  TypedSpeechNormalizerOptions,
+  TypedSpeechNormalizerPort,
+} from "./typed-speech-normalizer";
+export type {
+  TargetEvidenceWeights,
+  TargetStrategyConfig,
+} from "./target-resolution-policy";
 export { guardDirectCommandPlan } from "./direct-command-guard";
 export type {
   DirectCommandGuardInput,
@@ -91,3 +173,9 @@ export type {
 export type {
   DirectCommandCompileContext,
 } from "./direct-command-capability-compiler";
+export { evaluateGroundingCases } from "./grounding-evaluation";
+export type {
+  GroundingEvaluationCase,
+  GroundingEvaluationCategory,
+  GroundingEvaluationMetrics,
+} from "./grounding-evaluation";

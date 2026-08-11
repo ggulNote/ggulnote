@@ -10,6 +10,7 @@ import {
   type DirectEditorCommand,
   type DirectPlannerResult,
   type ExecutableDirectPlan,
+  type SpeechRefinementEvidence,
   type TargetQuery,
   type TargetResolutionInput,
   type TargetResolutionResult,
@@ -22,6 +23,11 @@ import { DirectCommandContextBuilder } from "./direct-command-context-builder";
 import { guardDirectCommandPlan } from "./direct-command-guard";
 import { buildDirectTargetDisambiguationContext } from "./direct-target-disambiguation-context";
 import { FrozenTargetResolver } from "./frozen-target-resolver";
+import {
+  isRecoverableTargetResolution,
+  type GroundedTargetRecoveryPort,
+} from "./grounded-target-recovery";
+import type { BoundedSpeechRefinerPort } from "./bounded-speech-refiner";
 
 export interface DirectCommandPlanningOptions {
   signal?: AbortSignal;
@@ -34,6 +40,8 @@ export interface DirectCommandPlanningPipelineOptions {
   planner: DirectCommandPlannerProvider;
   resolver: FrozenTargetResolver;
   disambiguator?: DirectTargetDisambiguatorProvider;
+  recovery?: GroundedTargetRecoveryPort;
+  speechRefiner?: BoundedSpeechRefinerPort;
   clock: Pick<InteractionClock, "now">;
   getCurrentSceneRevision: () => number;
 }
@@ -50,6 +58,7 @@ export class DirectCommandPlanningPipeline {
     };
     const diagnostics: DirectCommandPlanningDiagnostics = {
       disambiguationUsed: false,
+      targetRecoveryUsed: false,
       guardStatus: "NOT_RUN",
     };
     const built = this.options.contextBuilder.build(turn, {
@@ -66,7 +75,35 @@ export class DirectCommandPlanningPipeline {
         diagnostics,
       };
     }
-    const context = built.context;
+    let context = built.context;
+    let refinement: SpeechRefinementEvidence | undefined;
+    if (this.options.speechRefiner !== undefined) {
+      timestamps.speechRefinerRequestedAt = this.now();
+      refinement = await this.options.speechRefiner.refine({
+        turn,
+        allowedCommands: context.plannerContext.allowedCommands,
+      }, {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      timestamps.speechRefinerCompletedAt = this.now();
+      diagnostics.speechRefinerUsed = refinement.providerCalled;
+      diagnostics.speechRefinerResult = refinement.result;
+      if (refinement.errorCode !== undefined) {
+        diagnostics.speechRefinerErrorCode = refinement.errorCode;
+      }
+      if (refinement.changed) {
+        context = {
+          ...context,
+          plannerContext: {
+            ...context.plannerContext,
+            turn: {
+              ...context.plannerContext.turn,
+              refinedTranscript: refinement.refinedTranscript,
+            },
+          },
+        };
+      }
+    }
 
     let plannerResult: DirectPlannerResult;
     timestamps.plannerRequestedAt = this.now();
@@ -118,19 +155,108 @@ export class DirectCommandPlanningPipeline {
       );
     }
 
+    const speechGroundingEvidence = this.options.contextBuilder
+      .buildSpeechGroundingEvidence(context, plan.command.target, refinement);
+    if (speechGroundingEvidence !== undefined) {
+      context = { ...context, speechGroundingEvidence };
+      Object.assign(diagnostics, {
+        targetSlotKind: speechGroundingEvidence.diagnostics.targetSlotKind,
+        localTermUniverseSize:
+          speechGroundingEvidence.diagnostics.localTermUniverseSize,
+        exactHitCount: speechGroundingEvidence.diagnostics.exactHitCount,
+        normalizedHitCount:
+          speechGroundingEvidence.diagnostics.normalizedHitCount,
+        fuzzyHitCount: speechGroundingEvidence.diagnostics.fuzzyHitCount,
+        phoneticHitCount: speechGroundingEvidence.diagnostics.phoneticHitCount,
+        asrAlternativeHitCount:
+          speechGroundingEvidence.diagnostics.asrAlternativeHitCount,
+        semanticHitCount: speechGroundingEvidence.diagnostics.semanticHitCount,
+        mergedCandidateCount:
+          speechGroundingEvidence.diagnostics.mergedCandidateCount,
+      });
+    }
+
     const resolutionInput = toResolutionInput(context, plan.command.target);
     timestamps.resolverStartedAt = this.now();
-    let resolution = this.options.resolver.resolve(resolutionInput);
+    let resolution = await this.options.resolver.resolveAsync(resolutionInput, {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
     timestamps.resolverCompletedAt = this.now();
     diagnostics.resolutionStatus = resolution.status;
+    diagnostics.initialResolutionStatus = resolution.status;
+    if ("reasonCode" in resolution) {
+      diagnostics.initialResolutionReason = resolution.reasonCode;
+    }
+    if (resolution.diagnostics !== undefined) {
+      Object.assign(diagnostics, resolution.diagnostics);
+    }
 
     if (resolution.status === "NOT_FOUND") {
-      return {
-        status: "TARGET_NOT_FOUND",
-        turnId: turn.id,
-        timestamps,
-        diagnostics,
-      };
+      const recovery = this.options.recovery;
+      if (
+        recovery === undefined
+        || !isRecoverableTargetResolution(resolutionInput, resolution)
+      ) {
+        diagnostics.finalResolutionStatus = resolution.status;
+        return {
+          status: "TARGET_NOT_FOUND",
+          turnId: turn.id,
+          timestamps,
+          diagnostics,
+        };
+      }
+      timestamps.recoveryRequestedAt = this.now();
+      const attempt = await recovery.recover({
+        context,
+        plan,
+        resolutionInput,
+        initialResolution: resolution,
+      }, {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      timestamps.recoveryCompletedAt = this.now();
+      diagnostics.targetRecoveryUsed = attempt.providerCalled;
+      diagnostics.targetRecoveryKind = attempt.kind;
+      diagnostics.recoveryCandidateCount = attempt.candidateCount;
+      if (attempt.kind === "text_span") {
+        diagnostics.spanPairRecoveryUsed = attempt.providerCalled;
+        diagnostics.recoveryPairCount = attempt.candidateCount;
+      }
+      if (attempt.status === "ERROR") {
+        diagnostics.recoveryResult = "ERROR";
+        if (attempt.kind === "text_span") diagnostics.spanPairRecoveryResult = "ERROR";
+        diagnostics.recoveryErrorCode = attempt.errorCode;
+        diagnostics.finalResolutionStatus = "NOT_FOUND";
+        if (attempt.errorCode === "RECOVERY_ABORTED") {
+          return {
+            status: "ERROR",
+            turnId: turn.id,
+            errorCode: "ABORTED",
+            timestamps,
+            diagnostics,
+          };
+        }
+        return {
+          status: "TARGET_NOT_FOUND",
+          turnId: turn.id,
+          timestamps,
+          diagnostics,
+        };
+      }
+      if (attempt.status !== "RESOLVED") {
+        diagnostics.recoveryResult = attempt.status;
+        if (attempt.kind === "text_span") diagnostics.spanPairRecoveryResult = attempt.status;
+        diagnostics.finalResolutionStatus = "NOT_FOUND";
+        return {
+          status: "TARGET_NOT_FOUND",
+          turnId: turn.id,
+          timestamps,
+          diagnostics,
+        };
+      }
+      diagnostics.recoveryResult = "SELECTED";
+      if (attempt.kind === "text_span") diagnostics.spanPairRecoveryResult = "SELECTED";
+      resolution = attempt.resolution;
     }
     let disambiguationUsed = false;
     if (resolution.status === "AMBIGUOUS") {
@@ -207,6 +333,7 @@ export class DirectCommandPlanningPipeline {
       }
     }
     diagnostics.resolutionStatus = resolution.status;
+    diagnostics.finalResolutionStatus = resolution.status;
     diagnostics.resolvedTargetKind = resolution.target.kind;
     diagnostics.resolverConfidence = resolution.confidence;
 
@@ -330,6 +457,9 @@ function toResolutionInput(
     catalog: context.pageTargetCatalog,
     frozenContext: context.frozenContext,
     recentOperations: context.recentOperations,
+    ...(context.speechGroundingEvidence === undefined
+      ? {}
+      : { speechGroundingEvidence: context.speechGroundingEvidence }),
     ...(context.historySnapshot?.lastReusableTarget === null
       || context.historySnapshot?.lastReusableTarget === undefined
       ? {}

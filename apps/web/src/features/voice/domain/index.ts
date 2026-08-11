@@ -12,6 +12,58 @@ export {
   DEFAULT_COMMAND_RECOGNITION_CONFIG,
   cloneSpeechRecognitionConfig,
 } from "./speech-types";
+export type {
+  ContextualSpeechTerm,
+  DocumentLexiconEntry,
+  DocumentLexiconSourceReference,
+  MathNormalizationResult,
+  MathSpeechToken,
+  NumberHypothesis,
+  SpeechAlternative,
+  SpeechGroundingEvidence,
+  SpeechNormalizationDiagnostics,
+  SpeechNormalizationMode,
+  TermHypothesis,
+  TermHypothesisCandidate,
+  TermHypothesisSource,
+  GroundingRetrievalEvidence,
+  TargetGroundingSlot,
+  TargetGroundingSlotKind,
+  TargetTermCandidate,
+} from "./speech-grounding-types";
+export { SPEECH_REFINEMENT_CORRECTION_KINDS } from "./speech-refinement-types";
+export type {
+  SpeechRefinementCorrectionKind,
+  SpeechRefinementEvidence,
+  SpeechRefinementInput,
+  SpeechRefinementProviderResult,
+} from "./speech-refinement-types";
+export {
+  parseSpeechRefinementInput,
+  parseSpeechRefinementProviderResult,
+  parseSpeechRefinementResult,
+  SpeechRefinementValidationError,
+} from "./speech-refinement-schema";
+export { TARGET_RECOVERY_LIMITS } from "./grounded-target-recovery-types";
+export type {
+  GroundedTargetRecoveryCandidate,
+  GroundedTargetRecoveryInput,
+  GroundedTargetRecoveryKind,
+  GroundedTargetRecoveryResult,
+  GroundedTextSpanPairCandidate,
+  ObjectRecoveryInput,
+  SemanticUnitRecoveryInput,
+  TargetRecoveryErrorCode,
+  TargetRecoveryNumberEvidence,
+  TargetRecoverySpeechEvidence,
+  TargetRecoveryTermEvidence,
+  TextSpanRecoveryInput,
+} from "./grounded-target-recovery-types";
+export {
+  GroundedTargetRecoveryValidationError,
+  parseGroundedTargetRecoveryInput,
+  parseGroundedTargetRecoveryResult,
+} from "./grounded-target-recovery-schema";
 export {
   TranscriptAccumulator,
   joinVoiceTranscriptText,
@@ -144,10 +196,13 @@ export type {
   ResolvedObject,
   ResolvedTarget,
   ResolvedTextSpan,
+  TargetEvidenceUsage,
+  TargetResolutionDiagnostics,
   TargetResolutionInput,
   TargetResolutionPolicy,
   TargetResolutionReasonCode,
   TargetResolutionResult,
+  TargetStrategyKind,
 } from "./target-grounding-types";
 export {
   DirectPlannerResultValidationError,

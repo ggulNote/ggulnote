@@ -6,12 +6,14 @@ import type {
   PersistedOperationRecord,
   PersistedPageSnapshotRecord,
   PersistedSemanticPageRecord,
+  PersistedEmbeddingRecord,
 } from "./types";
 
 import {
   GGULNOTE_DATABASE_NAME,
   GGULNOTE_DATABASE_VERSION,
   SEMANTIC_DATABASE_VERSION,
+  EMBEDDING_DATABASE_VERSION,
 } from "./types";
 
 export class GgulnoteLocalDatabase extends Dexie {
@@ -21,6 +23,7 @@ export class GgulnoteLocalDatabase extends Dexie {
   public operations!: Table<PersistedOperationRecord, string>;
   public appState!: Table<PersistedAppStateRecord, string>;
   public semanticPages!: Table<PersistedSemanticPageRecord, string>;
+  public embeddings!: Table<PersistedEmbeddingRecord, string>;
 
   public constructor(name = GGULNOTE_DATABASE_NAME) {
     super(name);
@@ -40,6 +43,16 @@ export class GgulnoteLocalDatabase extends Dexie {
       operations: "&id, documentId, pageId, sequence, [documentId+sequence], createdAt",
       appState: "&key",
       semanticPages: "&id, documentId, pageId, [documentId+pageId], extractorVersion, updatedAt",
+    });
+
+    this.version(EMBEDDING_DATABASE_VERSION).stores({
+      documents: "&id, kind, updatedAt, lastOpenedAt, persistenceSchemaVersion",
+      documentFiles: "&documentId",
+      pageSnapshots: "&id, documentId, pageId, [documentId+pageId], updatedAt, pageNumber",
+      operations: "&id, documentId, pageId, sequence, [documentId+sequence], createdAt",
+      appState: "&key",
+      semanticPages: "&id, documentId, pageId, [documentId+pageId], extractorVersion, updatedAt",
+      embeddings: "&id, documentId, pageId, [documentId+pageId], [documentId+sourceObjectId+granularity], sourceObjectId, granularity, sourceType, embeddingModel",
     });
   }
 }

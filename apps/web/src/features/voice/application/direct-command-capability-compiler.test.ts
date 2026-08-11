@@ -273,7 +273,7 @@ describe("compileDirectCommandCapability", () => {
     });
   });
 
-  it("rejects multi-rect geometry instead of creating multiple undo units", () => {
+  it("compiles multi-rect geometry to one generic annotation input", () => {
     const target: ResolvedTarget = {
       ...PDF_TEXT,
       bounds: [
@@ -281,15 +281,31 @@ describe("compileDirectCommandCapability", () => {
         { x: 100, y: 230, width: 200, height: 20 },
       ],
     };
-    expect(compileDirectCommandCapability(ready({
+    const result = compileDirectCommandCapability(ready({
       capability: "annotation",
       operation: "underline",
       target: { kind: "relative", relation: "focused" },
       payload: {},
-    }, target), COMPILE_CONTEXT)).toEqual({
-      status: "ERROR",
-      errorCode: "COMPILE_FAILED",
+    }, target), COMPILE_CONTEXT);
+    expect(result).toMatchObject({
+      status: "COMPILED",
+      instruction: {
+        kind: "CREATE_ANNOTATION",
+        input: {
+          type: "UNDERLINE",
+          pageId: "doc-1-page-1",
+          rects: [
+            { x: 0.1, y: 0.2, width: 0.3, height: 0.02 },
+            { x: 0.1, y: 0.23, width: 0.2, height: 0.02 },
+          ],
+        },
+      },
     });
+    if (result.status !== "COMPILED" || result.instruction.kind !== "CREATE_ANNOTATION") {
+      throw new Error("Expected compiled annotation.");
+    }
+    expect(result.instruction.input.bounds.width).toBeCloseTo(0.3);
+    expect(result.instruction.input.bounds.height).toBeCloseTo(0.05);
   });
 
   it("does not execute Phase E relations as NEW", () => {

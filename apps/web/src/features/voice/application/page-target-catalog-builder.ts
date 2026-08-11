@@ -13,6 +13,7 @@ import type {
 } from "../domain";
 
 export interface PageTargetCatalogBuilderInput {
+  documentId?: string;
   scene: SceneSnapshot;
   semanticModel?: PageSemanticModel;
   recentOperations?: readonly DirectRecentOperation[];
@@ -21,6 +22,8 @@ export interface PageTargetCatalogBuilderInput {
 export function buildPageTargetCatalog(
   input: PageTargetCatalogBuilderInput,
 ): PageTargetCatalog {
+  const documentId = input.documentId
+    ?? input.semanticModel?.toSerialized().documentId;
   const operations = input.recentOperations ?? [];
   const sceneCandidates = input.scene.objects
     .filter((object) =>
@@ -35,8 +38,10 @@ export function buildPageTargetCatalog(
       .map((sentence) => semanticSentenceToCandidate(sentence, input.scene));
 
   return {
+    ...(documentId === undefined ? {} : { documentId }),
     pageId: input.scene.page.id,
     sceneRevision: input.scene.sceneRevision,
+    ...(input.semanticModel === undefined ? {} : { semanticModel: input.semanticModel }),
     candidates: [...sceneCandidates, ...sentenceCandidates],
   };
 }
@@ -78,12 +83,16 @@ function sceneObjectToCandidate(
   const isEditableText = object.source === "canvas"
     && object.kind === "text"
     && !object.locked;
+  const sourceObjectId = "sourceObjectId" in object
+    ? object.sourceObjectId
+    : undefined;
 
   return {
     candidateId: `target:scene:${object.id}`,
     source: object.source === "pdf" ? "pdf" : "ggulnote",
     type: object.kind,
     pageId: object.pageId,
+    ...(sourceObjectId === undefined ? {} : { sourceObjectId }),
     sceneObjectId: object.id,
     objectRevision: object.objectRevision,
     ...(text === undefined || text.length === 0 ? {} : { text }),

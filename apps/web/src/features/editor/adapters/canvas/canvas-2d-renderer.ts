@@ -210,15 +210,16 @@ class NativeCanvasRenderer implements AnnotationRenderer {
       return;
     }
 
-    const rect = this.toCanvasRect(annotation.bounds);
-    const y = rect.y + rect.height;
-
     this.ctx.save();
     this.ctx.strokeStyle = this.parseColor(annotation.color);
     this.ctx.lineWidth = Math.max(1, annotation.thickness);
     this.ctx.beginPath();
-    this.ctx.moveTo(rect.x, y);
-    this.ctx.lineTo(rect.x + rect.width, y);
+    for (const bounds of annotation.getRects()) {
+      const rect = this.toCanvasRect(bounds);
+      const y = rect.y + rect.height;
+      this.ctx.moveTo(rect.x, y);
+      this.ctx.lineTo(rect.x + rect.width, y);
+    }
     this.ctx.stroke();
     this.ctx.restore();
   }
@@ -228,11 +229,12 @@ class NativeCanvasRenderer implements AnnotationRenderer {
       return;
     }
 
-    const rect = this.toCanvasRect(annotation.bounds);
-
     this.ctx.save();
     this.ctx.fillStyle = this.colorWithOpacity(annotation.color, annotation.opacity);
-    this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    for (const bounds of annotation.getRects()) {
+      const rect = this.toCanvasRect(bounds);
+      this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    }
     this.ctx.restore();
   }
 
