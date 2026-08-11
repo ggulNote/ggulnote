@@ -15,59 +15,59 @@
 
 ## 0.1 Git 상태
 
-- [ ] 현재 branch가 `feat/stage-3.5-robust-grounding`인지 확인
-- [ ] current HEAD / 최근 log 기록
-- [ ] `git status --short` 기록
-- [ ] `AGENTS.md` 재독
-- [ ] Stage 3.5 `DECISIONS.md` 재독
-- [ ] Stage 3.5 `SPEC.md` 재독
-- [ ] Stage 3.5 `CHECKLIST.md` 실제 완료 상태 확인
-- [ ] Stage 3.5 `STATUS.md` 실제 완료 상태 확인
-- [ ] Stage 3.5 handoff test/typecheck 재검증
-- [ ] 현재 미커밋 변경이 Stage 3.5 관련인지 파일별 확인
-- [ ] Stage 3.5 관련 변경은 현재 branch에서 완료/커밋
-- [ ] unrelated 변경이 있으면 손대지 않고 명시
-- [ ] `reset --hard`, `clean`, 무단 `stash`를 사용하지 않음
-- [ ] Stage 3.5 final commit 기록
-- [ ] working tree clean 확인
-- [ ] `feat/stage-4-multimodal-spatial-placement` 생성
-- [ ] Stage 4 base/start HEAD 기록
+- [x] 현재 branch가 `feat/stage-3.5-robust-grounding`인지 확인
+- [x] current HEAD / 최근 log 기록
+- [x] `git status --short` 기록
+- [x] `AGENTS.md` 재독
+- [x] Stage 3.5 `DECISIONS.md` 재독
+- [x] Stage 3.5 `SPEC.md` 재독
+- [x] Stage 3.5 `CHECKLIST.md` 실제 완료 상태 확인
+- [x] Stage 3.5 `STATUS.md` 실제 완료 상태 확인
+- [x] Stage 3.5 handoff test/typecheck 재검증
+- [x] 현재 미커밋 변경이 Stage 3.5 관련인지 파일별 확인
+- [x] Stage 3.5 관련 변경은 현재 branch에서 완료/커밋
+- [x] unrelated 변경이 있으면 손대지 않고 명시
+- [x] `reset --hard`, `clean`, 무단 `stash`를 사용하지 않음
+- [x] Stage 3.5 final commit 기록
+- [x] working tree clean 확인
+- [x] `feat/stage-4-multimodal-spatial-placement` 생성
+- [x] Stage 4 base/start HEAD 기록
 
 ## 0.2 Existing Planner / Grounding
 
-- [ ] `CommandPlan` 실제 타입/validator 경로 확인
-- [ ] 기존 `DEFER_SPATIAL` contract와 routing 확인
-- [ ] `TargetQuery` 실제 union 확인
-- [ ] Target Grounding Router 실제 경로 확인
-- [ ] Relative/TextSpan/SemanticUnit/Object resolver 경로 확인
-- [ ] Grounded LLM Recovery와 provider pattern 확인
-- [ ] Frozen context / sceneRevision 사용 위치 확인
-- [ ] Guard / idempotency 사용 위치 확인
+- [x] `CommandPlan` 실제 타입/validator 경로 확인
+- [x] 기존 `DEFER_SPATIAL` contract와 routing 확인
+- [x] `TargetQuery` 실제 union 확인
+- [x] Target Grounding Router 실제 경로 확인
+- [x] Relative/TextSpan/SemanticUnit/Object resolver 경로 확인
+- [x] Grounded LLM Recovery와 provider pattern 확인
+- [x] Frozen context / sceneRevision 사용 위치 확인
+- [x] Guard / idempotency 사용 위치 확인
 
 ## 0.3 Existing Scene / Geometry
 
-- [ ] PDF canonical page bounds source 확인
-- [ ] PDF semantic object bounds source 확인
-- [ ] Canvas object bounds/renderBounds source 확인
-- [ ] Annotation bounds source 확인
-- [ ] zoom / DPR / rotation transform source 확인
-- [ ] current viewport bounds source 확인
-- [ ] focus/selection/pointer source 확인
-- [ ] Scene object layer/z-index/editability metadata 확인
-- [ ] screenshot/composed canvas capture API 확인
-- [ ] existing spatial index/collision utility 검색
-- [ ] existing debug overlay pattern 확인
+- [x] PDF canonical page bounds source 확인
+- [x] PDF semantic object bounds source 확인
+- [x] Canvas object bounds/renderBounds source 확인
+- [x] Annotation bounds source 확인
+- [x] zoom / DPR / rotation transform source 확인
+- [x] current viewport bounds source 확인
+- [x] focus/selection/pointer source 확인
+- [x] Scene object layer/z-index/editability metadata 확인
+- [x] screenshot/composed canvas capture API 확인
+- [x] existing spatial index/collision utility 검색
+- [x] existing debug overlay pattern 확인
 
 ## 0.4 Existing Editor / Renderer
 
-- [ ] capability registry 실제 경로 확인
-- [ ] object size/measurement API 확인
-- [ ] preview/scratch/ghost layer 지원 여부 확인
-- [ ] create/move operation API 확인
-- [ ] compiler/runtime 경로 확인
-- [ ] CommandManager / Operation Log / Undo 경로 확인
-- [ ] IndexedDB persistence commit boundary 확인
-- [ ] existing AI server/provider boundary 확인
+- [x] capability registry 실제 경로 확인
+- [x] object size/measurement API 확인
+- [x] preview/scratch/ghost layer 지원 여부 확인
+- [x] create/move operation API 확인
+- [x] compiler/runtime 경로 확인
+- [x] CommandManager / Operation Log / Undo 경로 확인
+- [x] IndexedDB persistence commit boundary 확인
+- [x] existing AI server/provider boundary 확인
 
 완료 조건:
 
@@ -83,87 +83,87 @@ STATUS.md에 기록되어 있어야 한다.
 
 ## A1. Planner Contract
 
-- [ ] `SpatialReferenceQuery` 정의
-- [ ] `SpatialPlacementQuery` 정의
-- [ ] existing `CommandPlan`에 optional `placementQuery` 최소 확장
-- [ ] create subject 없음 / placement 있음 contract
-- [ ] move subject target / placement destination contract
-- [ ] relation union 정의
-- [ ] regionHint/alignment/distance 정의
-- [ ] explicit overlay intent contract 정의
-- [ ] existing direct plan compatibility 유지
-- [ ] `DEFER_SPATIAL` migration/backward compatibility 결정
+- [x] `SpatialReferenceQuery` 정의
+- [x] `SpatialPlacementQuery` 정의
+- [x] existing `CommandPlan`에 optional `placementQuery` 최소 확장
+- [x] create subject 없음 / placement 있음 contract
+- [x] move subject target / placement destination contract
+- [x] relation union 정의
+- [x] regionHint/alignment/distance 정의
+- [x] explicit overlay intent contract 정의
+- [x] existing direct plan compatibility 유지
+- [x] `DEFER_SPATIAL` migration/backward compatibility 결정
 
 ## A2. Strict Validation
 
-- [ ] valid spatial plan accept
-- [ ] valid nested TargetQuery reference accept
-- [ ] unknown relation reject
-- [ ] unknown field reject
-- [ ] x/y reject
-- [ ] width/height reject
-- [ ] bounds/rect reject
-- [ ] arbitrary objectId reject
-- [ ] arbitrary candidateId reject
-- [ ] prototype pollution / malformed payload 방어
-- [ ] `JSON.parse(...) as Type`만으로 신뢰하지 않음
+- [x] valid spatial plan accept
+- [x] valid nested TargetQuery reference accept
+- [x] unknown relation reject
+- [x] unknown field reject
+- [x] x/y reject
+- [x] width/height reject
+- [x] bounds/rect reject
+- [x] arbitrary objectId reject
+- [x] arbitrary candidateId reject
+- [x] prototype pollution / malformed payload 방어
+- [x] `JSON.parse(...) as Type`만으로 신뢰하지 않음
 
 ## A3. Domain Contracts
 
-- [ ] `PlacementProfile`
-- [ ] `MeasuredDraft`
-- [ ] `SpatialSceneSnapshot`
-- [ ] `SpatialSceneObject`
-- [ ] protection policy type
-- [ ] `ResolvedSpatialAnchor`
-- [ ] `PlacementCandidate`
-- [ ] `ResolvedPlacement`
-- [ ] `SpatialPlacementResult`
-- [ ] error/reason union
-- [ ] 기존 PageId/SceneRevision/Rect/Point 타입 재사용
+- [x] `PlacementProfile`
+- [x] `MeasuredDraft`
+- [x] `SpatialSceneSnapshot`
+- [x] `SpatialSceneObject`
+- [x] protection policy type
+- [x] `ResolvedSpatialAnchor`
+- [x] `PlacementCandidate`
+- [x] `ResolvedPlacement`
+- [x] `SpatialPlacementResult`
+- [x] error/reason union
+- [x] 기존 PageId/SceneRevision/Rect/Point 타입 재사용
 
 ## A4. Spatial Scene Source
 
-- [ ] `SpatialSceneSource` interface
-- [ ] actual Scene/Semantic adapter
-- [ ] pageId/sceneRevision 고정
-- [ ] canonical coordinate space 고정
-- [ ] page/editable/viewport bounds
-- [ ] frozen focus/selection 연결
-- [ ] PDF base objects 수집
-- [ ] Annotation objects 수집
-- [ ] Canvas objects 수집
-- [ ] renderBounds 우선순위
-- [ ] protection classification 중앙화
-- [ ] stale snapshot detection
-- [ ] FakeSpatialSceneSource
+- [x] `SpatialSceneSource` interface
+- [x] actual Scene/Semantic adapter
+- [x] pageId/sceneRevision 고정
+- [x] canonical coordinate space 고정
+- [x] page/editable/viewport bounds
+- [x] frozen focus/selection 연결
+- [x] PDF base objects 수집
+- [x] Annotation objects 수집
+- [x] Canvas objects 수집
+- [x] renderBounds 우선순위
+- [x] protection classification 중앙화
+- [x] stale snapshot detection
+- [x] FakeSpatialSceneSource
 
 ## A5. Placement Profile / Measurement Boundary
 
-- [ ] `PlacementProfileProvider` 또는 기존 capability registry adapter
-- [ ] `DraftMeasurementProvider` contract
-- [ ] resolver 내부 capability-specific switch 금지
-- [ ] preferred/min/compact size contract
-- [ ] existing object reposition footprint contract
-- [ ] unsupported capability result
+- [x] `PlacementProfileProvider` 또는 기존 capability registry adapter
+- [x] `DraftMeasurementProvider` contract
+- [x] resolver 내부 capability-specific switch 금지
+- [x] preferred/min/compact size contract
+- [x] existing object reposition footprint contract
+- [x] unsupported capability result
 
 ## A6. Phase A Tests
 
-- [ ] planner valid spatial query
-- [ ] planner forbidden coordinate fields
-- [ ] direct plan regression
-- [ ] PDF snapshot mapping
-- [ ] Blank Canvas snapshot mapping
-- [ ] zoom/DPR independent canonical geometry
-- [ ] sceneRevision freeze
-- [ ] protection classification
-- [ ] fake scene/profile/measurement provider
-- [ ] Stage 3.5 Grounding regression
-- [ ] targeted typecheck
-- [ ] targeted lint
-- [ ] `git diff --check`
-- [ ] Phase A STATUS 갱신
-- [ ] Phase A implementation/docs commit 기록
+- [x] planner valid spatial query
+- [x] planner forbidden coordinate fields
+- [x] direct plan regression
+- [x] PDF snapshot mapping
+- [x] Blank Canvas snapshot mapping
+- [x] zoom/DPR independent canonical geometry
+- [x] sceneRevision freeze
+- [x] protection classification
+- [x] fake scene/profile/measurement provider
+- [x] Stage 3.5 Grounding regression
+- [x] targeted typecheck
+- [x] targeted lint
+- [x] `git diff --check`
+- [x] Phase A STATUS 갱신
+- [x] Phase A implementation/docs commit 기록
 
 완료 조건:
 

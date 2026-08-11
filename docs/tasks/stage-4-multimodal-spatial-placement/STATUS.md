@@ -4,8 +4,8 @@
 
 ```text
 Stage: 4 — Candidate-Constrained Multimodal Spatial Placement
-Status: READY TO START
-Current Milestone: Phase 0 — Stage 3.5 Handoff / Branch / Existing Architecture
+Status: IN PROGRESS
+Current Milestone: Phase B — Deterministic Placement Candidate Engine (NEXT; NOT STARTED)
 ```
 
 Stage 4는 Stage 3 / 3.5를 대체하지 않는다.
@@ -42,28 +42,27 @@ feat/stage-4-multimodal-spatial-placement
 Stage 3.5 final commit:
 
 ```text
-TBD — Phase 0에서 실제 git log와 Stage 3.5 STATUS 기준으로 기록
+0087ef5428f6c73fa701c7ff14fa31ee5cf0db2a
 ```
 
 Stage 4 base/start HEAD:
 
 ```text
-TBD — branch 생성 시 기록
+0087ef5428f6c73fa701c7ff14fa31ee5cf0db2a
 ```
 
 Working tree:
 
 ```text
-TBD — Phase 0에서 실제 확인
+Stage 3.5 branch handoff 시 clean
+Phase A docs commit 후 clean (최종 검증에서 재확인)
 ```
 
 중요:
 
 ```text
-Stage 3.5 handoff 요약에는 미커밋 변경이 남아 있다고 보고되어 있다.
-실제 상태를 재확인하고,
-Stage 3.5 관련 변경은 현재 branch에서 완료/커밋한 뒤
-clean final commit에서 Stage 4 branch를 생성한다.
+Stage 3.5 branch의 실제 working tree에는 미커밋 변경이 없었다.
+final commit과 회귀 검증을 확인한 뒤 해당 commit에서 Stage 4 branch를 생성했다.
 ```
 
 금지:
@@ -102,11 +101,13 @@ Editor Core / Persistence docs
 
 # 4. Stage 3.5 Handoff — 재검증 대상
 
-전달받은 요약:
+실제 재검증 결과:
 
 ```text
-Current branch:
-feat/stage-3.5-robust-grounding
+original branch: feat/stage-3.5-robust-grounding
+original/final HEAD: 0087ef5428f6c73fa701c7ff14fa31ee5cf0db2a
+initial/final working tree: clean
+dirty changes: 없음
 
 명확한 fixture:
 deterministic RESOLVED
@@ -117,20 +118,19 @@ AMBIGUOUS
 Recovery 1회
 Candidates <= 4
 
-targeted tests:
-37 PASS
+targeted TextSpan/Hybrid/Recovery: 3 files / 37 PASS
 
-Editor Core:
-52 PASS
+Web full: 99 files / 671 PASS
+Editor Core full: 7 files / 52 PASS
 
-Web/Editor typecheck:
-PASS
+Web/Editor typecheck: PASS
+Web/Editor lint: PASS
+git diff --check: PASS
 
-Working tree:
-uncommitted changes preserved
+environment: Node 20.19.4 (repo requires >=22), pnpm 10.9.0
+known non-failure output: Node engine warning, jsdom canvas getContext stderr,
+Editor Core lint의 기존 React/pages-directory warning
 ```
-
-위 내용은 Phase 0에서 실제 repository로 재검증한다.
 
 ---
 
@@ -235,25 +235,29 @@ PDF source immutable
 Status:
 
 ```text
-CURRENT MILESTONE
+COMPLETE
 ```
 
-완료 후 기록:
+완료 기록:
 
 ```text
-Stage 3.5 final commit:
-Stage 3.5 test results:
-Stage 3.5 docs completion:
-old branch:
-new branch:
-Stage 4 base:
-start HEAD:
-working tree:
-actual Planner path:
-actual Grounding path:
-actual Scene path:
-actual Editor path:
-actual AI provider path:
+Stage 3.5 final commit: 0087ef5428f6c73fa701c7ff14fa31ee5cf0db2a
+Stage 3.5 test results: targeted 37, Web 671, Editor Core 52 PASS
+Stage 3.5 docs completion: COMPLETE / READY FOR STAGE 4
+old branch: feat/stage-3.5-robust-grounding
+new branch: feat/stage-4-multimodal-spatial-placement
+Stage 4 base/start: 0087ef5428f6c73fa701c7ff14fa31ee5cf0db2a
+source-of-truth docs commit: bdb2247
+actual Planner path: apps/web/src/features/voice/domain/direct-command-types.ts,
+  direct-planner-schema.ts
+actual Grounding path: apps/web/src/features/voice/application/target-strategy-router.ts,
+  frozen-target-resolver.ts, grounded-target-recovery.ts
+actual Scene path: packages/editor-core/src/scene-core/*,
+  apps/web/src/features/voice/integration/editor-voice-context.ts
+actual Editor path: packages/editor-core/src/engine/editor-engine.ts,
+  apps/web/src/features/voice/application/direct-command-capability-compiler.ts
+actual AI provider path: apps/web/src/features/voice/providers/*,
+  apps/web/src/features/voice/server/direct-command-ai-server.ts
 ```
 
 ---
@@ -263,23 +267,43 @@ actual AI provider path:
 Status:
 
 ```text
-PENDING
+COMPLETE
 ```
 
-완료 후 기록:
+완료 기록:
 
 ```text
-implementation commit:
-docs commit:
-planner contract:
-strict validation:
-scene snapshot adapter:
-coordinate space:
-protection policy:
-profile/measurement boundary:
-tests:
-limitations:
-next milestone: Phase B
+implementation commit: 62bb0b8
+docs commit: 이 STATUS/CHECKLIST 갱신 commit
+planner contract: ExecutableDirectPlan에 optional targetQuery/placementQuery 추가.
+  targetQuery 없음은 new draft subject, targetQuery 있음은 reposition subject를 의미한다.
+  기존 command.target은 Stage 3 direct target으로 유지한다.
+strict validation: 수동 strict parser가 placement/reference/TargetQuery를 검증하며
+  unknown relation/field, coordinate/size/bounds, objectId/candidateId를 reject한다.
+  plain/null-prototype object만 허용하고 malformed/prototype-bearing object를 reject한다.
+DEFER_SPATIAL migration: 기존 terminal contract는 유지한다. placementQuery가 있는
+  EXECUTABLE plan은 Phase E 연결 전까지 Guard에서 SPATIAL_REQUIRED로 no-commit 처리한다.
+scene snapshot adapter: ExistingSceneSpatialSceneSource + SpatialSceneSource contract,
+  FakeSpatialSceneSource. 기존 FrozenSceneSnapshotSource의 SceneSnapshot을 재사용한다.
+coordinate space: PAGE_CANONICAL만 저장하고 page/editable/viewport bounds를 검증한다.
+  zoom/DPR은 contract에 없으며 invalid geometry를 clamp/추정하지 않는다.
+protection policy: PDF base HARD, canvas object HARD,
+  underline/highlight/strikethrough SOFT, invisible object IGNORE.
+profile/measurement boundary: PlacementProfileProvider, DraftMeasurementProvider,
+  Fake providers, existing object render footprint 측정 helper. capability switch 없음.
+domain contracts: PlacementProfile, MeasuredDraft, SpatialSceneSnapshot/Object,
+  ProtectionPolicy, ResolvedSpatialAnchor, PlacementCandidate/ResolvedPlacement,
+  SpatialPlacementResult/Error/Reason.
+tests: Phase A schema/scene/profile/guard 39 PASS;
+  direct planner/route/scene integration 57 PASS;
+  Stage 3.5 targeted 37 PASS; Web full 102 files / 705 PASS;
+  Editor Core 7 files / 52 PASS; Web/Editor typecheck PASS;
+  Web full + targeted lint PASS; git diff --check PASS.
+limitations: production renderer/offscreen measurement와 profile registry adapter 없음;
+  SceneObject에 별도 renderBounds가 없어 Phase A는 authoritative bounds를 사용;
+  speech-start frozen canonical viewport가 없어 caller가 frozen canonical bounds를 제공해야 함;
+  production screenshot/ghost preview 및 spatial create/move runtime route 없음.
+next milestone: Phase B — Deterministic Placement Candidate Engine (미착수)
 ```
 
 ---
@@ -289,7 +313,7 @@ next milestone: Phase B
 Status:
 
 ```text
-PENDING
+NEXT — NOT STARTED
 ```
 
 완료 후 기록:
@@ -408,78 +432,92 @@ next-stage handoff:
 
 ```text
 branch:
-HEAD:
-git status:
-Stage 3.5 final commit:
-Stage 3.5 implementation commits:
-Stage 3.5 docs commit:
-Stage 3.5 tests:
-Stage 3.5 known failures:
+feat/stage-4-multimodal-spatial-placement
+HEAD: bdb2247 (Phase 0 조사 시점)
+git status: Phase 0 STATUS/CHECKLIST 갱신만 의도적으로 modified
+Stage 3.5 final commit: 0087ef5428f6c73fa701c7ff14fa31ee5cf0db2a
+Stage 3.5 implementation/docs: Stage 3.5 STATUS의 COMPLETE 기록과 git log 확인
+Stage 3.5 tests: targeted 37 / Web 671 / Editor Core 52 PASS,
+  Web+Editor typecheck/lint PASS
+Stage 3.5 known failures: 없음
+Environment warning: Node 20.19.4, repository requires Node >=22
 ```
 
 ## Planner / Grounding
 
 ```text
-CommandPlan:
-runtime validator:
-DEFER_SPATIAL:
-TargetQuery:
-Target Grounding Router:
-Grounded Recovery:
-Frozen Context:
-Scene Revision:
-Guard:
+CommandPlan: ExecutableDirectPlan + DirectEditorCommand
+  (apps/web/src/features/voice/domain/direct-command-types.ts)
+runtime validator: parseDirectPlannerResult / parseDirectEditorCommand / parseTargetQuery
+  (apps/web/src/features/voice/domain/direct-planner-schema.ts)
+DEFER_SPATIAL: strict planner terminal result -> DEFERRED_SPATIAL, no commit
+  (direct-command-planning-pipeline.ts / direct-command-route.ts)
+TargetQuery: text_span | semantic_unit | object | relative | subrange
+  (apps/web/src/features/voice/domain/target-query.ts)
+Target Grounding Router: TargetStrategyRouter -> FrozenTargetResolver
+Relative/TextSpan/SemanticUnit/Object: frozen-target-resolver.ts,
+  text-span-grounder.ts, target-strategy-router.ts
+Grounded Recovery: grounded-target-recovery.ts + same-origin provider/server boundary
+Frozen Context: voice-turn-types.ts / voice-turn-context-source.ts
+Scene Revision: CurrentRevisionSceneSnapshotSource + guard revision equality
+Guard: direct-command-guard.ts; idempotency: direct-command-execution-registry.ts
 ```
 
 ## Scene / Geometry
 
 ```text
-PDF bounds:
-Canvas bounds:
-Annotation bounds:
-renderBounds:
-canonical transform:
-viewport:
-focus:
-selection:
-pointer:
-screenshot:
-collision/index:
-debug overlay:
+PDF bounds: PDF.js scale-1 rotation-aware viewport -> PageDescriptor -> ScenePage
+PDF semantic bounds: normalized semantic bounds -> buildPdfSceneObjects canonical rect
+Canvas bounds: SerializedAnnotation normalized bounds -> annotationToSceneObject canonical rect
+Annotation bounds: PageSceneSnapshot.annotations가 source of truth
+renderBounds: 별도 필드/API 없음; 현재 SceneObject.bounds가 유일한 canonical footprint
+canonical transform: packages/editor-core/src/scene-core/coordinate.ts
+zoom/DPR/rotation: pdf-page-renderer.ts가 CSS/render pixel과 scale-1 page size를 분리;
+  scene bounds에는 zoom/DPR 미포함
+viewport: DocumentStage DOM/CSS viewport는 있으나 frozen canonical viewport contract 없음
+focus: FrozenVoiceTurnContext.focusObjectId/focusBounds
+selection: EditorSnapshot.selectedAnnotationId -> frozen selection focus candidate
+pointer: DocumentWorkspace normalized pointer; speech-start frozen context에는 미포함
+screenshot: CompositeRenderSnapshot contract만 존재, production composed capture 구현 없음
+collision/index: scene-core/occupancy.ts, placement.ts, placement-validator.ts
+debug overlay: scene-core-debug-panel.tsx와 DocumentWorkspace semantic overlay
 ```
 
 ## Editor / Provider
 
 ```text
-capability registry:
-measurement:
-preview/scratch:
-create:
-move:
-compiler:
-runtime:
-CommandManager:
-Operation Log:
-Undo:
-IndexedDB:
-AI provider/server:
+capability registry: packages/editor-core/src/scene-core/capability-registry.ts
+measurement: VoiceCapability.estimateFootprint contract만 있고 production 등록/renderer adapter 없음
+preview/scratch: persistent하지 않는 ghost/scratch API 없음; UI drag preview만 존재
+create: EditorEngine.createAnnotation -> CreateAnnotationCommand
+move: EditorEngine drag/moveSelected -> MoveAnnotationCommand
+compiler: apps/web/src/features/voice/application/direct-command-capability-compiler.ts
+runtime: editor-direct-command-executor.ts -> EditorEngine
+CommandManager: packages/editor-core/src/commands/command-manager.ts
+Operation Log: EditorEngine.publishOperation / subscribeToOperations
+Undo: CommandManager undo/redo stack, EditorEngine.undo/redo
+IndexedDB: PersistenceCoordinator가 Editor operation 후 PageSceneSnapshot/operation 저장
+AI provider/server: Http providers -> /api/voice/direct-command/* -> server-only OpenAI transport
 ```
 
 ---
 
-# 9. 현재 알려지지 않은 사항
+# 9. Phase 0에서 확인한 현재 제한
 
-Phase 0에서 실제 코드로 확인:
+실제 코드로 확인:
 
 ```text
-기존 renderer가 offscreen measurement를 지원하는지
-scratch/ghost layer가 존재하는지
-Canvas object renderBounds가 canonical coordinate인지
-composed screenshot API가 있는지
-move/reposition operation이 존재하는지
-새 page/canvas expansion capability가 있는지
-기존 spatial index/collision utility가 있는지
-현재 planner schema가 DEFER_SPATIAL을 어떻게 표현하는지
+기존 renderer offscreen measurement: 미지원; canvas renderer 내부 measureText만 존재
+scratch/ghost layer: 없음
+Canvas object renderBounds: 별도 필드 없음; SceneObject.bounds만 canonical
+composed screenshot API: contract만 있고 production capture 없음
+move/reposition operation: annotation move는 존재, generic spatial compiler 연결은 없음
+새 page/canvas expansion capability: 없음
+기존 spatial index/collision utility: rect-based occupancy/placement/validator 존재
+현재 planner schema DEFER_SPATIAL: reasonCode만 가진 terminal no-commit result
 ```
 
 확인 전 임의 새 subsystem을 만들지 않는다.
+
+Phase A에서는 위 제한을 숨기기 위한 fallback geometry, screenshot, preview,
+candidate generator 또는 runtime integration을 추가하지 않았다.
