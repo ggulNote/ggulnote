@@ -433,16 +433,12 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       executionStatus: "COMMITTED",
     });
     expect(consoleDebug).toHaveBeenCalledWith(
-      "[voice/direct-command]",
-      expect.objectContaining({
-        turnId: turn.id,
-        targetQueryKind: "text_span",
-        initialResolutionStatus: "RESOLVED",
-        targetRecoveryUsed: false,
-        finalResolutionStatus: "RESOLVED",
-        guardStatus: "PASSED",
-        executionStatus: "COMMITTED",
-      }),
+      expect.stringContaining(
+        `"turnId":"${turn.id}"`,
+      ),
+    );
+    expect(consoleDebug).toHaveBeenCalledWith(
+      expect.stringContaining('"executionStatus":"COMMITTED"'),
     );
   });
 

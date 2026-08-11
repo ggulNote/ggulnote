@@ -5,7 +5,7 @@ import {
 } from "@ggulnote/editor-core";
 import { toSessionTimeMs } from "@ggulnote/interaction-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CompletedVoiceTurn } from "../domain";
+import type { CompletedVoiceTurn, SpatialPlacementQuery } from "../domain";
 import { FakeDirectCommandPlannerProvider } from "../providers/testing/fake-direct-command-planner-provider";
 import { createEditorDirectCommandComposition } from "./editor-direct-command-composition";
 
@@ -16,6 +16,43 @@ afterEach(() => {
 });
 
 describe("natural text placement production flow", () => {
+  it("commits the planner-explicit PAGE TOP START payload on A4 blank geometry", async () => {
+    const transcript = "왼쪽 위에 가나다라 써 줘";
+    const placementQuery: SpatialPlacementQuery = {
+      reference: { kind: "PAGE" },
+      relation: "FREE_SPACE",
+      regionHint: "TOP",
+      alignment: "START",
+      overlayIntent: "NONE",
+    };
+    const harness = createHarness(transcript, {
+      pageSize: { width: 595.28, height: 841.89 },
+      placementQuery,
+    });
+
+    const result = await harness.composition.route.execute(turn(transcript));
+
+    expect(result).toMatchObject({ status: "COMMITTED" });
+    expect(harness.editor.exportPageSnapshot(PAGE_ID).annotations).toHaveLength(1);
+    expect(harness.operations).toHaveLength(1);
+    expect(harness.composition.traces.getSnapshot().at(-1)).toMatchObject({
+      plannerPlacementPresent: true,
+      effectivePlacementQuery: placementQuery,
+      executionStatus: "COMMITTED",
+      spatial: {
+        rawCandidateCount: expect.any(Number),
+        shortlistCandidateCount: expect.any(Number),
+        screenshotCallCount: 0,
+        multimodalCallCount: 0,
+        previewAttemptCount: 1,
+        validationResult: "VALIDATED",
+        runtimeExecuted: true,
+        operationRecorded: true,
+      },
+    });
+    harness.dispose();
+  });
+
   it.each([
     {
       transcript: "왼쪽 위에 가나다라라고 써 줘",
@@ -161,11 +198,18 @@ describe("natural text placement production flow", () => {
   });
 });
 
-function createHarness(transcript: string) {
+function createHarness(
+  transcript: string,
+  options: {
+    readonly pageSize?: { readonly width: number; readonly height: number };
+    readonly placementQuery?: SpatialPlacementQuery;
+  } = {},
+) {
   installPreviewCanvas();
+  const pageSize = options.pageSize ?? { width: 600, height: 800 };
   const scene = buildSceneSnapshot({
     mode: "blank",
-    page: { id: PAGE_ID, index: 0, width: 600, height: 800 },
+    page: { id: PAGE_ID, index: 0, ...pageSize },
     sceneRevision: 10,
   });
   let annotationSequence = 0;
@@ -173,7 +217,7 @@ function createHarness(transcript: string) {
     idGenerator: () => `natural-text-${++annotationSequence}`,
   });
   editor.setDocument("blank-natural-placement");
-  editor.setActivePage(PAGE_ID, { width: 600, height: 800 });
+  editor.setActivePage(PAGE_ID, pageSize);
   const planner = new FakeDirectCommandPlannerProvider({
     result: {
       status: "EXECUTABLE",
@@ -188,12 +232,18 @@ function createHarness(transcript: string) {
         target: { kind: "CURRENT_PAGE" },
         payload: { text: "가나다라" },
       },
+      ...(options.placementQuery === undefined
+        ? {}
+        : { placementQuery: options.placementQuery }),
     },
   });
   const operations: EditorPersistenceEvent[] = [];
   const unsubscribe = editor.subscribeToOperations((event) => operations.push(event));
   const detached = vi.fn();
-  const source = { width: 600, height: 800 } as HTMLCanvasElement;
+  const source = {
+    width: Math.round(pageSize.width),
+    height: Math.round(pageSize.height),
+  } as HTMLCanvasElement;
   const composition = createEditorDirectCommandComposition({
     editorEngine: editor,
     clock: { now: () => toSessionTimeMs(100) },
