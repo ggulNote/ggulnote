@@ -1041,3 +1041,28 @@ manual status:
   browser tab은 최신 composition으로 reload 완료. 동일 microphone turn의 최종 수동 재확인은
   사용자 입력이 필요한 smoke 항목으로 남으며, 실패 시 JSON trace가 typed 중단 지점을 제공한다.
 ```
+
+## A4 Ghost Preview raster follow-up
+
+```text
+root cause:
+  planner와 Phase B 선택은 정상이며 Phase D가 commit을 차단했다. NativeCanvasRenderer의
+  1px TEXT outline은 rect edge 중앙에 그려지고, 595.28 x 841.89 canonical A4를
+  595 x 842 정수 preview raster로 왕복하면 painted width가 candidate보다 약 1.11
+  canonical px 커진다. 기존 tolerance 1은 정상 렌더를 FOOTPRINT_OVERFLOW로 오판했다.
+
+resolution:
+  중앙 SPATIAL_PREVIEW_RENDER_TOLERANCE를 2 canonical px로 조정했다. 이는 centered
+  1px stroke와 raster/subpixel 오차만 허용하며 실제 text-wrap/large overflow, collision,
+  bounds/relation 검증은 그대로 유지한다. trace에는 previewFailureReason도 기록한다.
+
+verification:
+  실제 stroke semantics를 반영한 A4 production composition fixture가 실패를 재현한 뒤
+  Preview VALIDATED, Editor COMMITTED, annotation/operation 1개, Undo/Redo PASS로 전환됐다.
+  targeted 4 files / 38 PASS, Web full PASS, Editor Core 7 files / 52 PASS,
+  Web/Editor typecheck 및 lint PASS, git diff --check PASS.
+
+remaining manual check:
+  현재 browser microphone에서 동일 문장을 한 번 더 실행해 화면 표시를 확인한다.
+  HMR stale composition을 피하기 위해 app tab을 reload한다.
+```

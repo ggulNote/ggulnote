@@ -592,3 +592,13 @@ Geometry-first safe candidates
 - [x] Web/Editor lint PASS
 - [x] `git diff --check` PASS
 - [ ] manual microphone/browser smoke — stable CompletedVoiceTurn injection UI가 없어 자동 production composition fixture로 대체
+
+## A4 Ghost Preview Raster Hardening
+
+- [x] actual one-pixel TEXT outline을 production composition fixture에 반영
+- [x] fractional A4 canonical ↔ integer preview raster rounding 회귀 재현
+- [x] 중앙 render tolerance로 stroke/subpixel 오차만 허용
+- [x] 실제 text-wrap/large footprint overflow strict reject 유지
+- [x] preview validation failure reason을 development trace에 노출
+- [x] A4 PAGE/TOP/START text.create Preview/Validation/commit PASS
+- [x] Web full, Editor Core, typecheck, lint, `git diff --check` PASS
