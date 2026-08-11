@@ -155,6 +155,41 @@ export type {
   PlacementProfileRequest,
 } from "./placement-profile-provider";
 export { measureExistingObjectDraft } from "./placement-profile-provider";
+export {
+  RectSpatialOccupancyIndex,
+  SPATIAL_GEOMETRY_EPSILON,
+  isFinitePositiveRect,
+  isRectInside,
+  rectBottom,
+  rectDistance,
+  rectIntersectionArea,
+  rectRight,
+} from "./spatial-occupancy-index";
+export type {
+  RectSpatialOccupancyIndexOptions,
+  SpatialOccupancyIndex,
+} from "./spatial-occupancy-index";
+export { resolveSpatialAnchor } from "./spatial-anchor-resolver";
+export type {
+  ResolveSpatialAnchorInput,
+  SpatialAnchorResolutionResult,
+} from "./spatial-anchor-resolver";
+export {
+  MAX_FINAL_PLACEMENT_CANDIDATES,
+  dedupePlacementCandidates,
+  dominatesPlacementCandidate,
+  generatePlacementCandidates,
+  pruneDominatedPlacementCandidates,
+  resolveDeterministically,
+} from "./placement-candidate-engine";
+export type {
+  DeterministicPlacementGateInput,
+  PlacementCandidateFilterReason,
+  PlacementCandidateGenerationDiagnostics,
+  PlacementCandidateGenerationInput,
+  PlacementCandidateGenerationResult,
+  PlacementObstacleDiagnostic,
+} from "./placement-candidate-engine";
 export { DirectCommandPlanningPipeline } from "./direct-command-planning-pipeline";
 export type {
   DirectCommandPlanningOptions,

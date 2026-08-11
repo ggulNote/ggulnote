@@ -121,6 +121,7 @@ export interface MeasuredDraft {
 
 export interface ResolvedSpatialAnchor {
   readonly kind: "OBJECT" | "FOCUS" | "PAGE" | "VIEWPORT";
+  readonly objectId?: SpatialSceneObject["id"];
   readonly bounds: Rect;
   readonly semanticRole?: SpatialSemanticRole;
   readonly textPreview?: string;
@@ -149,6 +150,9 @@ export interface PlacementCandidate {
     readonly relationSatisfied: boolean;
     readonly alignmentSatisfied: boolean;
     readonly preferredSizePreserved: boolean;
+    readonly insideEditableBounds: boolean;
+    readonly regionMatch: boolean;
+    readonly nearbyObjectIds: readonly SpatialSceneObject["id"][];
   };
 }
 
