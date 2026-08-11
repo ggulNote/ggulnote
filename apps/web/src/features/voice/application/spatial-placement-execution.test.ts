@@ -318,6 +318,28 @@ describe("SpatialPlacementExecutionPipeline", () => {
     expect(test.executeSpatial).not.toHaveBeenCalled();
   });
 
+  it("executes a PAGE free-space create through the same bounded pipeline", async () => {
+    const test = harness({
+      alignment: "AUTO",
+      providerChoice: "S1",
+      profile: { ...PROFILE, allowedRelations: ["FREE_SPACE"] },
+    });
+    test.ready.plan.placementQuery = {
+      reference: { kind: "PAGE" },
+      relation: "FREE_SPACE",
+      alignment: "AUTO",
+      overlayIntent: "NONE",
+    };
+
+    const result = await test.pipeline.execute(test.ready);
+
+    expect(result.result.status).toBe("COMMITTED");
+    expect(result.diagnostics.shortlistCandidateCount).toBeGreaterThan(0);
+    expect(result.diagnostics.multimodalCallCount).toBeLessThanOrEqual(1);
+    expect(test.previewCalls()).toBe(1);
+    expect(test.executeSpatial).toHaveBeenCalledTimes(1);
+  });
+
   it("returns no feasible placement with no observation, preview, or mutation", async () => {
     const test = harness({
       alignment: "START",
