@@ -353,10 +353,20 @@ function previewCanvas(): HTMLCanvasElement {
       const height = Math.max(1, canvas.height);
       const data = new Uint8ClampedArray(width * height * 4);
       if (painted !== undefined) {
-        const left = Math.max(0, Math.floor(painted.x));
-        const top = Math.max(0, Math.floor(painted.y));
-        const right = Math.min(width, Math.ceil(painted.x + painted.width));
-        const bottom = Math.min(height, Math.ceil(painted.y + painted.height));
+        // Canvas strokes are centered on the rectangle edge. Mirror the real
+        // one-pixel NativeCanvasRenderer outline so A4 raster rounding is
+        // covered by this production-composition fixture.
+        const strokeRadius = context.lineWidth / 2;
+        const left = Math.max(0, Math.floor(painted.x - strokeRadius));
+        const top = Math.max(0, Math.floor(painted.y - strokeRadius));
+        const right = Math.min(
+          width,
+          Math.ceil(painted.x + painted.width + strokeRadius),
+        );
+        const bottom = Math.min(
+          height,
+          Math.ceil(painted.y + painted.height + strokeRadius),
+        );
         for (let y = top; y < bottom; y += 1) {
           for (let x = left; x < right; x += 1) {
             data[(y * width + x) * 4 + 3] = 255;

@@ -19,7 +19,10 @@ import type {
   SpatialPlacementReason,
 } from "./spatial-placement-types";
 import type { PlacementCandidateAlias } from "./multimodal-placement-types";
-import type { SpatialPreviewResolutionFailureStatus } from "./spatial-preview-types";
+import type {
+  SpatialPreviewResolutionFailureStatus,
+  SpatialPreviewValidationFailureReason,
+} from "./spatial-preview-types";
 import type { SpatialPlacementQuery } from "./spatial-placement-query";
 import type {
   TextPlacementAutoFlowSource,
@@ -53,6 +56,7 @@ export interface SpatialCommandExecutionDiagnostics {
   readonly selectionSource?: "DETERMINISTIC" | "MULTIMODAL" | "VALIDATION_FALLBACK";
   readonly previewAttemptCount: 0 | 1 | 2;
   readonly validationResult: "NOT_RUN" | "VALIDATED" | SpatialPreviewResolutionFailureStatus;
+  readonly previewFailureReason?: SpatialPreviewValidationFailureReason;
   readonly commitGuard: "NOT_RUN" | "PASSED" | "REJECTED";
   readonly runtimeExecuted: boolean;
   readonly operationRecorded: boolean;

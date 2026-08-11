@@ -22,7 +22,10 @@ import {
   rectRight,
 } from "./spatial-occupancy-index";
 
-export const SPATIAL_PREVIEW_RENDER_TOLERANCE = 1;
+// NativeCanvasRenderer centers its one-pixel outline on the assigned bounds.
+// Converting integer raster pixels back to fractional PAGE_CANONICAL A4
+// geometry can add slightly more than one canonical pixel at an edge.
+export const SPATIAL_PREVIEW_RENDER_TOLERANCE = 2;
 
 export interface SpatialPreviewValidationInput {
   readonly scene: SpatialSceneSnapshot;

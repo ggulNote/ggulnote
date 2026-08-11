@@ -157,6 +157,49 @@ describe("validateSpatialPreview", () => {
     });
   });
 
+  it("allows one-pixel canvas stroke and A4 raster rounding", () => {
+    const a4ScaleX = 595.28 / 595;
+    const a4ScaleY = 841.89 / 842;
+    const selected: PlacementCandidate = {
+      ...candidate({ x: 0, y: 0, width: 240, height: 96 }),
+      strategy: "FREE_SPACE",
+      relation: "FREE_SPACE",
+    };
+    const actual = {
+      x: 0,
+      y: 0,
+      width: 241 * a4ScaleX,
+      height: 97 * a4ScaleY,
+    };
+    const result = validate(actual, {
+      scene: {
+        ...scene([]),
+        pageBounds: { x: 0, y: 0, width: 595.28, height: 841.89 },
+        editableBounds: { x: 0, y: 0, width: 595.28, height: 841.89 },
+        viewportBounds: { x: 0, y: 0, width: 595.28, height: 841.89 },
+      },
+      query: {
+        reference: { kind: "PAGE" },
+        relation: "FREE_SPACE",
+        regionHint: "TOP",
+        alignment: "START",
+        overlayIntent: "NONE",
+      },
+      candidate: selected,
+      preview: preview(actual, { candidateInternalId: selected.internalId }),
+      anchor: undefined,
+    });
+
+    expect(result).toMatchObject({
+      status: "VALID",
+      evidence: {
+        insideEditableBounds: true,
+        footprintFits: true,
+        alignmentSatisfied: true,
+      },
+    });
+  });
+
   it("rejects text-wrap footprint overflow without clamping", () => {
     const actual = { x: 100, y: 160, width: 240, height: 110 };
     const result = validate(actual);

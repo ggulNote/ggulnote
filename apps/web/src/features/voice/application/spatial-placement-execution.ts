@@ -69,6 +69,7 @@ interface MutableDiagnostics {
   selectionSource?: SpatialCommandExecutionDiagnostics["selectionSource"];
   previewAttemptCount: 0 | 1 | 2;
   validationResult: SpatialCommandExecutionDiagnostics["validationResult"];
+  previewFailureReason?: SpatialCommandExecutionDiagnostics["previewFailureReason"];
   commitGuard: SpatialCommandExecutionDiagnostics["commitGuard"];
   runtimeExecuted: boolean;
   operationRecorded: boolean;
@@ -270,6 +271,7 @@ export class SpatialPlacementExecutionPipeline {
     diagnostics.previewAttemptCount = validated.diagnostics.previewAttemptCount;
     diagnostics.validationResult = validated.status;
     if (validated.status !== "VALIDATED") {
+      diagnostics.previewFailureReason = validated.reason;
       return this.failure(
         ready,
         diagnostics,

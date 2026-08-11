@@ -398,6 +398,7 @@ describe("production spatial placement judge wiring", () => {
     });
     if (name === "validation failure") {
       expect(spatial?.previewAttemptCount).toBe(2);
+      expect(spatial?.previewFailureReason).toBe("FOOTPRINT_OVERFLOW");
       expect(harness.detached).toHaveBeenCalledTimes(2);
     } else {
       expect(spatial?.previewAttemptCount).toBe(0);
