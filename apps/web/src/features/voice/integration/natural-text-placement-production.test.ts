@@ -83,6 +83,12 @@ describe("natural text placement production flow", () => {
       placementChoicePolicy: policy,
       plannerOutputRecovered: true,
       placementRecoveryReason: "MISSING_PLACEMENT_QUERY",
+      effectivePlacementQuery: {
+        reference: { kind: "PAGE" },
+        relation: "FREE_SPACE",
+        alignment,
+        ...(regionHint === undefined ? {} : { regionHint }),
+      },
       executionStatus: "COMMITTED",
       spatial: {
         screenshotCallCount: 0,

@@ -261,6 +261,12 @@ describe("DirectCommandPlanningPipeline", () => {
         placementProvenance: "TRANSCRIPT_RECOVERED",
         plannerOutputRecovered: true,
         placementRecoveryReason: "MISSING_PLACEMENT_QUERY",
+        effectivePlacementQuery: {
+          reference: { kind: "PAGE" },
+          relation: "FREE_SPACE",
+          regionHint: "TOP",
+          alignment: "START",
+        },
         guardStatus: "PASSED",
       },
     });

@@ -20,6 +20,7 @@ import type {
 } from "./spatial-placement-types";
 import type { PlacementCandidateAlias } from "./multimodal-placement-types";
 import type { SpatialPreviewResolutionFailureStatus } from "./spatial-preview-types";
+import type { SpatialPlacementQuery } from "./spatial-placement-query";
 import type {
   TextPlacementAutoFlowSource,
   TextPlacementChoicePolicy,
@@ -78,6 +79,7 @@ export interface DirectCommandPlanningDiagnostics {
   speechRefinerResult?: "SKIPPED" | "UNCHANGED" | "REFINED" | "REJECTED" | "ERROR";
   speechRefinerErrorCode?: string;
   plannerStatus?: DirectPlannerResult["status"];
+  plannerDraftPlacementQuery?: SpatialPlacementQuery;
   plannerPlacementPresent?: boolean;
   spatialPhraseEvidenceKind?: "NONE" | "EXPLICIT_REGION" | "CONTEXTUAL_RELATIVE" | "AUTO_FREE_SPACE";
   spatialPhraseEvidenceTokens?: readonly string[];
@@ -88,6 +90,7 @@ export interface DirectCommandPlanningDiagnostics {
   placementRecoveryReason?: TextPlacementRecoveryReason;
   autoFlowSource?: TextPlacementAutoFlowSource;
   placementChoicePolicy?: TextPlacementChoicePolicy;
+  effectivePlacementQuery?: SpatialPlacementQuery;
   planId?: string;
   capability?: string;
   operation?: string;
@@ -175,6 +178,7 @@ export interface DirectCommandTrace {
   turnId: string;
   planId?: string;
   plannerStatus?: DirectPlannerResult["status"];
+  plannerDraftPlacementQuery?: SpatialPlacementQuery;
   plannerPlacementPresent?: boolean;
   spatialPhraseEvidenceKind?: DirectCommandPlanningDiagnostics["spatialPhraseEvidenceKind"];
   spatialPhraseEvidenceTokens?: readonly string[];
@@ -185,6 +189,7 @@ export interface DirectCommandTrace {
   placementRecoveryReason?: TextPlacementRecoveryReason;
   autoFlowSource?: TextPlacementAutoFlowSource;
   placementChoicePolicy?: TextPlacementChoicePolicy;
+  effectivePlacementQuery?: SpatialPlacementQuery;
   speechRefinerUsed?: boolean;
   speechRefinerResult?: DirectCommandPlanningDiagnostics["speechRefinerResult"];
   speechRefinerErrorCode?: string;

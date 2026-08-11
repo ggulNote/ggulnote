@@ -345,6 +345,12 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.plannerPlacementPresent === undefined
         ? {}
         : { plannerPlacementPresent: planningDiagnostics.plannerPlacementPresent }),
+      ...(planningDiagnostics?.plannerDraftPlacementQuery === undefined
+        ? {}
+        : {
+            plannerDraftPlacementQuery:
+              planningDiagnostics.plannerDraftPlacementQuery,
+          }),
       ...(planningDiagnostics?.spatialPhraseEvidenceKind === undefined
         ? {}
         : { spatialPhraseEvidenceKind: planningDiagnostics.spatialPhraseEvidenceKind }),
@@ -379,6 +385,9 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.placementChoicePolicy === undefined
         ? {}
         : { placementChoicePolicy: planningDiagnostics.placementChoicePolicy }),
+      ...(planningDiagnostics?.effectivePlacementQuery === undefined
+        ? {}
+        : { effectivePlacementQuery: planningDiagnostics.effectivePlacementQuery }),
       ...(planningDiagnostics?.speechRefinerUsed === undefined
         ? {}
         : { speechRefinerUsed: planningDiagnostics.speechRefinerUsed }),

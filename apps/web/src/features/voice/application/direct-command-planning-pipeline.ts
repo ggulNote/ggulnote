@@ -127,6 +127,9 @@ export class DirectCommandPlanningPipeline {
     }
     timestamps.plannerCompletedAt = this.now();
     diagnostics.plannerStatus = plannerDraft.status;
+    if (plannerDraft.status === "EXECUTABLE" && plannerDraft.placementQuery !== undefined) {
+      diagnostics.plannerDraftPlacementQuery = plannerDraft.placementQuery;
+    }
 
     let plannerResult: DirectPlannerResult;
     let textPlacement: NormalizedTextPlacement | undefined;
@@ -158,6 +161,7 @@ export class DirectCommandPlanningPipeline {
         placementRecoveryReason: textPlacement.recoveryReason,
         autoFlowSource: textPlacement.autoFlowSource,
         placementChoicePolicy: textPlacement.choicePolicy,
+        effectivePlacementQuery: textPlacement.effectiveQuery,
       });
     }
 
