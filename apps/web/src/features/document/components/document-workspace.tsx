@@ -53,6 +53,7 @@ import {
 import { LayoutDetectionDebugPanel } from "./layout-detection-debug-panel";
 import {
   buildEditorVoiceContextRead,
+  HttpMultimodalPlacementJudgeProvider,
   useOwnedBrowserDirectCommandComposition,
   VoiceLensOverlay,
   VoiceTriggerControl,
@@ -390,6 +391,9 @@ export function DocumentWorkspace({
 
   const [editorEngine] = useState(() => new EditorEngine());
   const [voiceSceneRevision] = useState(() => createSceneRevisionTracker());
+  const [placementJudge] = useState(
+    () => new HttpMultimodalPlacementJudgeProvider(),
+  );
   const annotationCanvasRef = useRef<AnnotationCanvasHandle | null>(null);
   const rendererRef = useRef(new NativeCanvasRenderer());
   const activeDragRef = useRef<DragDraft | null>(null);
@@ -1067,6 +1071,7 @@ export function DocumentWorkspace({
       spatial: {
         getBaseCanvas: () => canvas,
         getOverlayCanvas: () => annotationCanvasRef.current?.getCanvas() ?? null,
+        placementJudge,
         mountPreviewCanvas: (previewCanvas) => {
           const stage = stageElementRef.current;
           if (stage === null) {
