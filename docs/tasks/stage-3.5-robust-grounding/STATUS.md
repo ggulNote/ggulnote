@@ -407,3 +407,65 @@ Status: COMPLETE
   existing one-call supplied-`P*`/`NONE` Recovery provider with bounded interpretable evidence.
 - Diagnostics and evaluation distinguish boundary accuracy, pre/post-pruning counts, deterministic
   resolution and LLM Recovery use without logging candidate text.
+
+### Alignment semantics hardening
+
+- Root cause: recall-level matches above `0.3` were counted directly as matched chunks, so weak
+  fuzzy/phonetic hits could incorrectly produce full coverage and strong compact Recovery summaries.
+- Chunk alignment is now monotonic and one-to-one, with page-local best-relative support separated
+  from retrieval recall. Weak hits remain searchable but do not count toward supported coverage.
+- Anchor evidence retains supported chunk provenance, mean/weakest support, phrase alignment and
+  boundary precision through canonicalization and pair ranking.
+- Clear bilingual multi-token pairs resolve through the deterministic score/margin gate. Genuine
+  duplicate occurrences remain ambiguous and use Recovery at most once.
+- Recovery receives at most four compact non-dominated pair summaries; rich local score matrices,
+  IDs, offsets, coordinates and full candidate sets remain local.
+
+Measured deterministic fixture (`비전 capability` -> `웹 브라우저`):
+
+```text
+raw anchor variants: 24
+canonical anchors: 9
+raw valid pairs: 20
+non-dominated pairs: 12
+top pair: vision capability -> web browsers, (0.9662)
+runner-up score: 0.7759
+margin: 0.1902
+decision: deterministic RESOLVED
+Recovery calls: 0
+```
+
+Validation:
+
+```text
+alignment/recovery/production targeted: 3 files / 27 tests PASS
+Canonical/Hybrid/Resolver/Pipeline/Recovery/Multi-Rect: 11 files / 100 tests PASS
+Web full: 99 files / 670 tests PASS
+Editor Core full: 7 files / 52 tests PASS
+Web typecheck: PASS
+Editor Core typecheck: PASS
+targeted/Web/Editor Core lint: PASS
+git diff --check: PASS
+```
+
+### Phrase recall regression hardening
+
+- Root cause: page-local best-relative score가 supported chunk의 단독 hard gate여서, unrelated
+  high-scoring phonetic term이 actual neighboring token보다 높으면 strong seed로 생성된 correct
+  contiguous phrase도 partial coverage로 축소됐다.
+- Strong seed와 query-length-bounded contiguous expansion은 유지하고, chunk support를 absolute
+  evidence와 relative 또는 multi-chunk joint phrase support의 결합으로 판정한다.
+- Relative score는 ranking evidence로 남지만 actual phrase token을 단독으로 veto하지 않는다.
+- Weak absolute matches는 joint support로 승격되지 않으므로 `web pages`, `exceptional capability`,
+  `represent a` precision policy를 유지한다.
+
+Validation:
+
+```text
+TextSpan/Hybrid/Recovery targeted: 3 files / 37 tests PASS
+Pipeline/Route/Canonical/Multi-Rect/Production: 6 files / 48 tests PASS
+Web full: 99 files / 671 tests PASS
+Editor Core full: 7 files / 52 tests PASS
+Web typecheck/lint: PASS
+Editor Core typecheck/lint: PASS (existing config warnings only)
+```

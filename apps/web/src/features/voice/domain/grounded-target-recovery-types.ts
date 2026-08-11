@@ -17,7 +17,7 @@ export const TARGET_RECOVERY_LIMITS = {
   semanticCandidates: 24,
   objectCandidates: 16,
   anchorCandidatesPerSide: 12,
-  spanPairCandidates: 12,
+  spanPairCandidates: 4,
   candidateTextChars: 800,
   anchorContextChars: 240,
   termHypotheses: 8,

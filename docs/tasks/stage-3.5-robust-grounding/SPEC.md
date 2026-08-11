@@ -79,6 +79,13 @@ AnchorSlotNormalizer
   함께 사용한다. 긴 range는 distance만으로 제거하지 않는다.
 - High-confidence pair는 deterministic resolve하고, 낮은 margin만 bounded `P* | NONE`
   Recovery를 최대 1회 사용한다.
+- Retrieval evidence와 alignment evidence를 분리한다. Chunk support는 충분한 absolute evidence를
+  전제로 page-local relative support 또는 bounded contiguous phrase의 joint support를 요구한다.
+  Relative score는 ranking evidence이며 단독 veto로 actual phrase recall을 제거하지 않는다.
+- Anchor는 supported chunk별 score/provenance, weakest/mean support와 unmatched boundary를 local
+  evidence로 유지하고 Pair ranker가 이를 상속한다.
+- LLM projection은 dominance pruning 이후 최대 4개의 compact pair만 포함한다. Rich local
+  evidence, alignment matrix, internal token/source ID와 raw numeric rank detail은 전송하지 않는다.
 - Grounding은 annotation operation과 독립적이며 existing Guard/Compiler/Editor를 재사용한다.
 
 ---

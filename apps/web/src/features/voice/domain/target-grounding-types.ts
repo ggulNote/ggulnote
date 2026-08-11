@@ -196,8 +196,14 @@ export interface TargetResolutionDiagnostics {
   multiTokenAnchorUsed?: boolean;
   spanPairCandidateCount?: number;
   topSpanPairScore?: number;
+  runnerUpSpanPairScore?: number;
   topSpanPairMargin?: number;
   spanPairResolvedDeterministically?: boolean;
+  rawAnchorCandidateCount?: number;
+  canonicalAnchorCandidateCount?: number;
+  rawPairCandidateCount?: number;
+  nonDominatedPairCount?: number;
+  confidenceDecision?: "deterministic" | "recovery" | "not_found";
 }
 
 export const DEFAULT_TARGET_RESOLUTION_POLICY = {

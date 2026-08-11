@@ -199,11 +199,11 @@ export function phoneticMorphologyCompatibility(
   english: string,
 ): 0 | 1 | undefined {
   const compact = english.toLowerCase().replace(/[^a-z]/gu, "");
+  if (/ing$/u.test(compact)) return /잉$/u.test(korean) ? 1 : 0;
   if (/[스즈]$/u.test(korean)) {
-    if (/ing$/u.test(compact)) return 0;
     return /(?:[sxz]|sh|ch)$/u.test(compact) ? 1 : undefined;
   }
-  if (/잉$/u.test(korean)) return /ing$/u.test(compact) ? 1 : 0;
+  if (/잉$/u.test(korean)) return 0;
   return undefined;
 }
 

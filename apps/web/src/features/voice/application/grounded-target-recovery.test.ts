@@ -292,7 +292,7 @@ describe("GroundedTargetRecovery", () => {
     expect(provider.lastInput.candidates[0]?.type).toBe("text");
   });
 
-  it("recovers actual Moreover-to-instance tokens and materializes line Rect[]", async () => {
+  it("resolves a clear Moreover-to-instance pair locally and materializes line Rect[]", async () => {
     const fixture = textSpanFixture();
     const evidence = speechEvidence(
       "모얼오벌부터 인스탠스까지 밑줄",
@@ -330,18 +330,8 @@ describe("GroundedTargetRecovery", () => {
         },
       },
     });
-    if (provider.lastInput?.kind !== "text_span") throw new Error("Expected span input.");
-    expect(provider.lastInput.pairCandidates[0]).toMatchObject({
-      label: "P1",
-      startText: "Moreover",
-      endText: "instance",
-      alignment: {
-        start: { coverage: "full", boundary: "clean" },
-        end: { coverage: "full", boundary: "clean" },
-      },
-    });
-    expect(JSON.stringify(provider.lastInput)).not.toContain("tokenId");
-    expect(JSON.stringify(provider.lastInput)).not.toContain("readingOrder");
+    expect(result).toMatchObject({ providerCalled: false, candidateCount: 1 });
+    expect(provider.recoverCallCount).toBe(0);
   });
 
   it("returns NONE without an LLM call when an actual end anchor candidate is absent", async () => {
@@ -371,7 +361,7 @@ describe("GroundedTargetRecovery", () => {
   });
 
   it("keeps valid occurrence pairs distinct and exposes only pair labels", async () => {
-    const fixture = textSpanFixture(true, true);
+    const fixture = textSpanFixture(true, false, true);
     const evidence = speechEvidence(
       "모얼오벌부터 인스탠스까지",
       [["모얼오벌", "Moreover"], ["인스탠스", "instance"]],
@@ -399,6 +389,16 @@ describe("GroundedTargetRecovery", () => {
     expect(result.status).toBe("RESOLVED");
     if (provider.lastInput?.kind !== "text_span") throw new Error("Expected span input.");
     expect(provider.lastInput.pairCandidates.length).toBeGreaterThan(0);
+    expect(provider.lastInput.pairCandidates.length).toBeLessThanOrEqual(4);
+    expect(provider.lastInput.pairCandidates[0]).toMatchObject({
+      label: "P1",
+      alignment: {
+        start: { coverage: expect.stringMatching(/full|partial/u) },
+        end: { coverage: expect.stringMatching(/full|partial/u) },
+      },
+    });
+    expect(JSON.stringify(provider.lastInput)).not.toContain("tokenId");
+    expect(JSON.stringify(provider.lastInput)).not.toContain("readingOrder");
     expect(provider.recoverCallCount).toBe(1);
   });
 
@@ -437,6 +437,7 @@ describe("GroundedTargetRecovery", () => {
 function textSpanFixture(
   includeEnd = true,
   reverse = false,
+  duplicateOccurrences = false,
 ): { catalog: PageTargetCatalog } {
   type WordSpec = readonly [string, string, string, number, Rect];
   const reverseSpecs = [
@@ -452,7 +453,16 @@ function textSpanFixture(
           ? [["instance-1", "instance", "line-2", 4, { x: 32, y: 24, width: 62, height: 18 }] as const]
           : []),
       ] satisfies readonly WordSpec[];
-  const specs: readonly WordSpec[] = reverse ? reverseSpecs : forwardSpecs;
+  const duplicateSpecs = [
+    ["moreover-1", "Moreover", "line-1", 1, { x: 0, y: 0, width: 56, height: 18 }],
+    ["instance-1", "instance", "line-1", 2, { x: 62, y: 0, width: 62, height: 18 }],
+    ["separator", "separator", "line-1", 3, { x: 130, y: 0, width: 70, height: 18 }],
+    ["moreover-2", "Moreover", "line-2", 4, { x: 0, y: 24, width: 56, height: 18 }],
+    ["instance-2", "instance", "line-2", 5, { x: 62, y: 24, width: 62, height: 18 }],
+  ] satisfies readonly WordSpec[];
+  const specs: readonly WordSpec[] = duplicateOccurrences
+    ? duplicateSpecs
+    : reverse ? reverseSpecs : forwardSpecs;
   const words = specs.map(([id, text, lineId, readingOrder, bounds]) => ({
     id,
     type: "WORD",

@@ -392,7 +392,7 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
     });
   });
 
-  it("wires HTTP grounded recovery into the owned production composition", async () => {
+  it("keeps a clear phonetic production span on the deterministic path", async () => {
     vi.stubEnv("NODE_ENV", "development");
     const consoleDebug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
     const turn = createTextSpanTurn(
@@ -403,11 +403,6 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       const url = String(input);
       if (url === "/api/voice/direct-command/planner") {
         return Response.json({ result: plannerResult(turn.id, "온라인", "피니시") });
-      }
-      if (url === "/api/voice/direct-command/recover") {
-        return Response.json({
-          result: { status: "SELECTED", pairLabel: "P1" },
-        });
       }
       throw new Error(`Unexpected endpoint: ${url}`);
     });
@@ -424,7 +419,6 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
     });
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
       "/api/voice/direct-command/planner",
-      "/api/voice/direct-command/recover",
     ]);
     expect(harness.editorEngine.exportPageSnapshot(PAGE_ID).annotations[0])
       .toMatchObject({ type: "HIGHLIGHT" });
@@ -432,12 +426,8 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       .toHaveLength(2);
     expect(harness.result.current.direct.traces.getSnapshot().at(-1)).toMatchObject({
       targetQueryKind: "text_span",
-      initialResolutionStatus: "NOT_FOUND",
-      initialResolutionReason: expect.any(String),
-      targetRecoveryUsed: true,
-      targetRecoveryKind: "text_span",
-      recoveryCandidateCount: expect.any(Number),
-      recoveryResult: "SELECTED",
+      initialResolutionStatus: "RESOLVED",
+      targetRecoveryUsed: false,
       finalResolutionStatus: "RESOLVED",
       guardStatus: "PASSED",
       executionStatus: "COMMITTED",
@@ -447,10 +437,8 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       expect.objectContaining({
         turnId: turn.id,
         targetQueryKind: "text_span",
-        initialResolutionStatus: "NOT_FOUND",
-        initialResolutionReason: expect.any(String),
-        targetRecoveryUsed: true,
-        targetRecoveryResult: "SELECTED",
+        initialResolutionStatus: "RESOLVED",
+        targetRecoveryUsed: false,
         finalResolutionStatus: "RESOLVED",
         guardStatus: "PASSED",
         executionStatus: "COMMITTED",

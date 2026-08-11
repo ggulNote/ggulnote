@@ -354,3 +354,9 @@ Stage 3.5 완료 조건:
 - [x] Start/end evidence inheritance, duplicate/dominated pair pruning과 confidence gate를 적용한다.
 - [x] Pair Recovery에 supplied-label-only/NONE 정책을 유지한 bounded alignment summary를 제공한다.
 - [x] Anchor boundary accuracy, deterministic resolution rate와 LLM recovery rate를 평가한다.
+- [x] Retrieval hit와 query-relative supported chunk alignment를 분리한다.
+- [x] Weak retrieval hit가 full coverage로 승격되지 않도록 monotonic one-to-one alignment를 적용한다.
+- [x] Rich anchor evidence를 pair ranking까지 보존하고 weakest-anchor confidence를 반영한다.
+- [x] Recovery projection을 non-dominated compact pair 최대 4개로 제한한다.
+- [x] bilingual multi-token deterministic path와 genuine duplicate one-call recovery를 검증한다.
+- [x] Strong seed 주변 contiguous phrase에서 absolute/joint support로 page-relative phrase recall 회귀를 방지한다.

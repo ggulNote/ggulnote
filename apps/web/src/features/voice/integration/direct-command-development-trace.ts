@@ -25,8 +25,15 @@ export interface DirectCommandDevelopmentTraceSummary {
   spanPairCandidateCountAfterPruning?: number;
   spanPairCandidateCount?: number;
   topSpanPairScore?: number;
+  runnerUpSpanPairScore?: number;
   topSpanPairMargin?: number;
   spanPairResolvedDeterministically?: boolean;
+  rawAnchorCandidateCount?: number;
+  canonicalAnchorCandidateCount?: number;
+  rawPairCandidateCount?: number;
+  nonDominatedPairCount?: number;
+  confidenceDecision?: DirectCommandTrace["confidenceDecision"];
+  recoveryPairCount?: number;
   spanPairRecoveryUsed?: boolean;
   spanPairRecoveryResult?: DirectCommandTrace["spanPairRecoveryResult"];
   initialResolutionStatus?: DirectCommandTrace["initialResolutionStatus"];
@@ -127,6 +134,8 @@ export function summarizeDirectCommandTrace(
       ? {} : { spanPairCandidateCount: trace.spanPairCandidateCount }),
     ...(trace.topSpanPairScore === undefined
       ? {} : { topSpanPairScore: trace.topSpanPairScore }),
+    ...(trace.runnerUpSpanPairScore === undefined
+      ? {} : { runnerUpSpanPairScore: trace.runnerUpSpanPairScore }),
     ...(trace.topSpanPairMargin === undefined
       ? {} : { topSpanPairMargin: trace.topSpanPairMargin }),
     ...(trace.spanPairResolvedDeterministically === undefined
@@ -135,6 +144,18 @@ export function summarizeDirectCommandTrace(
       ? {} : { spanPairRecoveryUsed: trace.spanPairRecoveryUsed }),
     ...(trace.spanPairRecoveryResult === undefined
       ? {} : { spanPairRecoveryResult: trace.spanPairRecoveryResult }),
+    ...(trace.rawAnchorCandidateCount === undefined
+      ? {} : { rawAnchorCandidateCount: trace.rawAnchorCandidateCount }),
+    ...(trace.canonicalAnchorCandidateCount === undefined
+      ? {} : { canonicalAnchorCandidateCount: trace.canonicalAnchorCandidateCount }),
+    ...(trace.rawPairCandidateCount === undefined
+      ? {} : { rawPairCandidateCount: trace.rawPairCandidateCount }),
+    ...(trace.nonDominatedPairCount === undefined
+      ? {} : { nonDominatedPairCount: trace.nonDominatedPairCount }),
+    ...(trace.confidenceDecision === undefined
+      ? {} : { confidenceDecision: trace.confidenceDecision }),
+    ...(trace.recoveryPairCount === undefined
+      ? {} : { recoveryPairCount: trace.recoveryPairCount }),
     ...(trace.command === undefined
       ? {}
       : { command: `${trace.command.capability}.${trace.command.operation}` }),

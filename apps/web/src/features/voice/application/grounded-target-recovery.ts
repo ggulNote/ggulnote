@@ -29,6 +29,7 @@ import {
 import { FrozenTargetResolver } from "./frozen-target-resolver";
 import {
   groundTextSpan,
+  TEXT_SPAN_GROUNDING_POLICY,
   type SpanPairCandidate,
 } from "./text-span-grounder";
 
@@ -609,14 +610,16 @@ function toSafeAnchorAlignment(
   candidate: SpanPairCandidate["start"],
 ): GroundedTextSpanPairCandidate["alignment"]["start"] {
   const evidence = candidate.evidence;
+  const strong = evidence.coverage === 1
+    && evidence.weakestSupportedChunkScore >= TEXT_SPAN_GROUNDING_POLICY.strongChunkSupportScore;
+  const medium = evidence.coverage >= 0.5
+    && evidence.phraseAlignment >= TEXT_SPAN_GROUNDING_POLICY.minChunkMatchScore;
   return {
     queryChunks: evidence.queryChunkCount,
     matchedChunks: evidence.matchedChunkCount,
     coverage: evidence.matchedChunkCount === evidence.queryChunkCount ? "full" : "partial",
     boundary: evidence.boundaryPrecision === 1 ? "clean" : "expanded",
-    confidence: candidate.score >= 0.85
-      ? "strong"
-      : candidate.score >= 0.65 ? "medium" : "weak",
+    confidence: strong ? "strong" : medium ? "medium" : "weak",
   };
 }
 

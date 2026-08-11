@@ -373,8 +373,14 @@ function exactTextSpanDiagnostics(query: TextSpanTargetQuery): TextSpanGrounding
     spanPairCandidateCountAfterPruning: 1,
     spanPairCandidateCount: 1,
     topSpanPairScore: 1,
+    runnerUpSpanPairScore: 0,
     topSpanPairMargin: 1,
     spanPairResolvedDeterministically: true,
+    rawAnchorCandidateCount: 2,
+    canonicalAnchorCandidateCount: 2,
+    rawPairCandidateCount: 1,
+    nonDominatedPairCount: 1,
+    confidenceDecision: "deterministic",
   };
 }
 

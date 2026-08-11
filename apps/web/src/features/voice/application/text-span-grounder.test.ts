@@ -7,6 +7,7 @@ import {
   normalizeTextSpanAnchorSlot,
   pruneDominatedSpanPairs,
   retrieveAnchorSpanCandidates,
+  TEXT_SPAN_GROUNDING_POLICY,
 } from "./text-span-grounder";
 
 describe("layered TextSpan grounding", () => {
@@ -151,6 +152,102 @@ describe("layered TextSpan grounding", () => {
     });
     expect(candidates.find((candidate) => candidate.text === "web pages")?.score ?? 0)
       .toBeLessThan(candidates[0]?.score ?? 0);
+  });
+
+  it("separates high-recall retrieval hits from query-relative chunk support", () => {
+    const page = createStream([
+      "bridge", "approaches", "approach",
+      "exceptional", "capability", "represent", "a", "vision", "capability",
+      "then", "web", "pages", "before", "web", "browsers",
+    ]);
+    const starts = retrieveAnchorSpanCandidates(page, "비전 capability", { role: "start" });
+    const correct = starts.find((candidate) => candidate.text === "vision capability");
+    const partial = starts.find((candidate) => candidate.text === "exceptional capability");
+    const noise = starts.find((candidate) => candidate.text === "represent a");
+    expect(correct?.evidence).toMatchObject({
+      matchedChunkCount: 2,
+      coverage: 1,
+      boundaryPrecision: 1,
+    });
+    expect(correct?.evidence.chunkAlignments).toHaveLength(2);
+    expect(partial?.evidence.coverage ?? 0).toBeLessThan(1);
+    expect(partial?.evidence.matchedChunkCount ?? 0).toBeLessThan(2);
+    expect(noise?.evidence.coverage ?? 0).toBeLessThan(1);
+
+    const ends = retrieveAnchorSpanCandidates(page, "웹 브라우저", { role: "end" });
+    const browsers = ends.find((candidate) => candidate.text === "web browsers");
+    const browserAlignment = browsers?.evidence.chunkAlignments.find(
+      (alignment) => alignment.queryChunkIndex === 1,
+    );
+    expect(browsers?.evidence.coverage).toBe(1);
+    expect(browserAlignment?.relativeScore ?? 1)
+      .toBeLessThan(TEXT_SPAN_GROUNDING_POLICY.minSupportedChunkRelativeScore);
+    expect(browserAlignment?.supported).toBe(true);
+    expect(ends.find((candidate) => candidate.text === "web pages")?.evidence.coverage ?? 0)
+      .toBeLessThan(1);
+  });
+
+  it("uses absolute fuzzy support for an English typo inside a grounded phrase", () => {
+    const page = createStream(["vision", "capability", "to", "web", "browsers"]);
+    expect(retrieveAnchorSpanCandidates(page, "비전 capibility", { role: "start" })[0])
+      .toMatchObject({
+        text: "vision capability",
+        evidence: { matchedChunkCount: 2, coverage: 1, boundaryPrecision: 1 },
+      });
+  });
+
+  it("ranks the production-style bilingual span deterministically without recovery", () => {
+    const page = createStream([
+      "bridge", "approaches", "approach",
+      "exceptional", "capability", "can", "represent", "a", "baseline", "while",
+      "Particularly,", "vision", "capability", "is", "crucial", "for", "utilizing",
+      "tools", "such", "as", "web", "browsers,", "as", "rendered", "web", "pages",
+      "support", "web", "browsing",
+    ]);
+    const result = groundTextSpan({
+      stream: page,
+      query: {
+        kind: "text_span",
+        startAnchor: "비전 capability",
+        endAnchor: "웹 브라우저",
+      },
+    });
+    expect(result.status).toBe("RESOLVED");
+    if (result.status !== "RESOLVED") return;
+    expect(result.pair).toMatchObject({
+      start: { text: "vision capability", evidence: { coverage: 1 } },
+      end: { text: "web browsers,", evidence: { coverage: 1 } },
+    });
+    expect(result.diagnostics).toMatchObject({
+      confidenceDecision: "deterministic",
+      spanPairResolvedDeterministically: true,
+      rawAnchorCandidateCount: expect.any(Number),
+      canonicalAnchorCandidateCount: expect.any(Number),
+      rawPairCandidateCount: expect.any(Number),
+      nonDominatedPairCount: expect.any(Number),
+      topSpanPairScore: expect.any(Number),
+      runnerUpSpanPairScore: expect.any(Number),
+    });
+    expect(result.diagnostics.topSpanPairScore ?? 0)
+      .toBeGreaterThan(result.diagnostics.runnerUpSpanPairScore ?? 0);
+  });
+
+  it("keeps genuine duplicate occurrences ambiguous for bounded recovery", () => {
+    const page = createStream([
+      "vision", "capability", "to", "web", "browsers", "then",
+      "vision", "capability", "to", "web", "browsers",
+    ], {
+      sentenceByIndex: ["s1", "s1", "s1", "s1", "s1", "s2", "s2", "s2", "s2", "s2", "s2"],
+    });
+    const result = groundTextSpan({
+      stream: page,
+      query: { kind: "text_span", startAnchor: "vision capability", endAnchor: "web browsers" },
+    });
+    expect(result.status).toBe("AMBIGUOUS");
+    expect(result.diagnostics).toMatchObject({
+      confidenceDecision: "recovery",
+      spanPairResolvedDeterministically: false,
+    });
   });
 
   it("prunes only dominated boundary variants and preserves distinct occurrences", () => {

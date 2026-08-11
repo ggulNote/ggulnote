@@ -220,6 +220,7 @@ export class DirectCommandPlanningPipeline {
       diagnostics.recoveryCandidateCount = attempt.candidateCount;
       if (attempt.kind === "text_span") {
         diagnostics.spanPairRecoveryUsed = attempt.providerCalled;
+        diagnostics.recoveryPairCount = attempt.candidateCount;
       }
       if (attempt.status === "ERROR") {
         diagnostics.recoveryResult = "ERROR";

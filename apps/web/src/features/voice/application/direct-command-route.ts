@@ -389,6 +389,8 @@ export class DirectCommandRoute {
         ? {} : { spanPairCandidateCount: planningDiagnostics.spanPairCandidateCount }),
       ...(planningDiagnostics?.topSpanPairScore === undefined
         ? {} : { topSpanPairScore: planningDiagnostics.topSpanPairScore }),
+      ...(planningDiagnostics?.runnerUpSpanPairScore === undefined
+        ? {} : { runnerUpSpanPairScore: planningDiagnostics.runnerUpSpanPairScore }),
       ...(planningDiagnostics?.topSpanPairMargin === undefined
         ? {} : { topSpanPairMargin: planningDiagnostics.topSpanPairMargin }),
       ...(planningDiagnostics?.spanPairResolvedDeterministically === undefined
@@ -400,6 +402,20 @@ export class DirectCommandRoute {
         ? {} : { spanPairRecoveryUsed: planningDiagnostics.spanPairRecoveryUsed }),
       ...(planningDiagnostics?.spanPairRecoveryResult === undefined
         ? {} : { spanPairRecoveryResult: planningDiagnostics.spanPairRecoveryResult }),
+      ...(planningDiagnostics?.rawAnchorCandidateCount === undefined
+        ? {} : { rawAnchorCandidateCount: planningDiagnostics.rawAnchorCandidateCount }),
+      ...(planningDiagnostics?.canonicalAnchorCandidateCount === undefined
+        ? {} : {
+            canonicalAnchorCandidateCount: planningDiagnostics.canonicalAnchorCandidateCount,
+          }),
+      ...(planningDiagnostics?.rawPairCandidateCount === undefined
+        ? {} : { rawPairCandidateCount: planningDiagnostics.rawPairCandidateCount }),
+      ...(planningDiagnostics?.nonDominatedPairCount === undefined
+        ? {} : { nonDominatedPairCount: planningDiagnostics.nonDominatedPairCount }),
+      ...(planningDiagnostics?.confidenceDecision === undefined
+        ? {} : { confidenceDecision: planningDiagnostics.confidenceDecision }),
+      ...(planningDiagnostics?.recoveryPairCount === undefined
+        ? {} : { recoveryPairCount: planningDiagnostics.recoveryPairCount }),
       ...(planningDiagnostics?.resolutionStatus === undefined
         ? {}
         : { resolutionStatus: planningDiagnostics.resolutionStatus }),

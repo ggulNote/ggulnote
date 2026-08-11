@@ -26,11 +26,16 @@ export const TEXT_SPAN_GROUNDING_POLICY = {
   previewEdgeTokens: 10,
   minSeedScore: 0.3,
   minChunkMatchScore: 0.3,
-  minAnchorCandidateScore: 0.52,
+  minSupportedChunkRelativeScore: 0.9,
+  minSupportedChunkAbsoluteScore: 0.58,
+  minSupportedFuzzyScore: 0.72,
+  strongChunkSupportScore: 0.68,
+  minAnchorCandidateScore: 0.46,
   minResolvedPairScore: 0.96,
   minResolvedPairMargin: 0.03,
+  minUniqueFullSupportPairScore: 0.9,
   fullSupportBonus: 0.05,
-  fullPairSupportBonus: 0.03,
+  fullPairSupportBonus: 0.04,
   morphologyConfidence: {
     strong: 0.65,
     medium: 0.5,
@@ -39,37 +44,54 @@ export const TEXT_SPAN_GROUNDING_POLICY = {
     anchorPhraseAlignment: 0.52,
     anchorCoverage: 0.3,
     anchorBoundaryPrecision: 0.18,
-    pairAnchor: 0.5,
-    pairMorphology: 0.12,
+    pairAnchor: 0.54,
+    pairWeakestAnchor: 0.08,
+    pairMorphology: 0.04,
     pairCoverage: 0.1,
-    pairBoundary: 0.12,
-    pairStructure: 0.08,
-    pairDistance: 0.03,
+    pairBoundary: 0.1,
+    pairStructure: 0.07,
+    pairDistance: 0.02,
     pairMaterializable: 0.05,
   },
 } as const;
 
-export interface AnchorSpanEvidence {
+export interface AnchorRetrievalEvidence {
   exact?: number;
   normalized?: number;
   fuzzy?: number;
   phonetic?: number;
   morphology?: number;
+  documentHypothesis?: number;
   asrAlternative?: number;
+}
+
+export interface AnchorChunkAlignment {
+  queryChunkIndex: number;
+  candidateTokenOffset: number;
+  score: number;
+  relativeScore: number;
+  supported: boolean;
+  strength: "strong" | "supported" | "weak";
+  evidence: AnchorRetrievalEvidence;
+}
+
+export interface AnchorSpanEvidence {
+  retrieval: AnchorRetrievalEvidence;
+  chunkAlignments: readonly AnchorChunkAlignment[];
   phraseAlignment: number;
   coverage: number;
   queryChunkCount: number;
   matchedChunkCount: number;
+  strongMatchedChunkCount: number;
+  meanSupportedChunkScore: number;
+  weakestSupportedChunkScore: number;
   candidateTokenCount: number;
   extraPrefixTokens: number;
   extraSuffixTokens: number;
   boundaryPrecision: number;
 }
 
-type AnchorMatchEvidence = Pick<
-  AnchorSpanEvidence,
-  "exact" | "normalized" | "fuzzy" | "phonetic" | "morphology" | "asrAlternative"
->;
+type AnchorMatchEvidence = AnchorRetrievalEvidence;
 
 export interface AnchorSpanCandidate {
   text: string;
@@ -94,6 +116,7 @@ export interface SpanPairEvidence {
   endAlignment: AnchorSpanEvidence;
   startAnchorConfidence: number;
   endAnchorConfidence: number;
+  weakestAnchorConfidence: number;
   forwardValid: true;
   tokenDistance: number;
   lineDistance: number;
@@ -127,8 +150,14 @@ export interface TextSpanGroundingDiagnostics {
   spanPairCandidateCountAfterPruning: number;
   spanPairCandidateCount: number;
   topSpanPairScore?: number;
+  runnerUpSpanPairScore?: number;
   topSpanPairMargin?: number;
   spanPairResolvedDeterministically: boolean;
+  rawAnchorCandidateCount: number;
+  canonicalAnchorCandidateCount: number;
+  rawPairCandidateCount: number;
+  nonDominatedPairCount: number;
+  confidenceDecision: "deterministic" | "recovery" | "not_found";
 }
 
 export type TextSpanGroundingResult =
@@ -194,11 +223,15 @@ function retrieveAnchorSpanCandidatesDetailed(
   }
 
   const seeds = findSeeds(stream.tokens, chunks, options.speechEvidence);
+  const bestChunkScores = chunks.map((chunk) => Math.max(
+    0,
+    ...stream.tokens.map((token) => scoreChunk(chunk, token.text, options.speechEvidence).score),
+  ));
   const ranges = expandSeedWindows(stream.tokens, seeds, chunks.length);
   const candidates = ranges.flatMap(({ startIndex, endIndex }): AnchorSpanCandidate[] => {
     const tokens = stream.tokens.slice(startIndex, endIndex + 1);
     if (!isNaturalPhraseWindow(tokens)) return [];
-    const alignment = alignPhrase(chunks, tokens, options.speechEvidence);
+    const alignment = alignPhrase(chunks, tokens, options.speechEvidence, bestChunkScores);
     const score = clamp(
       alignment.phraseAlignment * TEXT_SPAN_GROUNDING_POLICY.weights.anchorPhraseAlignment
       + alignment.coverage * TEXT_SPAN_GROUNDING_POLICY.weights.anchorCoverage
@@ -227,11 +260,15 @@ function retrieveAnchorSpanCandidatesDetailed(
       tokenCount: tokens.length,
       context: contextAround(stream.tokens, startIndex, endIndex),
       evidence: {
-        ...alignment.evidence,
+        retrieval: alignment.retrieval,
+        chunkAlignments: alignment.chunkAlignments,
         phraseAlignment: alignment.phraseAlignment,
         coverage: alignment.coverage,
         queryChunkCount: chunks.length,
         matchedChunkCount: alignment.matchedChunkCount,
+        strongMatchedChunkCount: alignment.strongMatchedChunkCount,
+        meanSupportedChunkScore: alignment.meanSupportedChunkScore,
+        weakestSupportedChunkScore: alignment.weakestSupportedChunkScore,
         candidateTokenCount: tokens.length,
         extraPrefixTokens: alignment.extraPrefixTokens,
         extraSuffixTokens: alignment.extraSuffixTokens,
@@ -313,13 +350,14 @@ function buildSpanPairCandidatesDetailed(
           ? 1
           : 0;
       const anchorScore = (start.score + end.score) / 2;
+      const weakestAnchorScore = Math.min(start.score, end.score);
       const boundaryScore = (
         start.evidence.boundaryPrecision + end.evidence.boundaryPrecision
       ) / 2;
       const coverageScore = (start.evidence.coverage + end.evidence.coverage) / 2;
       const morphologyScore = (
-        morphologyConfidence(start.evidence.morphology)
-        + morphologyConfidence(end.evidence.morphology)
+        morphologyConfidence(start.evidence.retrieval.morphology)
+        + morphologyConfidence(end.evidence.retrieval.morphology)
       ) / 2;
       const fullPairSupport = start.evidence.coverage === 1
         && end.evidence.coverage === 1
@@ -329,6 +367,7 @@ function buildSpanPairCandidatesDetailed(
       const distanceScore = 1 / (1 + Math.max(0, tokenDistance - start.tokenCount - end.tokenCount) / 40);
       const score = clamp(
         anchorScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairAnchor
+        + weakestAnchorScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairWeakestAnchor
         + morphologyScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairMorphology
         + coverageScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairCoverage
         + boundaryScore * TEXT_SPAN_GROUNDING_POLICY.weights.pairBoundary
@@ -346,6 +385,7 @@ function buildSpanPairCandidatesDetailed(
           endAlignment: { ...end.evidence },
           startAnchorConfidence: start.score,
           endAnchorConfidence: end.score,
+          weakestAnchorConfidence: weakestAnchorScore,
           forwardValid: true,
           tokenDistance,
           lineDistance,
@@ -419,10 +459,23 @@ export function groundTextSpan(input: TextSpanGroundingInput): TextSpanGrounding
   const top = pairs[0];
   const second = pairs[1];
   const margin = top === undefined ? undefined : top.score - (second?.score ?? 0);
-  const deterministic = top !== undefined
-    && top.score >= TEXT_SPAN_GROUNDING_POLICY.minResolvedPairScore
-    && margin !== undefined
-    && margin >= TEXT_SPAN_GROUNDING_POLICY.minResolvedPairMargin;
+  const uniqueFullSupport = top !== undefined
+    && pairs.length === 1
+    && top.start.evidence.coverage === 1
+    && top.end.evidence.coverage === 1
+    && top.start.evidence.boundaryPrecision === 1
+    && top.end.evidence.boundaryPrecision === 1
+    && top.start.evidence.meanSupportedChunkScore
+      >= TEXT_SPAN_GROUNDING_POLICY.minChunkMatchScore
+    && top.end.evidence.meanSupportedChunkScore
+      >= TEXT_SPAN_GROUNDING_POLICY.minChunkMatchScore;
+  const deterministic = top !== undefined && (
+    (top.score >= TEXT_SPAN_GROUNDING_POLICY.minResolvedPairScore
+      && margin !== undefined
+      && margin >= TEXT_SPAN_GROUNDING_POLICY.minResolvedPairMargin)
+    || (uniqueFullSupport
+      && top.score >= TEXT_SPAN_GROUNDING_POLICY.minUniqueFullSupportPairScore)
+  );
   const diagnostics: TextSpanGroundingDiagnostics = {
     startAnchorChunkCount: startChunkCount,
     endAnchorChunkCount: endChunkCount,
@@ -441,8 +494,16 @@ export function groundTextSpan(input: TextSpanGroundingInput): TextSpanGrounding
     spanPairCandidateCountAfterPruning: pairBuild.candidateCountAfterPruning,
     spanPairCandidateCount: pairs.length,
     ...(top === undefined ? {} : { topSpanPairScore: top.score }),
+    ...(second === undefined ? {} : { runnerUpSpanPairScore: second.score }),
     ...(margin === undefined ? {} : { topSpanPairMargin: margin }),
     spanPairResolvedDeterministically: deterministic,
+    rawAnchorCandidateCount: startRetrieval.variants.length
+      + (isQuote ? 0 : endRetrieval.variants.length),
+    canonicalAnchorCandidateCount: startRetrieval.canonicalCount
+      + (isQuote ? 0 : endRetrieval.canonicalCount),
+    rawPairCandidateCount: pairBuild.candidateCountBeforePruning,
+    nonDominatedPairCount: pairBuild.candidateCountAfterPruning,
+    confidenceDecision: deterministic ? "deterministic" : top === undefined ? "not_found" : "recovery",
   };
   if (startCandidates.length === 0 || endCandidates.length === 0) {
     return { status: "NOT_FOUND", reason: "ANCHOR_NOT_FOUND", diagnostics };
@@ -498,18 +559,50 @@ function alignPhrase(
   chunks: readonly string[],
   tokens: readonly CanonicalTextToken[],
   speechEvidence: SpeechGroundingEvidence | undefined,
+  bestChunkScores: readonly number[],
 ): {
   phraseAlignment: number;
   coverage: number;
   matchedChunkCount: number;
+  strongMatchedChunkCount: number;
+  meanSupportedChunkScore: number;
+  weakestSupportedChunkScore: number;
   alignedStartOffset: number;
   alignedEndOffset: number;
   extraPrefixTokens: number;
   extraSuffixTokens: number;
   boundaryPrecision: number;
-  evidence: AnchorMatchEvidence;
+  retrieval: AnchorMatchEvidence;
+  chunkAlignments: readonly AnchorChunkAlignment[];
 } {
-  const matrix = chunks.map((chunk) => tokens.map((token) => scoreChunk(chunk, token.text, speechEvidence)));
+  const matrix = chunks.map((chunk, chunkIndex) => tokens.map((token) => {
+    const scored = scoreChunk(chunk, token.text, speechEvidence);
+    const relativeScore = (bestChunkScores[chunkIndex] ?? 0) === 0
+      ? 0
+      : scored.score / (bestChunkScores[chunkIndex] ?? 1);
+    const authoritative = scored.evidence.exact === 1
+      || scored.evidence.normalized === 1
+      || (scored.evidence.documentHypothesis ?? 0) >= TEXT_SPAN_GROUNDING_POLICY.strongChunkSupportScore
+      || (scored.evidence.asrAlternative ?? 0) >= TEXT_SPAN_GROUNDING_POLICY.strongChunkSupportScore;
+    const absoluteSupported = authoritative
+      || scored.score >= TEXT_SPAN_GROUNDING_POLICY.minSupportedChunkAbsoluteScore
+      || (scored.evidence.fuzzy ?? 0) >= TEXT_SPAN_GROUNDING_POLICY.minSupportedFuzzyScore;
+    const relativeSupported = relativeScore
+      >= TEXT_SPAN_GROUNDING_POLICY.minSupportedChunkRelativeScore;
+    const supported = authoritative || (absoluteSupported && relativeSupported);
+    return {
+      ...scored,
+      relativeScore,
+      absoluteSupported,
+      authoritative,
+      relativeSupported,
+      supported,
+      strength: supported && (authoritative
+        || scored.score >= TEXT_SPAN_GROUNDING_POLICY.strongChunkSupportScore)
+        ? "strong" as const
+        : supported ? "supported" as const : "weak" as const,
+    };
+  }));
   const memo = new Map<string, Alignment>();
   const visit = (chunkIndex: number, tokenIndex: number): Alignment => {
     if (chunkIndex >= chunks.length || tokenIndex >= tokens.length) return { objective: 0, matches: [] };
@@ -521,46 +614,87 @@ function alignPhrase(
     if (current !== undefined && current.score >= TEXT_SPAN_GROUNDING_POLICY.minChunkMatchScore) {
       const next = visit(chunkIndex + 1, tokenIndex + 1);
       alternatives.push({
-        objective: current.score + 0.18 + next.objective,
+        objective: current.score
+          + (current.supported || current.absoluteSupported ? 0.28 : -0.08)
+          + next.objective,
         matches: [{
           chunkIndex,
           tokenIndex,
           score: current.score,
+          relativeScore: current.relativeScore,
+          absoluteSupported: current.absoluteSupported,
+          authoritative: current.authoritative,
+          relativeSupported: current.relativeSupported,
+          supported: current.supported,
+          strength: current.strength,
           evidence: current.evidence,
         }, ...next.matches],
       });
     }
     const best = alternatives.sort((left, right) => right.objective - left.objective
+      || supportedMatchCount(right) - supportedMatchCount(left)
       || right.matches.length - left.matches.length)[0] ?? { objective: 0, matches: [] };
     memo.set(key, best);
     return best;
   };
   const aligned = visit(0, 0);
-  const coverage = chunks.length === 0 ? 0 : aligned.matches.length / chunks.length;
-  const average = aligned.matches.length === 0
+  const absoluteMatches = aligned.matches.filter((match) => match.absoluteSupported);
+  const phraseJointSupport = chunks.length > 1 && absoluteMatches.length > 1;
+  const finalizedMatches = aligned.matches.map((match) => {
+    const supported = match.supported || (phraseJointSupport && match.absoluteSupported);
+    return {
+      ...match,
+      supported,
+      strength: supported && (match.authoritative
+        || match.score >= TEXT_SPAN_GROUNDING_POLICY.strongChunkSupportScore)
+        ? "strong" as const
+        : supported ? "supported" as const : "weak" as const,
+    };
+  });
+  const supportedMatches = finalizedMatches.filter((match) => match.supported);
+  const coverage = chunks.length === 0 ? 0 : supportedMatches.length / chunks.length;
+  const average = chunks.length === 0
     ? 0
-    : aligned.matches.reduce((sum, match) => sum + match.score, 0) / aligned.matches.length;
-  const evidence = aligned.matches.reduce<AnchorMatchEvidence>(
+    : supportedMatches.reduce((sum, match) => sum + match.score, 0) / chunks.length;
+  const meanSupportedChunkScore = supportedMatches.length === 0
+    ? 0
+    : supportedMatches.reduce((sum, match) => sum + match.score, 0) / supportedMatches.length;
+  const weakestSupportedChunkScore = supportedMatches.length === 0
+    ? 0
+    : Math.min(...supportedMatches.map((match) => match.score));
+  const retrieval = supportedMatches.reduce<AnchorMatchEvidence>(
     (result, match) => mergeAnchorEvidence(result, match.evidence),
     {},
   );
-  const firstMatch = aligned.matches[0];
-  const lastMatch = aligned.matches.at(-1);
+  const firstMatch = supportedMatches[0];
+  const lastMatch = supportedMatches.at(-1);
   const alignedStartOffset = firstMatch?.tokenIndex ?? 0;
   const alignedEndOffset = lastMatch?.tokenIndex ?? Math.max(0, tokens.length - 1);
   const extraPrefixTokens = alignedStartOffset;
   const extraSuffixTokens = Math.max(0, tokens.length - alignedEndOffset - 1);
-  const boundaryPrecision = tokens.length === 0 ? 0 : aligned.matches.length / tokens.length;
+  const boundaryPrecision = tokens.length === 0 ? 0 : supportedMatches.length / tokens.length;
   return {
     phraseAlignment: average,
     coverage,
-    matchedChunkCount: aligned.matches.length,
+    matchedChunkCount: supportedMatches.length,
+    strongMatchedChunkCount: supportedMatches.filter((match) => match.strength === "strong").length,
+    meanSupportedChunkScore,
+    weakestSupportedChunkScore,
     alignedStartOffset,
     alignedEndOffset,
     extraPrefixTokens,
     extraSuffixTokens,
     boundaryPrecision,
-    evidence,
+    retrieval,
+    chunkAlignments: finalizedMatches.map((match) => ({
+      queryChunkIndex: match.chunkIndex,
+      candidateTokenOffset: match.tokenIndex,
+      score: match.score,
+      relativeScore: match.relativeScore,
+      supported: match.supported,
+      strength: match.strength,
+      evidence: { ...match.evidence },
+    })),
   };
 }
 
@@ -581,7 +715,10 @@ function scoreChunk(
   const morphology = phoneticMorphologyCompatibility(spoken, actual);
   if (morphology !== undefined) evidence.morphology = morphology === 1 ? phonetic : 0;
   const hypothesis = directHypothesisScore(spoken, actualCompact, speechEvidence);
-  if (hypothesis > 0) evidence.phonetic = Math.max(evidence.phonetic ?? 0, hypothesis);
+  if (hypothesis > 0) {
+    evidence.documentHypothesis = hypothesis;
+    evidence.phonetic = Math.max(evidence.phonetic ?? 0, hypothesis);
+  }
   const asrAlternative = bestAsrAlternative(actual, speechEvidence);
   if (asrAlternative >= 0.7) evidence.asrAlternative = asrAlternative;
   return {
@@ -635,6 +772,7 @@ function mergeAnchorEvidence(
     "fuzzy",
     "phonetic",
     "morphology",
+    "documentHypothesis",
     "asrAlternative",
   ] as const) {
     const value = right[key];
@@ -700,9 +838,11 @@ function pairDominanceVector(pair: SpanPairCandidate): readonly number[] {
   return [
     pair.start.evidence.coverage,
     pair.start.evidence.phraseAlignment,
+    pair.start.evidence.weakestSupportedChunkScore,
     pair.start.evidence.boundaryPrecision,
     pair.end.evidence.coverage,
     pair.end.evidence.phraseAlignment,
+    pair.end.evidence.weakestSupportedChunkScore,
     pair.end.evidence.boundaryPrecision,
     Number(pair.evidence.sameSentence),
     Number(pair.evidence.sameParagraph),
@@ -712,7 +852,7 @@ function pairDominanceVector(pair: SpanPairCandidate): readonly number[] {
 }
 
 function morphologyConfidence(value: number | undefined): number {
-  if (value === undefined) return 0.5;
+  if (value === undefined) return 0;
   if (value >= TEXT_SPAN_GROUNDING_POLICY.morphologyConfidence.strong) return 1;
   if (value >= TEXT_SPAN_GROUNDING_POLICY.morphologyConfidence.medium) return 0.5;
   return 0;
@@ -756,6 +896,16 @@ interface Alignment {
     chunkIndex: number;
     tokenIndex: number;
     score: number;
+    relativeScore: number;
+    absoluteSupported: boolean;
+    authoritative: boolean;
+    relativeSupported: boolean;
+    supported: boolean;
+    strength: "strong" | "supported" | "weak";
     evidence: AnchorMatchEvidence;
   }[];
+}
+
+function supportedMatchCount(alignment: Alignment): number {
+  return alignment.matches.filter((match) => match.supported).length;
 }
