@@ -180,6 +180,42 @@ export type {
   TargetQuery,
   TextSpanTargetQuery,
 } from "./target-query";
+export {
+  SPATIAL_ALIGNMENTS,
+  SPATIAL_PLACEMENT_RELATIONS,
+  SPATIAL_REGION_HINTS,
+} from "./spatial-placement-query";
+export type {
+  SpatialAlignment,
+  SpatialDistance,
+  SpatialOverlayIntent,
+  SpatialPlacementQuery,
+  SpatialPlacementRelation,
+  SpatialReferenceQuery,
+  SpatialRegionHint,
+} from "./spatial-placement-query";
+export type {
+  FrozenSpatialFocus,
+  FrozenSpatialSelection,
+  MeasuredDraft,
+  PlacementCandidate,
+  PlacementOverflowPolicy,
+  PlacementOverlayPolicy,
+  PlacementProfile,
+  PlacementResizePolicy,
+  ProtectionPolicy,
+  ResolvedPlacement,
+  ResolvedSpatialAnchor,
+  SpatialPlacementError,
+  SpatialPlacementReason,
+  SpatialPlacementResult,
+  SpatialProtection,
+  SpatialSceneMode,
+  SpatialSceneObject,
+  SpatialSceneSnapshot,
+  SpatialSemanticRole,
+  SpatialSourceLayer,
+} from "./spatial-placement-types";
 export { DEFAULT_TARGET_RESOLUTION_POLICY } from "./target-grounding-types";
 export type {
   CandidateEvidence,
@@ -208,6 +244,7 @@ export {
   DirectPlannerResultValidationError,
   parseDirectEditorCommand,
   parseDirectPlannerResult,
+  parseSpatialPlacementQuery,
   parseTargetQuery,
   safeParseDirectPlannerResult,
 } from "./direct-planner-schema";

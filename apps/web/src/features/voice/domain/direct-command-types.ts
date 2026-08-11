@@ -10,6 +10,7 @@ import type {
   DirectControlTarget,
   TargetQuery,
 } from "./target-query";
+import type { SpatialPlacementQuery } from "./spatial-placement-query";
 import type {
   CompletedVoiceTurn,
   FrozenVoiceTurnContext,
@@ -158,6 +159,9 @@ export interface ExecutableDirectPlan {
   normalizedIntent: string;
   relation: ExecutableCommandRelation;
   command: DirectEditorCommand;
+  /** Spatial mutation subject. Omitted when placement creates a new draft. */
+  targetQuery?: TargetQuery;
+  placementQuery?: SpatialPlacementQuery;
 }
 
 export interface DeferredSpatialPlan {

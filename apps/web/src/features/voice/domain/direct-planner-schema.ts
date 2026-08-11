@@ -15,6 +15,18 @@ import {
   type DirectTargetObjectType,
   type TargetQuery,
 } from "./target-query";
+import {
+  SPATIAL_ALIGNMENTS,
+  SPATIAL_PLACEMENT_RELATIONS,
+  SPATIAL_REGION_HINTS,
+  type SpatialAlignment,
+  type SpatialDistance,
+  type SpatialOverlayIntent,
+  type SpatialPlacementQuery,
+  type SpatialPlacementRelation,
+  type SpatialReferenceQuery,
+  type SpatialRegionHint,
+} from "./spatial-placement-query";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -48,7 +60,24 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
         "normalizedIntent",
         "relation",
         "command",
+        "targetQuery",
+        "placementQuery",
       ], "result");
+      const targetQuery = result.targetQuery === undefined
+        ? undefined
+        : parseTargetQuery(result.targetQuery, "result.targetQuery");
+      const placementQuery = result.placementQuery === undefined
+        ? undefined
+        : parseSpatialPlacementQuery(
+            result.placementQuery,
+            "result.placementQuery",
+          );
+      if (targetQuery !== undefined && placementQuery === undefined) {
+        return fail(
+          "result.targetQuery",
+          "spatial subject requires placementQuery",
+        );
+      }
       return {
         status,
         planId: readNonEmptyString(result.planId, "result.planId"),
@@ -60,6 +89,8 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
         ),
         relation: readExecutableRelation(result.relation, "result.relation"),
         command: parseDirectEditorCommand(result.command, "result.command"),
+        ...(targetQuery === undefined ? {} : { targetQuery }),
+        ...(placementQuery === undefined ? {} : { placementQuery }),
       };
     case "DEFER_SPATIAL":
     case "NEEDS_CLARIFICATION":
@@ -135,6 +166,46 @@ export function parseTargetQuery(
   path = "target",
 ): TargetQuery {
   return readTargetQuery(value, path, 0);
+}
+
+export function parseSpatialPlacementQuery(
+  value: unknown,
+  path = "placementQuery",
+): SpatialPlacementQuery {
+  const placement = readRecord(value, path);
+  assertOnlyKeys(placement, [
+    "reference",
+    "relation",
+    "regionHint",
+    "alignment",
+    "distance",
+    "overlayIntent",
+  ], path);
+
+  const regionHint = placement.regionHint === undefined
+    ? undefined
+    : readSpatialRegionHint(placement.regionHint, `${path}.regionHint`);
+  const alignment = placement.alignment === undefined
+    ? undefined
+    : readSpatialAlignment(placement.alignment, `${path}.alignment`);
+  const distance = placement.distance === undefined
+    ? undefined
+    : readSpatialDistance(placement.distance, `${path}.distance`);
+  const overlayIntent = placement.overlayIntent === undefined
+    ? undefined
+    : readSpatialOverlayIntent(
+        placement.overlayIntent,
+        `${path}.overlayIntent`,
+      );
+
+  return {
+    reference: readSpatialReference(placement.reference, `${path}.reference`),
+    relation: readSpatialPlacementRelation(placement.relation, `${path}.relation`),
+    ...(regionHint === undefined ? {} : { regionHint }),
+    ...(alignment === undefined ? {} : { alignment }),
+    ...(distance === undefined ? {} : { distance }),
+    ...(overlayIntent === undefined ? {} : { overlayIntent }),
+  };
 }
 
 function parseUnderlineCommand(
@@ -310,6 +381,85 @@ function readSemanticUnit(value: unknown, path: string): DirectSemanticUnit {
   return fail(path, `unsupported semantic unit: ${unit}`);
 }
 
+function readSpatialReference(
+  value: unknown,
+  path: string,
+): SpatialReferenceQuery {
+  const reference = readRecord(value, path);
+  const kind = readString(reference.kind, `${path}.kind`);
+
+  switch (kind) {
+    case "TARGET":
+      assertOnlyKeys(reference, ["kind", "query"], path);
+      return {
+        kind,
+        query: readTargetQuery(reference.query, `${path}.query`, 0),
+      };
+    case "FOCUS":
+    case "PAGE":
+    case "VIEWPORT":
+      assertOnlyKeys(reference, ["kind"], path);
+      return { kind };
+    default:
+      return fail(`${path}.kind`, `unsupported spatial reference: ${kind}`);
+  }
+}
+
+function readSpatialPlacementRelation(
+  value: unknown,
+  path: string,
+): SpatialPlacementRelation {
+  return readStringUnion(
+    value,
+    path,
+    SPATIAL_PLACEMENT_RELATIONS,
+    "spatial relation",
+  );
+}
+
+function readSpatialRegionHint(
+  value: unknown,
+  path: string,
+): SpatialRegionHint {
+  return readStringUnion(value, path, SPATIAL_REGION_HINTS, "spatial region hint");
+}
+
+function readSpatialAlignment(
+  value: unknown,
+  path: string,
+): SpatialAlignment {
+  return readStringUnion(value, path, SPATIAL_ALIGNMENTS, "spatial alignment");
+}
+
+function readSpatialDistance(value: unknown, path: string): SpatialDistance {
+  return readStringUnion(value, path, ["NEAR", "NORMAL"] as const, "spatial distance");
+}
+
+function readSpatialOverlayIntent(
+  value: unknown,
+  path: string,
+): SpatialOverlayIntent {
+  return readStringUnion(
+    value,
+    path,
+    ["NONE", "EXPLICIT"] as const,
+    "spatial overlay intent",
+  );
+}
+
+function readStringUnion<const TValues extends readonly string[]>(
+  value: unknown,
+  path: string,
+  allowedValues: TValues,
+  description: string,
+): TValues[number] {
+  const candidate = readString(value, path);
+  if ((allowedValues as readonly string[]).includes(candidate)) {
+    return candidate as TValues[number];
+  }
+  return fail(path, `unsupported ${description}: ${candidate}`);
+}
+
 function readObjectType(value: unknown, path: string): DirectTargetObjectType {
   const objectType = readString(value, path);
   if ((DIRECT_TARGET_OBJECT_TYPES as readonly string[]).includes(objectType)) {
@@ -381,6 +531,10 @@ function readSceneRevision(value: unknown, path: string): number {
 function readRecord(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return fail(path, "expected an object");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return fail(path, "expected a plain object");
   }
   return value as UnknownRecord;
 }

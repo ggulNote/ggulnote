@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   DirectEditorCommand,
   DirectPlannerResult,
+  ExecutableDirectPlan,
   FrozenVoiceTurnContext,
   PageTargetCandidate,
   PageTargetCatalog,
@@ -49,7 +50,7 @@ const CATALOG: PageTargetCatalog = {
   candidates: [PDF_TEXT, EDITABLE_TEXT],
 };
 
-function plan(command: DirectEditorCommand): DirectPlannerResult {
+function plan(command: DirectEditorCommand): ExecutableDirectPlan {
   return {
     status: "EXECUTABLE",
     planId: "plan-1",
@@ -175,6 +176,16 @@ describe("guardDirectCommandPlan", () => {
       turnId: "turn-1",
       reasonCode: "SPATIAL_REQUIRED",
     })).toEqual({
+      status: "REJECTED",
+      errorCode: "SPATIAL_REQUIRED",
+    });
+    expect(guard({
+      ...underline,
+      placementQuery: {
+        reference: { kind: "PAGE" },
+        relation: "FREE_SPACE",
+      },
+    }, resolution(PDF_TEXT))).toEqual({
       status: "REJECTED",
       errorCode: "SPATIAL_REQUIRED",
     });

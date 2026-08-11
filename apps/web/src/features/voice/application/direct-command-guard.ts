@@ -65,6 +65,9 @@ export function guardDirectCommandPlan(
   ) {
     return reject("STALE_SCENE");
   }
+  if (result.placementQuery !== undefined) {
+    return reject("SPATIAL_REQUIRED");
+  }
 
   const commandName = directCommandName(result.command);
   const allowed = new Set(input.allowedCommands ?? DIRECT_COMMAND_NAMES);

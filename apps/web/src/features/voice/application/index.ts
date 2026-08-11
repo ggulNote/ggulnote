@@ -133,6 +133,28 @@ export type {
   DirectRecentOperationsSource,
   FrozenSceneSnapshotSource,
 } from "./direct-command-context-builder";
+export {
+  classifySpatialProtection,
+  DefaultSpatialProtectionPolicy,
+  ExistingSceneSpatialSceneSource,
+  toSpatialSceneObject,
+} from "./spatial-scene-source";
+export type {
+  ExistingSceneSpatialSceneSourceOptions,
+  FrozenSceneReadSource,
+  FrozenSpatialSceneReference,
+  SpatialSceneSource,
+  SpatialSceneSourceResult,
+} from "./spatial-scene-source";
+export type {
+  DraftMeasurementProvider,
+  DraftMeasurementProviderResult,
+  DraftMeasurementRequest,
+  PlacementProfileProvider,
+  PlacementProfileProviderResult,
+  PlacementProfileRequest,
+} from "./placement-profile-provider";
+export { measureExistingObjectDraft } from "./placement-profile-provider";
 export { DirectCommandPlanningPipeline } from "./direct-command-planning-pipeline";
 export type {
   DirectCommandPlanningOptions,
