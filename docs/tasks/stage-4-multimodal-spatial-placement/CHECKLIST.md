@@ -182,97 +182,101 @@ typed spatial plan
 ## B1. Grounding Orchestrator
 
 - [ ] placement route와 direct route 분리
-- [ ] anchor `TARGET` → Stage 3.5 Grounder 재사용
-- [ ] anchor `FOCUS` → frozen focus
-- [ ] anchor `PAGE` → page/editable bounds
-- [ ] anchor `VIEWPORT` → frozen viewport
-- [ ] create subject 없음 처리
+- [x] anchor `TARGET` → Stage 3.5 Grounder 재사용
+- [x] anchor `FOCUS` → frozen focus
+- [x] anchor `PAGE` → page/editable bounds
+- [x] anchor `VIEWPORT` → frozen viewport
+- [x] create subject 없음 처리
 - [ ] move subject grounding
-- [ ] anchor not found
+- [x] anchor not found
 - [ ] subject unsupported
-- [ ] no duplicate Grounder implementation
+- [x] no duplicate Grounder implementation
 
 ## B2. SpatialOccupancyIndex
 
-- [ ] HARD/SOFT/IGNORE 분리
-- [ ] profile clearance inflate
-- [ ] editable bounds 검사
-- [ ] hard overlap area
-- [ ] soft overlap area
-- [ ] nearest clearance
-- [ ] nearby objects
-- [ ] exact Rect geometry 기반 MVP
-- [ ] raster/CV 불필요
-- [ ] unit tests
+- [x] HARD/SOFT/IGNORE 분리
+- [x] profile clearance inflate
+- [x] editable bounds 검사
+- [x] hard overlap area
+- [x] soft overlap area
+- [x] nearest clearance
+- [x] nearby objects
+- [x] exact Rect geometry 기반 MVP
+- [x] raster/CV 불필요
+- [x] unit tests
 
 ## B3. Anchor-relative Slots
 
-- [ ] ABOVE start/center/end
-- [ ] BELOW start/center/end
-- [ ] LEFT_OF start/center/end
-- [ ] RIGHT_OF start/center/end
-- [ ] INSIDE/AT explicit overlay policy
-- [ ] NEAR representative slots
-- [ ] bounded directional step search
-- [ ] page bounds clamp가 아니라 invalid reject 우선
-- [ ] requested relation 보존
+- [x] ABOVE start/center/end
+- [x] BELOW start/center/end
+- [x] LEFT_OF start/center/end
+- [x] RIGHT_OF start/center/end
+- [x] INSIDE/AT explicit overlay policy
+- [x] NEAR representative slots
+- [x] bounded directional step search
+- [x] page bounds clamp가 아니라 invalid reject 우선
+- [x] requested relation 보존
 
 ## B4. Region / Free-space Candidate
 
-- [ ] TOP/BOTTOM/LEFT/RIGHT
-- [ ] MARGIN
-- [ ] CURRENT_VIEW
-- [ ] page/viewport corner seeds
-- [ ] object gap seeds
-- [ ] coarse grid fallback
-- [ ] nearby edge snap
-- [ ] preferred size first
-- [ ] compact size 최대 한 번
-- [ ] overflow/new page는 actual capability가 있을 때만 candidate
+- [x] TOP/BOTTOM/LEFT/RIGHT
+- [x] MARGIN
+- [x] CURRENT_VIEW
+- [x] page/viewport corner seeds
+- [x] object gap seeds
+- [x] coarse grid fallback
+- [x] nearby edge snap
+- [x] preferred size first
+- [x] compact size 최대 한 번
+- [x] overflow/new page는 actual capability가 있을 때만 candidate
 
 ## B5. Filter / Prune / Gate
 
-- [ ] hard constraint filter
-- [ ] min size filter
-- [ ] overlay policy filter
-- [ ] relation validation
-- [ ] near-duplicate dedupe
-- [ ] dominance pruning
-- [ ] strategy diversity
-- [ ] final candidates <= 6
-- [ ] 0 → NO_FEASIBLE_PLACEMENT
-- [ ] 1 → deterministic RESOLVED
-- [ ] dominant top1 → deterministic RESOLVED
-- [ ] genuine ambiguity → AMBIGUOUS
-- [ ] opaque weighted score 없이 설명 가능한 evidence
+- [x] hard constraint filter
+- [x] min size filter
+- [x] overlay policy filter
+- [x] relation validation
+- [x] near-duplicate dedupe
+- [x] dominance pruning
+- [x] strategy diversity
+- [x] final candidates <= 6
+- [x] 0 → NO_FEASIBLE_PLACEMENT
+- [x] 1 → deterministic RESOLVED
+- [x] dominant top1 → deterministic RESOLVED
+- [x] genuine ambiguity → AMBIGUOUS
+- [x] opaque weighted score 없이 설명 가능한 evidence
 
 ## B6. Debug / Diagnostics
 
 - [ ] S1...Sn overlay
-- [ ] candidate JSON
-- [ ] filtered reason
-- [ ] deterministic/ambiguous reason
-- [ ] hard/soft obstacle debug
-- [ ] canonical coordinate display
-- [ ] no production mutation
+- [x] candidate JSON
+- [x] filtered reason
+- [x] deterministic/ambiguous reason
+- [x] hard/soft obstacle debug
+- [x] canonical coordinate display
+- [x] no production mutation
 
 ## B7. Phase B Tests
 
-- [ ] figure below unique space
-- [ ] paragraph right margin
-- [ ] dense page no feasible
-- [ ] two-column page
-- [ ] blank canvas sparse
-- [ ] blank canvas dense
-- [ ] preferred vs compact
-- [ ] duplicate candidates
-- [ ] dominance
-- [ ] true ambiguity
-- [ ] candidate cap 6
-- [ ] deterministic path future VLM call 0 contract
-- [ ] Stage 3.5 regression
-- [ ] typecheck/lint/diff-check
-- [ ] Phase B STATUS/commits
+- [x] figure below unique space
+- [x] paragraph right margin
+- [x] dense page no feasible
+- [x] two-column page
+- [x] blank canvas sparse
+- [x] blank canvas dense
+- [x] preferred vs compact
+- [x] duplicate candidates
+- [x] dominance
+- [x] true ambiguity
+- [x] candidate cap 6
+- [x] deterministic path future VLM call 0 contract
+- [x] Stage 3.5 regression
+- [x] typecheck/lint/diff-check
+- [x] Phase B STATUS/commits
+
+이번 세션의 Phase B 완료 범위에서는 순수 후보 엔진까지만 구현했다.
+위에 남은 runtime route/move subject grounding은 Phase E,
+visual `S1...Sn` overlay는 screenshot/Set-of-Mark와 함께 Phase C에서 진행한다.
 
 완료 조건:
 

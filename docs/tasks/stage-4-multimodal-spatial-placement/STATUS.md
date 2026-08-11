@@ -5,7 +5,7 @@
 ```text
 Stage: 4 — Candidate-Constrained Multimodal Spatial Placement
 Status: IN PROGRESS
-Current Milestone: Phase B — Deterministic Placement Candidate Engine (NEXT; NOT STARTED)
+Current Milestone: Phase C — Bounded Multimodal Placement Judge (NEXT; NOT STARTED)
 ```
 
 Stage 4는 Stage 3 / 3.5를 대체하지 않는다.
@@ -56,6 +56,7 @@ Working tree:
 ```text
 Stage 3.5 branch handoff 시 clean
 Phase A docs commit 후 clean (최종 검증에서 재확인)
+Phase B docs commit과 최종 검증 후 clean
 ```
 
 중요:
@@ -303,7 +304,7 @@ limitations: production renderer/offscreen measurement와 profile registry adapt
   SceneObject에 별도 renderBounds가 없어 Phase A는 authoritative bounds를 사용;
   speech-start frozen canonical viewport가 없어 caller가 frozen canonical bounds를 제공해야 함;
   production screenshot/ghost preview 및 spatial create/move runtime route 없음.
-next milestone: Phase B — Deterministic Placement Candidate Engine (미착수)
+next milestone: Phase B — 완료; 아래 Phase B 기록 참조
 ```
 
 ---
@@ -313,22 +314,82 @@ next milestone: Phase B — Deterministic Placement Candidate Engine (미착수)
 Status:
 
 ```text
-NEXT — NOT STARTED
+COMPLETE (순수 spatial decision layer)
 ```
 
-완료 후 기록:
+완료 기록:
 
 ```text
-occupancy implementation:
-relative slots:
-free-space fallback:
-candidate cap:
-dominance policy:
-deterministic fixtures:
-ambiguous fixtures:
-debug surface:
+start HEAD: 1657ffdb4f26d1b4791f42cd47c6d2f2a0305398
+implementation commit: 335e716
+docs commit: 이 STATUS/CHECKLIST 갱신 commit
+
+implementation:
+  apps/web/src/features/voice/application/spatial-occupancy-index.ts
+  apps/web/src/features/voice/application/spatial-anchor-resolver.ts
+  apps/web/src/features/voice/application/placement-candidate-engine.ts
+  동일 경로의 targeted test 3개와 domain/application/feature barrel
+
+occupancy implementation: PAGE_CANONICAL Rect exact intersection 기반.
+  HARD/SOFT/IGNORE를 분리하고 profile minClearance로 HARD bounds를 inflate한다.
+  editable containment, actual hard/soft overlap area, nearest clearance,
+  nearby object와 blocking HARD object를 deterministic하게 제공한다.
+
+anchor adapter: TARGET은 외부 Stage 3.5 TargetResolutionResult만 소비하며 재-grounding하지 않는다.
+  FOCUS/PAGE/VIEWPORT는 동일 frozen SpatialSceneSnapshot에서 resolve한다.
+  page/revision mismatch는 STALE_SCENE, bounds 부재는 ANCHOR_NOT_FOUND다.
+
+relative slots: ABOVE/BELOW/LEFT_OF/RIGHT_OF start/center/end,
+  NEAR representative four directions, INSIDE/AT explicit overlay policy.
+  HARD 충돌 시 relation 방향의 겹친 object far edge + minClearance로만 이동하며
+  iteration은 hard object count + 2로 제한한다. 좌표 clamp는 없다.
+
+free-space fallback: page/viewport/region representative seed와 HARD object의
+  left/right/top/bottom clearance edge를 축별 최대 12개로 제한해 조합한다.
+  TOP/BOTTOM/LEFT/RIGHT/MARGIN/CURRENT_VIEW는 search domain/evidence로 반영한다.
+  raster/bitmap/CV/외부 spatial dependency는 없다.
+
+footprint: MeasuredDraft preferred 우선. preferred 결과가 없고 resizePolicy가
+  FIXED가 아닐 때만 measured/profile compact를 최대 한 번 시도한다.
+
+filter/prune: invalid/NaN/Infinity/non-positive/min-size/max-size/out-of-bounds,
+  HARD overlap/clearance, relation, overlay policy를 hard reject한다.
+  SOFT overlap은 evidence만 기록한다. PAGE_CANONICAL epsilon dedupe 후
+  relation/preferred/alignment/soft-overlap/clearance/anchor-distance의 보수적
+  Pareto dominance만 제거하고 strategy/alignment/size round-robin diversity를 적용한다.
+
+candidate cap/order: final <= 6. shortlist 정렬 뒤 S1...Sn과 deterministic internalId를
+  발급한다. opaque weighted score는 없다.
+
+deterministic gate: 0 -> NO_FEASIBLE_PLACEMENT, 1 -> RESOLVED,
+  하나가 모든 대안을 dominance할 때만 RESOLVED, 그 외 AMBIGUOUS.
+  snapshot/revision mismatch는 STALE_SCENE다.
+
+debug surface: JSON-safe diagnostics에 anchor/editable/draft, HARD/SOFT bounds,
+  raw/filtered/deduped/pruned/final count, filtered reason, candidate evidence,
+  PAGE_CANONICAL identity와 gate result를 제공한다. visual S1 overlay는 이번 Phase B의
+  screenshot/Set-of-Mark 금지에 따라 Phase C로 남겼다.
+
 tests:
-next milestone: Phase C
+  Phase B targeted: 3 files / 38 PASS
+  Phase A targeted: 4 files / 39 PASS
+  Stage 3.5 TextSpan/FrozenHybrid/Recovery: 3 files / 36 PASS
+    (이전 STATUS의 37 baseline과 현재 test enumeration이 1개 다르나 failure 없음)
+  Web full: 105 files / 743 PASS
+  Editor Core full: 7 files / 52 PASS
+  Web/Editor typecheck: PASS
+  Web/Editor full lint: PASS
+  git diff --check: PASS
+
+known non-failure output: Node 20.19.4 (repo requires >=22) engine warning,
+  expected provider validation stderr, jsdom canvas getContext stderr,
+  Editor Core lint existing React/pages-directory warnings.
+
+boundaries: AI/VLM/provider/network/screenshot/candidate image/preview/runtime mutation,
+  CommandManager/Operation Log/Undo/IndexedDB write를 추가하지 않았다.
+  placement route와 move subject grounding/runtime 연결은 Phase E에 남아 있다.
+
+next milestone: Phase C — Bounded Multimodal Placement Judge (미착수)
 ```
 
 ---
@@ -338,7 +399,7 @@ next milestone: Phase C
 Status:
 
 ```text
-PENDING
+NEXT — NOT STARTED
 ```
 
 완료 후 기록:
