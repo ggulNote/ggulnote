@@ -342,6 +342,43 @@ export class DirectCommandRoute {
       ...(planningDiagnostics?.plannerStatus === undefined
         ? {}
         : { plannerStatus: planningDiagnostics.plannerStatus }),
+      ...(planningDiagnostics?.plannerPlacementPresent === undefined
+        ? {}
+        : { plannerPlacementPresent: planningDiagnostics.plannerPlacementPresent }),
+      ...(planningDiagnostics?.spatialPhraseEvidenceKind === undefined
+        ? {}
+        : { spatialPhraseEvidenceKind: planningDiagnostics.spatialPhraseEvidenceKind }),
+      ...(planningDiagnostics?.spatialPhraseEvidenceTokens === undefined
+        ? {}
+        : {
+            spatialPhraseEvidenceTokens: [
+              ...planningDiagnostics.spatialPhraseEvidenceTokens,
+            ],
+          }),
+      ...(planningDiagnostics?.normalizedPlacementMode === undefined
+        ? {}
+        : { normalizedPlacementMode: planningDiagnostics.normalizedPlacementMode }),
+      ...(planningDiagnostics?.placementProvenance === undefined
+        ? {}
+        : { placementProvenance: planningDiagnostics.placementProvenance }),
+      ...(planningDiagnostics?.placementConflictRecovered === undefined
+        ? {}
+        : {
+            placementConflictRecovered:
+              planningDiagnostics.placementConflictRecovered,
+          }),
+      ...(planningDiagnostics?.plannerOutputRecovered === undefined
+        ? {}
+        : { plannerOutputRecovered: planningDiagnostics.plannerOutputRecovered }),
+      ...(planningDiagnostics?.placementRecoveryReason === undefined
+        ? {}
+        : { placementRecoveryReason: planningDiagnostics.placementRecoveryReason }),
+      ...(planningDiagnostics?.autoFlowSource === undefined
+        ? {}
+        : { autoFlowSource: planningDiagnostics.autoFlowSource }),
+      ...(planningDiagnostics?.placementChoicePolicy === undefined
+        ? {}
+        : { placementChoicePolicy: planningDiagnostics.placementChoicePolicy }),
       ...(planningDiagnostics?.speechRefinerUsed === undefined
         ? {}
         : { speechRefinerUsed: planningDiagnostics.speechRefinerUsed }),
@@ -584,6 +621,7 @@ function unavailableSpatialDiagnostics(
     commitGuard: "NOT_RUN",
     runtimeExecuted: false,
     operationRecorded: false,
+    stableFallbackUsed: false,
     failureReason: "UNSUPPORTED_CAPABILITY",
     anchorResolutionMs: 0,
     candidateGenerationMs: 0,

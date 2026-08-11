@@ -250,6 +250,26 @@ export type {
   PlacementCandidateGenerationResult,
   PlacementObstacleDiagnostic,
 } from "./placement-candidate-engine";
+export {
+  applyPlacementChoicePolicy,
+  resolveDelegatedLayoutFallback,
+} from "./placement-choice-policy";
+export type {
+  PlacementChoicePolicyInput,
+  PlacementChoicePolicyResolution,
+} from "./placement-choice-policy";
+export { extractSpatialPhraseEvidence } from "./spatial-phrase-evidence";
+export type {
+  HorizontalPlacementEvidence,
+  SpatialPhraseEvidence,
+  SpatialPhraseEvidenceInput,
+  VerticalPlacementEvidence,
+} from "./spatial-phrase-evidence";
+export { normalizeTextPlacementIntent } from "./text-placement-intent-normalizer";
+export type {
+  TextPlacementIntentNormalizationInput,
+  TextPlacementIntentNormalizationResult,
+} from "./text-placement-intent-normalizer";
 export { DirectCommandPlanningPipeline } from "./direct-command-planning-pipeline";
 export type {
   DirectCommandPlanningOptions,

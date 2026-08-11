@@ -1,5 +1,6 @@
 import type { DirectCommandContext, ResolvedTarget } from "./target-grounding-types";
 import type { DirectCommandPlanningDiagnostics } from "./direct-command-diagnostics-types";
+import type { NormalizedTextPlacement } from "./text-placement-intent";
 import type {
   DirectCommandRouteErrorCode,
   DirectCommandTurnId,
@@ -35,6 +36,7 @@ export type DirectCommandPlanningResult =
       plan: ExecutableDirectPlan;
       target?: ResolvedTarget;
       spatialAnchorTarget?: ResolvedTarget;
+      textPlacement?: NormalizedTextPlacement;
       disambiguationUsed: boolean;
     })
   | (DirectCommandPlanningResultBase & {

@@ -20,6 +20,13 @@ import type {
 } from "./spatial-placement-types";
 import type { PlacementCandidateAlias } from "./multimodal-placement-types";
 import type { SpatialPreviewResolutionFailureStatus } from "./spatial-preview-types";
+import type {
+  TextPlacementAutoFlowSource,
+  TextPlacementChoicePolicy,
+  TextPlacementMode,
+  TextPlacementProvenance,
+  TextPlacementRecoveryReason,
+} from "./text-placement-intent";
 
 export interface SpatialCommandExecutionDiagnostics {
   readonly placementRequested: true;
@@ -48,6 +55,8 @@ export interface SpatialCommandExecutionDiagnostics {
   readonly commitGuard: "NOT_RUN" | "PASSED" | "REJECTED";
   readonly runtimeExecuted: boolean;
   readonly operationRecorded: boolean;
+  readonly placementChoicePolicy?: TextPlacementChoicePolicy;
+  readonly stableFallbackUsed: boolean;
   readonly failureReason?: SpatialPlacementReason | DirectCommandRouteErrorCode;
   readonly anchorResolutionMs: number;
   readonly candidateGenerationMs: number;
@@ -69,6 +78,16 @@ export interface DirectCommandPlanningDiagnostics {
   speechRefinerResult?: "SKIPPED" | "UNCHANGED" | "REFINED" | "REJECTED" | "ERROR";
   speechRefinerErrorCode?: string;
   plannerStatus?: DirectPlannerResult["status"];
+  plannerPlacementPresent?: boolean;
+  spatialPhraseEvidenceKind?: "NONE" | "EXPLICIT_REGION" | "CONTEXTUAL_RELATIVE" | "AUTO_FREE_SPACE";
+  spatialPhraseEvidenceTokens?: readonly string[];
+  normalizedPlacementMode?: TextPlacementMode;
+  placementProvenance?: TextPlacementProvenance;
+  placementConflictRecovered?: boolean;
+  plannerOutputRecovered?: boolean;
+  placementRecoveryReason?: TextPlacementRecoveryReason;
+  autoFlowSource?: TextPlacementAutoFlowSource;
+  placementChoicePolicy?: TextPlacementChoicePolicy;
   planId?: string;
   capability?: string;
   operation?: string;
@@ -156,6 +175,16 @@ export interface DirectCommandTrace {
   turnId: string;
   planId?: string;
   plannerStatus?: DirectPlannerResult["status"];
+  plannerPlacementPresent?: boolean;
+  spatialPhraseEvidenceKind?: DirectCommandPlanningDiagnostics["spatialPhraseEvidenceKind"];
+  spatialPhraseEvidenceTokens?: readonly string[];
+  normalizedPlacementMode?: TextPlacementMode;
+  placementProvenance?: TextPlacementProvenance;
+  placementConflictRecovered?: boolean;
+  plannerOutputRecovered?: boolean;
+  placementRecoveryReason?: TextPlacementRecoveryReason;
+  autoFlowSource?: TextPlacementAutoFlowSource;
+  placementChoicePolicy?: TextPlacementChoicePolicy;
   speechRefinerUsed?: boolean;
   speechRefinerResult?: DirectCommandPlanningDiagnostics["speechRefinerResult"];
   speechRefinerErrorCode?: string;

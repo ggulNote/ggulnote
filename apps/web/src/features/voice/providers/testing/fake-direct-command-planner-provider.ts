@@ -1,10 +1,10 @@
 import type {
   DirectCommandPlannerInput,
-  DirectPlannerResult,
+  DirectPlannerDraftResult,
 } from "../../domain";
 import {
   parseDirectEditorCommand,
-  parseDirectPlannerResult,
+  parseDirectPlannerDraftResult,
 } from "../../domain";
 import type {
   DirectCommandPlannerOptions,
@@ -12,7 +12,7 @@ import type {
 } from "../direct-command-planner-provider";
 
 export interface FakeDirectCommandPlannerProviderOptions {
-  result: DirectPlannerResult;
+  result: DirectPlannerDraftResult;
   error?: unknown;
 }
 
@@ -22,13 +22,13 @@ export interface FakeDirectCommandPlannerCall {
 }
 
 export class FakeDirectCommandPlannerProvider implements DirectCommandPlannerProvider {
-  private result: DirectPlannerResult;
+  private result: DirectPlannerDraftResult;
   private injectedError: unknown;
   private hasInjectedError = false;
   private readonly recordedCalls: FakeDirectCommandPlannerCall[] = [];
 
   public constructor(options: FakeDirectCommandPlannerProviderOptions) {
-    this.result = parseDirectPlannerResult(options.result);
+    this.result = parseDirectPlannerDraftResult(options.result);
     if (options.error !== undefined) {
       this.injectedError = options.error;
       this.hasInjectedError = true;
@@ -38,7 +38,7 @@ export class FakeDirectCommandPlannerProvider implements DirectCommandPlannerPro
   public async plan(
     input: DirectCommandPlannerInput,
     options: DirectCommandPlannerOptions = {},
-  ): Promise<DirectPlannerResult> {
+  ): Promise<DirectPlannerDraftResult> {
     const call: FakeDirectCommandPlannerCall = {
       input: clonePlannerInput(input),
     };
@@ -54,7 +54,7 @@ export class FakeDirectCommandPlannerProvider implements DirectCommandPlannerPro
     if (this.hasInjectedError) {
       throw this.injectedError;
     }
-    return parseDirectPlannerResult(this.result);
+    return parseDirectPlannerDraftResult(this.result);
   }
 
   public get planCallCount(): number {
@@ -78,8 +78,8 @@ export class FakeDirectCommandPlannerProvider implements DirectCommandPlannerPro
     });
   }
 
-  public setResult(result: DirectPlannerResult): void {
-    this.result = parseDirectPlannerResult(result);
+  public setResult(result: DirectPlannerDraftResult): void {
+    this.result = parseDirectPlannerDraftResult(result);
   }
 
   public injectError(error: unknown): void {

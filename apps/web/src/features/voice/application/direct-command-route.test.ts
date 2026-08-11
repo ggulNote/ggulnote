@@ -104,6 +104,7 @@ function spatialDiagnostics(
     commitGuard: "PASSED",
     runtimeExecuted: true,
     operationRecorded: true,
+    stableFallbackUsed: false,
     anchorResolutionMs: 1,
     candidateGenerationMs: 1,
     multimodalMs: 0,

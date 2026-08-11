@@ -25,6 +25,10 @@ import type {
   SpatialSceneSource,
 } from "./spatial-scene-source";
 import { selectedSpatialPlacementFromResult } from "./preview-validation-orchestrator";
+import {
+  applyPlacementChoicePolicy,
+  resolveDelegatedLayoutFallback,
+} from "./placement-choice-policy";
 
 export interface ValidatedSpatialPlacementExecutionPort {
   executeSpatial(
@@ -68,6 +72,8 @@ interface MutableDiagnostics {
   commitGuard: SpatialCommandExecutionDiagnostics["commitGuard"];
   runtimeExecuted: boolean;
   operationRecorded: boolean;
+  placementChoicePolicy?: SpatialCommandExecutionDiagnostics["placementChoicePolicy"];
+  stableFallbackUsed: boolean;
   failureReason?: SpatialCommandExecutionDiagnostics["failureReason"];
   anchorResolutionMs: number;
   candidateGenerationMs: number;
@@ -191,9 +197,20 @@ export class SpatialPlacementExecutionPipeline {
       return this.failure(ready, diagnostics, startedAt, "STALE_SCENE");
     }
 
+    const choicePolicy = ready.textPlacement?.choicePolicy
+      ?? "SEMANTIC_CONSTRAINT_REQUIRED";
+    diagnostics.placementChoicePolicy = choicePolicy;
+    const policyResolution = applyPlacementChoicePolicy({
+      result: gate,
+      policy: choicePolicy,
+      snapshot,
+      query,
+      anchor,
+    });
+
     const multimodalStartedAt = this.now();
     const placement = await this.options.multimodal.resolve({
-      phaseBResult: gate,
+      phaseBResult: policyResolution.result,
       snapshot,
       query,
       draft: measured.draft,
@@ -207,18 +224,32 @@ export class SpatialPlacementExecutionPipeline {
     diagnostics.multimodalCallCount = placement.diagnostics.providerCallCount;
     diagnostics.multimodalProviderResult = placement.diagnostics.providerResult;
     diagnostics.screenshotCallCount = placement.diagnostics.observation === undefined ? 0 : 1;
-    if (placement.result.status === "AMBIGUOUS") {
+    let placementResult = placement.result;
+    if (
+      choicePolicy === "USER_DELEGATED_LAYOUT"
+      && placementResult.status === "PROVIDER_UNAVAILABLE"
+      && gate.status === "AMBIGUOUS"
+    ) {
+      placementResult = resolveDelegatedLayoutFallback({
+        result: gate,
+        snapshot,
+        query,
+        anchor,
+      });
+      diagnostics.stableFallbackUsed = placementResult.status === "RESOLVED";
+    }
+    if (placementResult.status === "AMBIGUOUS") {
       return this.failure(ready, diagnostics, startedAt, "MULTIMODAL_UNRESOLVED");
     }
-    if (placement.result.status !== "RESOLVED") {
+    if (placementResult.status !== "RESOLVED") {
       return this.failure(
         ready,
         diagnostics,
         startedAt,
-        placementFailure(placement.result.status),
+        placementFailure(placementResult.status),
       );
     }
-    const selected = selectedSpatialPlacementFromResult(placement.result);
+    const selected = selectedSpatialPlacementFromResult(placementResult);
     if (selected === undefined) {
       return this.failure(ready, diagnostics, startedAt, "MULTIMODAL_UNRESOLVED");
     }
@@ -310,6 +341,7 @@ function initialDiagnostics(): MutableDiagnostics {
     commitGuard: "NOT_RUN",
     runtimeExecuted: false,
     operationRecorded: false,
+    stableFallbackUsed: false,
     anchorResolutionMs: 0,
     candidateGenerationMs: 0,
     multimodalMs: 0,

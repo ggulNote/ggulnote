@@ -31,6 +31,11 @@ ALLOWED COMMAND SCHEMA
 - history.undo: target={"kind":"LAST_OPERATION"}, payload={}
 - text.replace_content: target=TargetQuery, payload={"text": string}
 - text.create: target={"kind":"CURRENT_PAGE"}, payload={"text": non-empty string}; placementQuery is required
+- For text.create with no spoken location, use PAGE + FREE_SPACE + TOP + START as the automatic writing-flow default.
+- A spoken free-space delegation such as "빈 공간에" uses PAGE + FREE_SPACE + AUTO.
+- Compose page regions from vertical regionHint and horizontal alignment: left/top = TOP + START, right/bottom = BOTTOM + END.
+- Bare "위에" uses ABOVE FOCUS when a valid focus exists; without focus or a deictic term it means PAGE + FREE_SPACE + TOP + START.
+- Deictic relative phrases such as "그 위에" require a semantic TARGET/FOCUS reference and must not silently become PAGE TOP.
 
 TARGET QUERY SCHEMA
 - allowed object type = pdf-region|paragraph|line|word|image|text|math|graph|table|shape|annotation|group
@@ -88,6 +93,11 @@ BEHAVIOR EXAMPLES
 - previous yellow highlight + "노란색 말고 파란색으로" => REVISE_LAST + annotation.highlight + relative/last_target + blue
 - "AI 문제점 문장 오른쪽 여백에 메모해줘" => text.create + TARGET semantic_unit reference + RIGHT_OF + MARGIN
 - "빈 공간에 메모해줘" => text.create + PAGE reference + FREE_SPACE
+- "왼쪽 위에 가나다라라고 써 줘" => text.create payload.text="가나다라" + PAGE + FREE_SPACE + TOP + START
+- "빈 공간에 가나다라라고 써 줘" => text.create payload.text="가나다라" + PAGE + FREE_SPACE + AUTO
+- "가나다라라고 써 줘" => text.create payload.text="가나다라" + PAGE + FREE_SPACE + TOP + START
+- "위에 가나다라라고 써 줘" with no focus => text.create payload.text="가나다라" + PAGE + FREE_SPACE + TOP + START
+- "왼쪽 위라고 써 줘" => text.create payload.text="왼쪽 위"; the content words are not placement evidence
 - "아니, 그냥 하지 마" => CANCELLED.`;
 
 export function buildDirectCommandPlannerModelRequest(

@@ -1,6 +1,6 @@
 import type {
   DirectCommandPlannerInput,
-  DirectPlannerResult,
+  DirectPlannerDraftResult,
 } from "../domain";
 
 export interface DirectCommandPlannerOptions {
@@ -11,5 +11,5 @@ export interface DirectCommandPlannerProvider {
   plan(
     input: DirectCommandPlannerInput,
     options?: DirectCommandPlannerOptions,
-  ): Promise<DirectPlannerResult>;
+  ): Promise<DirectPlannerDraftResult>;
 }

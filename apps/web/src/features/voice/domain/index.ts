@@ -110,10 +110,12 @@ export type {
   DirectFocusTargetRef,
   DirectLastOperationTargetRef,
   DirectPlannerResult,
+  DirectPlannerDraftResult,
   DirectTargetRef,
   EmptyDirectCommandPayload,
   ExecutableCommandRelation,
   ExecutableDirectPlan,
+  ExecutableDirectPlannerDraft,
   HistoryUndoDirectCommand,
   NavigationDirectCommand,
   NeedsClarificationPlan,
@@ -121,6 +123,14 @@ export type {
   UnsupportedDirectPlan,
 } from "./direct-command-types";
 export { DIRECT_COMMAND_NAMES } from "./direct-command-types";
+export type {
+  NormalizedTextPlacement,
+  TextPlacementAutoFlowSource,
+  TextPlacementChoicePolicy,
+  TextPlacementMode,
+  TextPlacementProvenance,
+  TextPlacementRecoveryReason,
+} from "./text-placement-intent";
 export type {
   DirectCommandHistorySnapshot,
   DirectOperationRecord,
@@ -270,6 +280,7 @@ export type {
 export {
   DirectPlannerResultValidationError,
   parseDirectEditorCommand,
+  parseDirectPlannerDraftResult,
   parseDirectPlannerResult,
   parseSpatialPlacementQuery,
   parseTargetQuery,

@@ -2,6 +2,7 @@ import type {
   AnnotationHighlightDirectCommand,
   AnnotationUnderlineDirectCommand,
   DirectEditorCommand,
+  DirectPlannerDraftResult,
   DirectPlannerResult,
   ExecutableCommandRelation,
   HistoryUndoDirectCommand,
@@ -48,6 +49,19 @@ export type SafeDirectPlannerResultParse =
   | { success: false; error: DirectPlannerResultValidationError };
 
 export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
+  return parsePlannerResult(value, false) as DirectPlannerResult;
+}
+
+export function parseDirectPlannerDraftResult(
+  value: unknown,
+): DirectPlannerDraftResult {
+  return parsePlannerResult(value, true);
+}
+
+function parsePlannerResult(
+  value: unknown,
+  allowMissingTextCreatePlacement: boolean,
+): DirectPlannerDraftResult {
   const result = readRecord(value, "result");
   const status = readString(result.status, "result.status");
 
@@ -84,6 +98,7 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
         command.capability === "text"
         && command.operation === "create"
         && placementQuery === undefined
+        && !allowMissingTextCreatePlacement
       ) {
         return fail(
           "result.placementQuery",

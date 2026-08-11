@@ -130,6 +130,7 @@ function harness(options: {
   alignment: SpatialPlacementQuery["alignment"];
   profile?: PlacementProfile;
   providerChoice?: `S${number}` | "NONE";
+  providerAvailable?: boolean;
 }) {
   const scene = snapshot();
   const sceneSource = new FakeSpatialSceneSource({ status: "READY", snapshot: scene });
@@ -191,7 +192,7 @@ function harness(options: {
   };
   const multimodal = new BoundedMultimodalPlacementResolver({
     observationBuilder: observation,
-    provider,
+    ...(options.providerAvailable === false ? {} : { provider }),
     currentSceneSource,
   });
 
@@ -336,6 +337,92 @@ describe("SpatialPlacementExecutionPipeline", () => {
     expect(result.result.status).toBe("COMMITTED");
     expect(result.diagnostics.shortlistCandidateCount).toBeGreaterThan(0);
     expect(result.diagnostics.multimodalCallCount).toBeLessThanOrEqual(1);
+    expect(test.previewCalls()).toBe(1);
+    expect(test.executeSpatial).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { mode: "AUTO_FLOW", choicePolicy: "WRITING_FLOW" },
+    { mode: "EXPLICIT_REGION", choicePolicy: "EXPLICIT_REGION" },
+  ] as const)("keeps $mode layout ties screenshot/VLM-free", async ({
+    mode,
+    choicePolicy,
+  }) => {
+    const test = harness({
+      alignment: "AUTO",
+      profile: { ...PROFILE, allowedRelations: ["FREE_SPACE"] },
+    });
+    const query = {
+      reference: { kind: "PAGE" as const },
+      relation: "FREE_SPACE" as const,
+      regionHint: "TOP" as const,
+      alignment: "START" as const,
+      overlayIntent: "NONE" as const,
+    };
+    test.ready.plan.placementQuery = query;
+    test.ready.textPlacement = {
+      mode,
+      provenance: mode === "AUTO_FLOW" ? "SYSTEM_DEFAULT" : "TRANSCRIPT_RECOVERED",
+      choicePolicy,
+      effectiveQuery: query,
+      plannerPlacementPresent: false,
+      evidenceKind: mode === "AUTO_FLOW" ? "NONE" : "EXPLICIT_REGION",
+      evidenceTokens: [],
+      conflictRecovered: false,
+      recoveryApplied: true,
+      recoveryReason: "MISSING_PLACEMENT_QUERY",
+      ...(mode === "AUTO_FLOW" ? { autoFlowSource: "PAGE_ORIGIN" as const } : {}),
+    };
+
+    const result = await test.pipeline.execute(test.ready);
+
+    expect(result.result.status).toBe("COMMITTED");
+    expect(result.diagnostics).toMatchObject({
+      deterministicGate: "RESOLVED",
+      placementChoicePolicy: choicePolicy,
+      screenshotCallCount: 0,
+      multimodalCallCount: 0,
+      previewAttemptCount: 1,
+      stableFallbackUsed: false,
+    });
+    expect(test.provider.callCount).toBe(0);
+    expect(test.previewCalls()).toBe(1);
+    expect(test.executeSpatial).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a stable safe fallback for delegated free-space when the provider is unavailable", async () => {
+    const test = harness({
+      alignment: "AUTO",
+      providerAvailable: false,
+    });
+    const query = test.ready.plan.placementQuery;
+    if (query === undefined) throw new Error("Expected placement query.");
+    test.ready.textPlacement = {
+      mode: "AUTO_FREE_SPACE",
+      provenance: "TRANSCRIPT_RECOVERED",
+      choicePolicy: "USER_DELEGATED_LAYOUT",
+      effectiveQuery: query,
+      plannerPlacementPresent: false,
+      evidenceKind: "AUTO_FREE_SPACE",
+      evidenceTokens: ["빈 공간에"],
+      conflictRecovered: false,
+      recoveryApplied: true,
+      recoveryReason: "MISSING_PLACEMENT_QUERY",
+    };
+
+    const result = await test.pipeline.execute(test.ready);
+
+    expect(result.result.status).toBe("COMMITTED");
+    expect(result.diagnostics).toMatchObject({
+      deterministicGate: "AMBIGUOUS",
+      placementChoicePolicy: "USER_DELEGATED_LAYOUT",
+      multimodalProviderResult: "UNAVAILABLE",
+      screenshotCallCount: 0,
+      multimodalCallCount: 0,
+      stableFallbackUsed: true,
+      previewAttemptCount: 1,
+    });
+    expect(test.provider.callCount).toBe(0);
     expect(test.previewCalls()).toBe(1);
     expect(test.executeSpatial).toHaveBeenCalledTimes(1);
   });

@@ -227,6 +227,47 @@ describe("DirectCommandPlanningPipeline", () => {
     expect(result).not.toHaveProperty("operationId");
   });
 
+  it("recovers a missing text.create placement before the existing strict guard", async () => {
+    const harness = createPipeline(executable({
+      capability: "text",
+      operation: "create",
+      target: { kind: "CURRENT_PAGE" },
+      payload: { text: "가나다라" },
+    }));
+
+    const result = await harness.pipeline.plan(
+      createTurn("왼쪽 위에 가나다라라고 써 줘"),
+    );
+
+    expect(result).toMatchObject({
+      status: "READY_FOR_EXECUTION",
+      plan: {
+        placementQuery: {
+          reference: { kind: "PAGE" },
+          relation: "FREE_SPACE",
+          regionHint: "TOP",
+          alignment: "START",
+        },
+      },
+      textPlacement: {
+        mode: "EXPLICIT_REGION",
+        provenance: "TRANSCRIPT_RECOVERED",
+        choicePolicy: "EXPLICIT_REGION",
+      },
+      diagnostics: {
+        plannerPlacementPresent: false,
+        spatialPhraseEvidenceKind: "EXPLICIT_REGION",
+        normalizedPlacementMode: "EXPLICIT_REGION",
+        placementProvenance: "TRANSCRIPT_RECOVERED",
+        plannerOutputRecovered: true,
+        placementRecoveryReason: "MISSING_PLACEMENT_QUERY",
+        guardStatus: "PASSED",
+      },
+    });
+    expect(harness.planner.planCallCount).toBe(1);
+    expect(harness.disambiguator.disambiguateCallCount).toBe(0);
+  });
+
   it("P2 resolves a real enclosing text candidate without inventing offsets", async () => {
     const harness = createPipeline(executable({
       capability: "annotation",

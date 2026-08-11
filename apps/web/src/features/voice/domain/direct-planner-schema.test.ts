@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DirectPlannerResultValidationError,
+  parseDirectPlannerDraftResult,
   parseDirectPlannerResult,
   safeParseDirectPlannerResult,
 } from "./direct-planner-schema";
@@ -109,6 +110,26 @@ describe("DirectPlannerResult runtime schema", () => {
     delete (withoutPlacement as { placementQuery?: unknown }).placementQuery;
     expect(() => parseDirectPlannerResult(withoutPlacement)).toThrowError(
       /text\.create requires a spatial placement query/u,
+    );
+  });
+
+  it("accepts only the text.create placement omission in planner draft mode", () => {
+    const value = createExecutableResult();
+    value.command = {
+      capability: "text",
+      operation: "create",
+      target: { kind: "CURRENT_PAGE" },
+      payload: { text: "가나다라" },
+    };
+
+    expect(parseDirectPlannerDraftResult(value)).toEqual(value);
+    expect(() => parseDirectPlannerResult(value)).toThrowError(
+      /text\.create requires a spatial placement query/u,
+    );
+
+    const forbidden = { ...value, placementQuery: { x: 100, y: 200 } };
+    expect(() => parseDirectPlannerDraftResult(forbidden)).toThrowError(
+      /placementQuery\.x: unexpected field/u,
     );
   });
 

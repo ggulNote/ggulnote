@@ -9,7 +9,9 @@ import {
   type DirectCommandPlanningTimestamps,
   type DirectEditorCommand,
   type DirectPlannerResult,
+  type DirectPlannerDraftResult,
   type ExecutableDirectPlan,
+  type NormalizedTextPlacement,
   type SpeechRefinementEvidence,
   type TargetQuery,
   type TargetResolutionInput,
@@ -28,6 +30,7 @@ import {
   type GroundedTargetRecoveryPort,
 } from "./grounded-target-recovery";
 import type { BoundedSpeechRefinerPort } from "./bounded-speech-refiner";
+import { normalizeTextPlacementIntent } from "./text-placement-intent-normalizer";
 
 export interface DirectCommandPlanningOptions {
   signal?: AbortSignal;
@@ -105,10 +108,10 @@ export class DirectCommandPlanningPipeline {
       }
     }
 
-    let plannerResult: DirectPlannerResult;
+    let plannerDraft: DirectPlannerDraftResult;
     timestamps.plannerRequestedAt = this.now();
     try {
-      plannerResult = await this.options.planner.plan(
+      plannerDraft = await this.options.planner.plan(
         context.plannerContext,
         options,
       );
@@ -123,7 +126,40 @@ export class DirectCommandPlanningPipeline {
       );
     }
     timestamps.plannerCompletedAt = this.now();
-    diagnostics.plannerStatus = plannerResult.status;
+    diagnostics.plannerStatus = plannerDraft.status;
+
+    let plannerResult: DirectPlannerResult;
+    let textPlacement: NormalizedTextPlacement | undefined;
+    try {
+      const normalized = normalizeTextPlacementIntent({
+        draft: plannerDraft,
+        context,
+      });
+      plannerResult = normalized.result;
+      textPlacement = normalized.placement;
+    } catch {
+      return {
+        status: "ERROR",
+        turnId: turn.id,
+        errorCode: "PLANNER_INVALID_OUTPUT",
+        timestamps,
+        diagnostics,
+      };
+    }
+    if (textPlacement !== undefined) {
+      Object.assign(diagnostics, {
+        plannerPlacementPresent: textPlacement.plannerPlacementPresent,
+        spatialPhraseEvidenceKind: textPlacement.evidenceKind,
+        spatialPhraseEvidenceTokens: textPlacement.evidenceTokens,
+        normalizedPlacementMode: textPlacement.mode,
+        placementProvenance: textPlacement.provenance,
+        placementConflictRecovered: textPlacement.conflictRecovered,
+        plannerOutputRecovered: textPlacement.recoveryApplied,
+        placementRecoveryReason: textPlacement.recoveryReason,
+        autoFlowSource: textPlacement.autoFlowSource,
+        placementChoicePolicy: textPlacement.choicePolicy,
+      });
+    }
 
     if (plannerResult.status !== "EXECUTABLE") {
       const terminal = terminalPlannerResult(
@@ -162,6 +198,7 @@ export class DirectCommandPlanningPipeline {
         false,
         timestamps,
         diagnostics,
+        textPlacement,
       );
     }
 
@@ -355,6 +392,7 @@ export class DirectCommandPlanningPipeline {
       disambiguationUsed,
       timestamps,
       diagnostics,
+      textPlacement,
     );
   }
 
@@ -366,6 +404,7 @@ export class DirectCommandPlanningPipeline {
     disambiguationUsed: boolean,
     timestamps: DirectCommandPlanningTimestamps,
     diagnostics: DirectCommandPlanningDiagnostics,
+    textPlacement?: NormalizedTextPlacement,
   ): DirectCommandPlanningResult {
     timestamps.validationStartedAt = this.now();
     const guarded = guardDirectCommandPlan({
@@ -401,6 +440,7 @@ export class DirectCommandPlanningPipeline {
       ...(guarded.spatialAnchorTarget === undefined
         ? {}
         : { spatialAnchorTarget: guarded.spatialAnchorTarget }),
+      ...(textPlacement === undefined ? {} : { textPlacement }),
       disambiguationUsed,
       timestamps,
       diagnostics,

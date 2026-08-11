@@ -175,6 +175,16 @@ export interface ExecutableDirectPlan {
   placementQuery?: SpatialPlacementQuery;
 }
 
+/**
+ * Strictly parsed planner output before application-owned placement defaults.
+ * Only text.create may temporarily omit placementQuery; every other field is
+ * subject to the same runtime validation as ExecutableDirectPlan.
+ */
+export interface ExecutableDirectPlannerDraft
+extends Omit<ExecutableDirectPlan, "placementQuery"> {
+  placementQuery?: SpatialPlacementQuery;
+}
+
 export interface DeferredSpatialPlan {
   status: "DEFER_SPATIAL";
   turnId: DirectCommandTurnId;
@@ -200,6 +210,13 @@ export interface CancelledDirectPlan {
 
 export type DirectPlannerResult =
   | ExecutableDirectPlan
+  | DeferredSpatialPlan
+  | NeedsClarificationPlan
+  | UnsupportedDirectPlan
+  | CancelledDirectPlan;
+
+export type DirectPlannerDraftResult =
+  | ExecutableDirectPlannerDraft
   | DeferredSpatialPlan
   | NeedsClarificationPlan
   | UnsupportedDirectPlan
