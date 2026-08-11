@@ -1012,3 +1012,32 @@ tests:
 implementation/test commit:
   6ae329f (fix(voice): recover nested text placement drafts)
 ```
+
+## Planner 200 / client no-commit follow-up
+
+```text
+incident:
+  planner가 PAGE/FREE_SPACE/TOP/START를 정상 반환했지만 개발 브라우저에서 annotation이
+  생성되지 않았다. 서버 planner 200은 계획 성공이며 Editor commit 성공을 뜻하지 않는다.
+
+development runtime finding:
+  UX hardening 적용 전 생성된 browser composition은 Fast Refresh 중 useState에 보존될 수 있다.
+  앱 tab reload로 최신 planning/choice/preview/runtime composition을 재생성했다.
+
+observability:
+  development direct-command trace를 단일 JSON log로 출력하고 spatial candidate/gate,
+  screenshot/VLM count, preview result, commit guard/runtime result를 포함한다.
+  raw screenshot, PDF text, Scene JSON은 기록하지 않는다.
+
+regression fixture:
+  실제 A4 blank 규격 595.28 x 841.89와 사용자가 제시한 planner-explicit
+  PAGE/FREE_SPACE/TOP/START payload가 deterministic screenshot/VLM 0,
+  preview VALIDATED, Editor COMMITTED로 끝나는 것을 검증한다.
+
+implementation/test commit:
+  6f99aa7 (fix(voice): expose spatial execution failures)
+
+manual status:
+  browser tab은 최신 composition으로 reload 완료. 동일 microphone turn의 최종 수동 재확인은
+  사용자 입력이 필요한 smoke 항목으로 남으며, 실패 시 JSON trace가 typed 중단 지점을 제공한다.
+```

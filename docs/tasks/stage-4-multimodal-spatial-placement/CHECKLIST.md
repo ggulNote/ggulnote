@@ -582,6 +582,8 @@ Geometry-first safe candidates
 
 - [x] 원래 실패한 네 음성 명령 production composition fixture
 - [x] `"왼쪽 위에 가나다라 써 줘"` nested planner output incident fixture
+- [x] planner-explicit PAGE/TOP/START + A4 blank production commit fixture
+- [x] development trace JSON에 spatial gate/preview/commit diagnostics 포함
 - [x] planner omission/conflict/content negative/context tests
 - [x] targeted 10 files / 92 PASS
 - [x] Web full 122 test files PASS
