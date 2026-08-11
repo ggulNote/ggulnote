@@ -5,7 +5,7 @@
 ```text
 Stage: 4 — Candidate-Constrained Multimodal Spatial Placement
 Status: IN PROGRESS
-Current Milestone: Phase D — Ghost Preview / Deterministic Validation (NEXT; NOT STARTED)
+Current Milestone: Phase E — Planner / Compiler / Runtime Integration (NEXT; NOT STARTED)
 ```
 
 Stage 4는 Stage 3 / 3.5를 대체하지 않는다.
@@ -58,6 +58,7 @@ Stage 3.5 branch handoff 시 clean
 Phase A docs commit 후 clean (최종 검증에서 재확인)
 Phase B docs commit과 최종 검증 후 clean
 Phase C implementation/docs commit과 최종 검증 후 clean
+Phase D implementation/docs commit과 최종 검증 후 clean
 ```
 
 중요:
@@ -488,7 +489,8 @@ remaining limitations:
   production capture adapter는 실제 renderer canvas accessor를 받도록 준비됐지만
   spatial runtime route wiring은 Phase E 범위라 아직 DocumentWorkspace에 연결하지 않았다.
   실제 브라우저 page smoke는 그 route가 없어 이번 Phase C에서는 fixture canvas와
-  mock server transport로 검증했다. Ghost preview/actual bounds validation은 없다.
+  mock server transport로 검증했다. Phase C 완료 시점에 없던 Ghost preview와
+  actual bounds validation은 Phase D에서 추가했다.
 
 next milestone: Phase D — Ghost Preview / Deterministic Validation
 ```
@@ -500,18 +502,94 @@ next milestone: Phase D — Ghost Preview / Deterministic Validation
 Status:
 
 ```text
-PENDING
+COMPLETE (non-persistent production renderer preview + deterministic validation)
 ```
 
-완료 후 기록:
+완료 기록:
 
 ```text
-preview renderer:
-persistent mutation assertion:
+start HEAD: 79582700d069b7e04a384cebcf6d35617936c859
+implementation commit: 78096b7
+docs commit: 이 STATUS/CHECKLIST 갱신 commit
+
+implementation:
+  apps/web/src/features/voice/domain/spatial-preview-types.ts
+  apps/web/src/features/voice/application/spatial-preview-renderer.ts
+  apps/web/src/features/voice/application/spatial-preview-validator.ts
+  apps/web/src/features/voice/application/preview-validation-orchestrator.ts
+  apps/web/src/features/voice/integration/canvas-annotation-spatial-preview-renderer.ts
+  동일 경로의 targeted test 3개와 domain/application/integration/feature barrel
+
+existing renderer / preview surface:
+  DocumentWorkspace가 사용하는 NativeCanvasRenderer와 editor-core AnnotationFactory를
+  재사용한다. capability-owned createAnnotationInput adapter가 실제 content/style을
+  제공하고 capability-keyed preview registry가 renderer를 선택하므로 중앙 capability
+  if-chain은 없다. 임시 Annotation은 EditorEngine/Scene에 삽입하지 않고 선택 불가,
+  pointer-events:none인 ephemeral canvas 하나에만 렌더한다.
+
+actual render bounds / coordinate:
+  실제 renderer가 그린 transparent canvas alpha pixels의 최소 bounding rect를 측정한다.
+  fixed DPR 1 preview pixel과 frozen pageBounds의 명시적 scale로 PAGE_CANONICAL bounds를
+  반환하며 browser zoom/DPR/screen rect를 execution geometry에 섞지 않는다.
+  candidate가 page 밖이면 production AnnotationFactory에 넘기기 전에 reject하며 clamp하지 않는다.
+
+lifecycle / non-persistent boundary:
+  render -> measure -> validate -> dispose 순서다. success, validation failure,
+  stale-after-render, abort, fallback, renderer exception에서 transient surface cleanup을
+  보장하고 dispose는 idempotent하다. Editor mutation, CommandManager, Operation Log,
+  IndexedDB, Undo, autosave 포트는 없으며 테스트에서 모두 0회임을 확인했다.
+
 validator:
-retry:
+  actual bounds finite/positive, editable containment, profile minimum size,
+  candidate footprint + 중앙 render tolerance(1 canonical unit), HARD overlap와
+  minClearance, relation, explicit alignment, overlay policy, snapshot/page/revision,
+  draftKey/candidate internalId를 deterministic하게 검증한다. SOFT overlap은 reject하지
+  않고 area/object count evidence로 남긴다. 실제 bounds를 clamp/resize하지 않는다.
+
+result contract:
+  SelectedSpatialPlacement는 Phase C alias가 resolve된 authoritative internal candidate다.
+  성공만 ValidatedSpatialPlacement가 되며 requested/actual bounds, page/revision,
+  candidate internalId, draftKey, DETERMINISTIC/MULTIMODAL/VALIDATION_FALLBACK source,
+  attempt count와 validation evidence를 보존한다. 실패는 VALIDATION_FAILED,
+  PREVIEW_UNAVAILABLE, PREVIEW_RENDER_FAILED, STALE_SCENE, ABORTED로 구분한다.
+
+revision / abort / error policy:
+  preview 전후 current page/revision을 확인한다. stale/abort/infrastructure error는
+  fallback하지 않는다. renderer 미등록 또는 capability adapter input 부재는
+  PREVIEW_UNAVAILABLE이며 안전하다고 추측하지 않는다.
+
+fallback:
+  primary가 실제 geometry/render-fit 실패일 때만 Phase B shortlist stable order의
+  첫 다른 candidate를 최대 한 번 preview+validate한다. 총 attempt <= 2,
+  추가 VLM/screenshot call은 0이다. INVALID_RENDER_GEOMETRY/stale/abort/unavailable/
+  renderer failure는 fallback하지 않으며 두 번째 invalid는 VALIDATION_FAILED다.
+
 tests:
-next milestone: Phase E
+  Phase D targeted: 3 files / 31 PASS
+  Phase C targeted: 7 files / 50 PASS
+  Phase B targeted: 3 files / 38 PASS
+  Phase A targeted: 4 files / 39 PASS
+  Stage 3.5 current targeted: 3 files / 36 PASS
+  Web full: 115 files / 824 PASS
+  Editor Core full: 7 files / 52 PASS
+  Web/Editor typecheck: PASS
+  Web/Editor full lint: PASS
+  git diff --check: PASS
+
+known non-failure output:
+  Node 20.19.4 (repo requires >=22) engine warning,
+  expected strict provider validation stderr, existing jsdom canvas getContext stderr,
+  Editor Core lint existing React/pages-directory warnings.
+
+remaining limitations:
+  Phase D infrastructure는 production-capable하지만 DocumentWorkspace의 spatial voice
+  route 및 capability-specific createAnnotationInput 등록은 Phase E 범위라 아직 wiring하지 않았다.
+  현재 NativeCanvasRenderer의 TEXT는 assigned annotation bounds 안에서 clip하므로
+  현재 renderer 자체가 auto-grow하지 않는다. 향후 auto-layout renderer도 같은 preview
+  session contract에서 actual painted bounds를 반환할 수 있다. move/create commit,
+  CommandManager/Operation Log/Undo/IndexedDB integration은 구현하지 않았다.
+
+next milestone: Phase E — Planner / Compiler / Runtime Integration
 ```
 
 ---

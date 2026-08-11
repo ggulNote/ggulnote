@@ -369,49 +369,49 @@ VLM이 S* 또는 NONE 하나만 선택해야 한다.
 
 ## D1. Scratch Preview
 
-- [ ] existing renderer 재사용
-- [ ] persistent Scene mutation 없음
-- [ ] IndexedDB write 없음
-- [ ] Operation Log write 없음
-- [ ] Undo history write 없음
-- [ ] actual render bounds 반환
-- [ ] preview lifecycle cleanup
-- [ ] cancellation cleanup
+- [x] existing renderer 재사용
+- [x] persistent Scene mutation 없음
+- [x] IndexedDB write 없음
+- [x] Operation Log write 없음
+- [x] Undo history write 없음
+- [x] actual render bounds 반환
+- [x] preview lifecycle cleanup
+- [x] cancellation cleanup
 
 ## D2. Validator
 
-- [ ] sceneRevision
-- [ ] page/editable bounds
-- [ ] actual hard overlap
-- [ ] minimum size
-- [ ] requested relation
-- [ ] overlay policy
-- [ ] draft identity
-- [ ] candidate identity
-- [ ] render mismatch
-- [ ] structured invalid reason
+- [x] sceneRevision
+- [x] page/editable bounds
+- [x] actual hard overlap
+- [x] minimum size
+- [x] requested relation
+- [x] overlay policy
+- [x] draft identity
+- [x] candidate identity
+- [x] render mismatch
+- [x] structured invalid reason
 
 ## D3. Retry Policy
 
-- [ ] preview invalid 시 no immediate commit
-- [ ] 이미 생성된 다음 안전 후보 최대 1회
-- [ ] 추가 VLM 호출 없음
-- [ ] second invalid → PREVIEW_INVALID
-- [ ] infinite loop 없음
+- [x] preview invalid 시 no immediate commit
+- [x] 이미 생성된 다음 안전 후보 최대 1회
+- [x] 추가 VLM 호출 없음
+- [x] second invalid → `VALIDATION_FAILED` (typed no-commit result)
+- [x] infinite loop 없음
 
 ## D4. Tests
 
-- [ ] text wrap height drift
-- [ ] table/placeholder size drift
-- [ ] out of bounds
-- [ ] hard overlap after render
-- [ ] relation broken
-- [ ] stale scene
-- [ ] preview cleanup
-- [ ] retry 0/1 bound
-- [ ] no persistent mutation assertion
-- [ ] typecheck/lint/diff-check
-- [ ] Phase D STATUS/commits
+- [x] text wrap height drift
+- [x] table/placeholder size drift
+- [x] out of bounds
+- [x] hard overlap after render
+- [x] relation broken
+- [x] stale scene
+- [x] preview cleanup
+- [x] retry 0/1 bound
+- [x] no persistent mutation assertion
+- [x] typecheck/lint/diff-check
+- [x] Phase D STATUS/commits
 
 완료 조건:
 
