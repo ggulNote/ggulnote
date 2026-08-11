@@ -3,6 +3,7 @@ import {
   DirectAiProviderError,
   DirectPlannerResultValidationError,
   DirectTargetDisambiguationValidationError,
+  MultimodalPlacementValidationError,
   SpeechRefinementValidationError,
 } from "../domain";
 
@@ -39,6 +40,7 @@ function normalizeRouteError(error: unknown): DirectAiProviderError {
     error instanceof DirectAiInputValidationError
     || error instanceof DirectPlannerResultValidationError
     || error instanceof DirectTargetDisambiguationValidationError
+    || error instanceof MultimodalPlacementValidationError
     || error instanceof SpeechRefinementValidationError
   ) {
     return new DirectAiProviderError(

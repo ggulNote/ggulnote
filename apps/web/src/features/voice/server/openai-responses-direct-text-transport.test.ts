@@ -200,7 +200,7 @@ describe("direct command AI server configuration", () => {
     })).toThrowError(/configuration is unavailable/u);
   });
 
-  it("creates planner/disambiguator providers without external network calls", () => {
+  it("creates text and multimodal providers without external network calls", () => {
     const providers = createDirectCommandAiProviders({
       OPENAI_API_KEY: "secret",
       DIRECT_COMMAND_MODEL: "configured-model",
@@ -208,5 +208,6 @@ describe("direct command AI server configuration", () => {
     }, async () => openAiResponse('{\"status\":\"NONE\"}'));
     expect(providers.planner).toBeDefined();
     expect(providers.disambiguator).toBeDefined();
+    expect(providers.placementJudge).toBeDefined();
   });
 });

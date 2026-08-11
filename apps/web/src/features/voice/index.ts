@@ -4,6 +4,10 @@ export {
   DirectPlannerResultValidationError,
   parseDirectPlannerResult,
   parseSpatialPlacementQuery,
+  MULTIMODAL_PLACEMENT_LIMITS,
+  MultimodalPlacementValidationError,
+  parseMultimodalPlacementChoice,
+  parseMultimodalPlacementRequest,
   safeParseDirectPlannerResult,
 } from "./domain";
 export type {
@@ -87,6 +91,14 @@ export type {
   SpatialRegionHint,
   SpatialSceneObject,
   SpatialSceneSnapshot,
+  MultimodalClearanceCategory,
+  MultimodalPlacementAnchorSummary,
+  MultimodalPlacementCandidateSummary,
+  MultimodalPlacementChoice,
+  MultimodalPlacementDraftSummary,
+  MultimodalPlacementRequest,
+  MultimodalSoftOverlapCategory,
+  PlacementCandidateAlias,
 } from "./domain";
 export type {
   DirectCommandPlannerOptions,
@@ -99,6 +111,9 @@ export type {
   HttpDirectCommandPlannerProviderOptions,
   HttpDirectTargetDisambiguatorProviderOptions,
   SpeechRecognitionProvider,
+  MultimodalPlacementJudgeProvider,
+  MultimodalPlacementJudgeProviderOptions,
+  HttpMultimodalPlacementJudgeProviderOptions,
 } from "./providers";
 export {
   CurrentRevisionSceneSnapshotSource,
@@ -131,11 +146,16 @@ export {
   resolveDeterministically,
   resolveSpatialAnchor,
   toSpatialSceneObject,
+  BoundedMultimodalPlacementResolver,
+  MultimodalPlacementObservationBuilder,
+  buildMultimodalPlacementRenderPlan,
+  canonicalRectToScreenshotPixels,
 } from "./application";
 export {
   HttpDirectCommandPlannerProvider,
   HttpDirectTargetDisambiguatorProvider,
   HttpGroundedTargetRecoveryProvider,
+  HttpMultimodalPlacementJudgeProvider,
 } from "./providers";
 export type {
   DirectCommandContextBuilderOptions,
@@ -193,6 +213,26 @@ export type {
   SpatialOccupancyIndex,
   SpatialSceneSource,
   SpatialSceneSourceResult,
+  BoundedMultimodalPlacementDiagnostics,
+  BoundedMultimodalPlacementInput,
+  BoundedMultimodalPlacementResolution,
+  BoundedMultimodalPlacementResolverOptions,
+  CurrentSpatialSceneReference,
+  CurrentSpatialSceneReferenceSource,
+  MultimodalPlacementObservation,
+  MultimodalPlacementObservationBuildResult,
+  MultimodalPlacementObservationBuilderOptions,
+  MultimodalPlacementObservationDiagnostics,
+  MultimodalPlacementObservationInput,
+  MultimodalPlacementRenderPlan,
+  MultimodalPlacementProviderDiagnostic,
+  PlacementCandidateMark,
+  SpatialEncodedImage,
+  SpatialObservationImageProcessor,
+  SpatialScreenshot,
+  SpatialScreenshotCaptureInput,
+  SpatialScreenshotSource,
+  SpatialScreenshotSourceResult,
 } from "./application";
 export { useVoiceTurn } from "./hooks";
 export type { UseVoiceTurnResult, VoiceTurnControllerPort } from "./hooks";
@@ -212,6 +252,9 @@ export {
   useOwnedBrowserVoiceTurnController,
   VoiceLensOverlay,
   VoiceTriggerControl,
+  BrowserSpatialObservationImageProcessor,
+  CanvasSpatialScreenshotSource,
+  MAX_SPATIAL_SCREENSHOT_EDGE,
 } from "./integration";
 export type {
   BrowserVoiceTurnComposition,
@@ -233,4 +276,6 @@ export type {
   VoiceLensOverlayPage,
   VoiceLensOverlayProps,
   VoiceTriggerControlProps,
+  BrowserSpatialObservationImageProcessorOptions,
+  CanvasSpatialScreenshotSourceOptions,
 } from "./integration";

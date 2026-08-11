@@ -64,3 +64,10 @@ export type {
 } from "./voice-lens-overlay";
 export { VoiceTriggerControl } from "./voice-trigger-control";
 export type { VoiceTriggerControlProps } from "./voice-trigger-control";
+export {
+  CanvasSpatialScreenshotSource,
+  MAX_SPATIAL_SCREENSHOT_EDGE,
+} from "./canvas-spatial-screenshot-source";
+export type { CanvasSpatialScreenshotSourceOptions } from "./canvas-spatial-screenshot-source";
+export { BrowserSpatialObservationImageProcessor } from "./browser-spatial-observation-image-processor";
+export type { BrowserSpatialObservationImageProcessorOptions } from "./browser-spatial-observation-image-processor";

@@ -216,6 +216,24 @@ export type {
   SpatialSemanticRole,
   SpatialSourceLayer,
 } from "./spatial-placement-types";
+export {
+  MULTIMODAL_PLACEMENT_LIMITS,
+  parseMultimodalPlacementChoice,
+  parseMultimodalPlacementRequest,
+} from "./multimodal-placement-schema";
+export {
+  MultimodalPlacementValidationError,
+} from "./multimodal-placement-types";
+export type {
+  MultimodalClearanceCategory,
+  MultimodalPlacementAnchorSummary,
+  MultimodalPlacementCandidateSummary,
+  MultimodalPlacementChoice,
+  MultimodalPlacementDraftSummary,
+  MultimodalPlacementRequest,
+  MultimodalSoftOverlapCategory,
+  PlacementCandidateAlias,
+} from "./multimodal-placement-types";
 export { DEFAULT_TARGET_RESOLUTION_POLICY } from "./target-grounding-types";
 export type {
   CandidateEvidence,

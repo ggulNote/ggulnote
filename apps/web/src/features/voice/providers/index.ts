@@ -41,6 +41,19 @@ export {
 } from "./llm-direct-target-disambiguator-provider";
 export { LlmGroundedTargetRecoveryProvider } from "./llm-grounded-target-recovery-provider";
 export type {
+  MultimodalPlacementJudgeProvider,
+  MultimodalPlacementJudgeProviderOptions,
+} from "./multimodal-placement-judge-provider";
+export { HttpMultimodalPlacementJudgeProvider } from "./http-multimodal-placement-judge-provider";
+export type { HttpMultimodalPlacementJudgeProviderOptions } from "./http-multimodal-placement-judge-provider";
+export { LlmMultimodalPlacementJudgeProvider } from "./llm-multimodal-placement-judge-provider";
+export type {
+  DirectMultimodalModelImage,
+  DirectMultimodalModelRequest,
+  DirectMultimodalModelTransport,
+  DirectMultimodalModelTransportOptions,
+} from "./direct-multimodal-model-transport";
+export type {
   DirectTextModelMessage,
   DirectTextModelRequest,
   DirectTextModelTransport,

@@ -3,10 +3,12 @@ import { LlmDirectCommandPlannerProvider } from "../providers/llm-direct-command
 import { LlmDirectTargetDisambiguatorProvider } from "../providers/llm-direct-target-disambiguator-provider";
 import { LlmGroundedTargetRecoveryProvider } from "../providers/llm-grounded-target-recovery-provider";
 import { LlmSpeechRefinerProvider } from "../providers/llm-speech-refiner-provider";
+import { LlmMultimodalPlacementJudgeProvider } from "../providers/llm-multimodal-placement-judge-provider";
 import {
   OpenAiResponsesDirectTextTransport,
   type OpenAiResponsesFetch,
 } from "./openai-responses-direct-text-transport";
+import { OpenAiResponsesDirectMultimodalTransport } from "./openai-responses-direct-multimodal-transport";
 
 const DEFAULT_DIRECT_COMMAND_AI_TIMEOUT_MS = 15_000;
 
@@ -49,10 +51,15 @@ export function createDirectCommandAiProviders(
     ...config,
     ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }),
   });
+  const multimodalTransport = new OpenAiResponsesDirectMultimodalTransport({
+    ...config,
+    ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }),
+  });
   return {
     planner: new LlmDirectCommandPlannerProvider({ transport }),
     disambiguator: new LlmDirectTargetDisambiguatorProvider(transport),
     recovery: new LlmGroundedTargetRecoveryProvider(transport),
     refiner: new LlmSpeechRefinerProvider(transport),
+    placementJudge: new LlmMultimodalPlacementJudgeProvider(multimodalTransport),
   };
 }

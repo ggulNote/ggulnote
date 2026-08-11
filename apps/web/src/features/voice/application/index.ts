@@ -183,6 +183,39 @@ export {
   resolveDeterministically,
 } from "./placement-candidate-engine";
 export type {
+  SpatialScreenshot,
+  SpatialScreenshotCaptureInput,
+  SpatialScreenshotSource,
+  SpatialScreenshotSourceResult,
+} from "./spatial-screenshot-source";
+export {
+  MULTIMODAL_OBSERVATION_CONFIG,
+  MultimodalPlacementObservationBuilder,
+  buildMultimodalPlacementRenderPlan,
+  canonicalRectToScreenshotPixels,
+} from "./multimodal-placement-observation";
+export { BoundedMultimodalPlacementResolver } from "./bounded-multimodal-placement-resolver";
+export type {
+  BoundedMultimodalPlacementDiagnostics,
+  BoundedMultimodalPlacementInput,
+  BoundedMultimodalPlacementResolution,
+  BoundedMultimodalPlacementResolverOptions,
+  CurrentSpatialSceneReference,
+  CurrentSpatialSceneReferenceSource,
+  MultimodalPlacementProviderDiagnostic,
+} from "./bounded-multimodal-placement-resolver";
+export type {
+  MultimodalPlacementObservation,
+  MultimodalPlacementObservationBuildResult,
+  MultimodalPlacementObservationBuilderOptions,
+  MultimodalPlacementObservationDiagnostics,
+  MultimodalPlacementObservationInput,
+  MultimodalPlacementRenderPlan,
+  PlacementCandidateMark,
+  SpatialEncodedImage,
+  SpatialObservationImageProcessor,
+} from "./multimodal-placement-observation";
+export type {
   DeterministicPlacementGateInput,
   PlacementCandidateFilterReason,
   PlacementCandidateGenerationDiagnostics,
