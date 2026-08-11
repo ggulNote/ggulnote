@@ -865,6 +865,7 @@ COMPLETE
 ```text
 start HEAD: 754569b (docs(spatial): complete production multimodal placement)
 implementation/test commit: 189f76c (fix(voice): recover natural text placement intents)
+diagnostics commit: 5e35ba4 (fix(voice): expose normalized placement diagnostics)
 docs commit: 이 STATUS/CHECKLIST/DECISIONS/SPEC commit (git log 기준)
 branch: feat/stage-4-multimodal-spatial-placement
 ```
@@ -930,15 +931,19 @@ Diagnostics:
 
 ```text
 planner placement present, evidence kind/tokens, normalized mode, provenance,
+planner draft semantic placementQuery, effective placementQuery,
 conflict/recovery reason, auto-flow source, choice policy, provider use,
 stable fallback, preview/runtime result를 trace에서 확인할 수 있다.
 screenshot base64, full PDF text, full Scene JSON은 추가로 기록하지 않는다.
+기존 voice debug가 raw final transcript를 제공하며, 임의 raw provider JSON/payload 전체는
+production trace에 중복 저장하지 않는다.
 ```
 
 검증 결과:
 
 ```text
 UX hardening + production Stage 4 targeted: 10 files / 92 PASS
+semantic placement diagnostics targeted: 4 files / 37 PASS
 original four-command production composition: 1 file / 5 PASS
 production multimodal regression: 1 file / 6 PASS
 Web full: 122 test files / PASS
