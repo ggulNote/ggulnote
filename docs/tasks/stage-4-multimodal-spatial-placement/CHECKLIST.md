@@ -181,7 +181,7 @@ typed spatial plan
 
 ## B1. Grounding Orchestrator
 
-- [ ] placement route와 direct route 분리
+- [x] placement route와 direct route 분리
 - [x] anchor `TARGET` → Stage 3.5 Grounder 재사용
 - [x] anchor `FOCUS` → frozen focus
 - [x] anchor `PAGE` → page/editable bounds
@@ -527,8 +527,8 @@ Validated ResolvedPlacement만 기존 Editor Runtime으로 commit되고,
 
 - [x] `CHECKLIST.md` 실제 완료 항목만 `[x]`
 - [x] `STATUS.md`에 final commits/test/limitations 기록
-- [ ] Stage 4 `Status: COMPLETE`
-- [ ] next-stage handoff 기록
+- [x] Stage 4 `Status: COMPLETE`
+- [x] next-stage handoff 기록
 - [x] branch clean 또는 의도된 잔여 변경 명시
 
 Stage 4 완료 정의:

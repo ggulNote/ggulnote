@@ -4,8 +4,8 @@
 
 ```text
 Stage: 4 — Candidate-Constrained Multimodal Spatial Placement
-Status: BLOCKED
-Current Milestone: Phase F — verification complete; production multimodal opt-in required
+Status: COMPLETE
+Current Milestone: Stage 4 complete — production multimodal placement verified
 ```
 
 Stage 4는 Stage 3 / 3.5를 대체하지 않는다.
@@ -60,6 +60,7 @@ Phase B docs commit과 최종 검증 후 clean
 Phase C implementation/docs commit과 최종 검증 후 clean
 Phase D implementation/docs commit과 최종 검증 후 clean
 Phase E/F implementation/docs commit과 최종 검증 후 clean
+production multimodal provider activation/docs commit과 최종 검증 후 clean
 ```
 
 중요:
@@ -600,7 +601,7 @@ next milestone: Phase E — Planner / Compiler / Runtime Integration
 Status:
 
 ```text
-IMPLEMENTED WITH LIMITATIONS
+COMPLETE (supported production path; capability coverage limitations recorded)
 ```
 
 구현 결과:
@@ -658,15 +659,18 @@ idempotency:
 call counts:
   non-spatial: spatial/screenshot/placement VLM/preview 0
   deterministic spatial: screenshot 0, placement VLM 0, preview 1, commit 1
-  ambiguous (injected Fake provider): screenshot 1, placement VLM 1, preview 1, commit 1
+  ambiguous production wiring: screenshot 1, placement VLM 1, preview 1, commit 1
   provider NONE/no feasible/preview failure/stale/abort: commit 0
 
 production multimodal boundary:
-  placement judge는 explicit injected dependency다. DocumentWorkspace 기본 구성에는
-  provider를 등록하지 않는다. 따라서 deterministic spatial create는 production route로
-  실행되지만 ambiguous production turn은 PROVIDER_UNAVAILABLE/no commit이다.
-  실제 document screenshot을 same-origin server/model로 전송하는 기본 활성화는
-  별도 사용자 승인과 제품 consent/configuration 결정이 필요하다.
+  프로젝트 개발/운영 주체의 명시적 승인을 근거로 DocumentWorkspace가 기존 optional
+  placementJudge 포트에 HttpMultimodalPlacementJudgeProvider를 production dependency로
+  주입한다. AMBIGUOUS에서만 composed screenshot을 생성해 same-origin
+  /api/voice/direct-command/placement-judge로 보내며 API key는 server-only다.
+  deterministic path는 provider가 등록된 상태에서도 screenshot/VLM 0회다.
+  request는 compact instruction/draft/anchor/candidate metadata와 image 2장만 포함하고
+  full PDF text, full Scene JSON, raw coordinates/internal IDs를 포함하지 않는다.
+  implementation/test commit: 501d4996fa4eec7c6caddb9c8f5f7f59fa703e2d
 ```
 
 ---
@@ -676,7 +680,7 @@ production multimodal boundary:
 Status:
 
 ```text
-VERIFIED; STAGE COMPLETION BLOCKED
+COMPLETE
 ```
 
 검증 결과:
@@ -694,29 +698,32 @@ evaluation:
   precision, p50/p95 latency, Undo integrity를 계산한다.
 
 tests:
-  Phase E/F targeted: 9 files / 72 PASS
+  production activation smoke: 1 file / 6 PASS
+  Stage 4 A-F + Stage 3.5 selected targeted: 27 files / 250 PASS
+  Phase E/F baseline targeted: 9 files / 72 PASS
   Phase D targeted: 3 files / 31 PASS
   Phase C targeted: 7 files / 50 PASS
   Phase B targeted: 3 files / 38 PASS
   Phase A targeted: 4 files / 39 PASS
-  Stage 3.5 current targeted: 3 files / 28 PASS
-  Web split full scope: 117 files / 832 PASS
-    (마지막 NONE/free-space tests 추가 후 current total 834; affected targeted suite PASS)
+  Stage 3.5 selected targeted: 3 files / 35 PASS
+  Web full: 118 files / 840 PASS
   Editor Core full: 7 files / 52 PASS
   Web/Editor typecheck: PASS
   Web/Editor full lint: PASS
   git diff --check: PASS
 
 full-run note:
-  단일 Web full command는 이 환경에서 10분 이상 runner가 정체되어 종료했고,
-  동일 117개 파일 전부를 domain/application/integration/providers/UI/non-voice/tests로
-  분할 실행해 failure 없이 검증했다. maxWorkers 단독 옵션은 Vitest worker config와
-  충돌하므로 minWorkers=1/maxWorkers=4를 함께 사용했다.
+  Web full은 Vitest minWorkers=1/maxWorkers=4로 단일 실행해 118 files / 840 PASS했다.
 
 browser smoke:
   안정적인 CompletedVoiceTurn UI injection harness가 없어 실제 수동 browser smoke는
-  실행하지 않았다. jsdom DocumentWorkspace composition과 실제 EditorEngine integration,
-  operation/undo/redo를 자동 테스트했다. 실제 OpenAI network call은 0이다.
+  실행하지 않았다. production DocumentWorkspace와 같은 Http provider/canvas/preview/
+  EditorEngine composition을 자동 smoke해 deterministic 및 ambiguous commit,
+  NONE/provider error/stale/validation failure no-commit, duplicate turn, Undo/Redo를 검증했다.
+  이미 실행 중인 localhost:3000 same-origin route에서 server-side gpt-4o-mini provider를
+  유효한 256x256 fixture image 2장으로 실제 호출했고 strict S1을 반환했다.
+  별도 observation의 1x1 최소 image는 upstream HTTP failure(로컬 503)였으며,
+  정상 규격 smoke 성공과 provider-error no-commit 경계를 분리해 기록한다.
   PDF/Blank Canvas는 Phase A/B의 공통 canonical engine fixture를 재검증했고 PDF source는
   immutable HARD obstacle로 유지된다. 실제 browser PDF smoke도 같은 이유로 미실행이다.
 
@@ -727,15 +734,12 @@ known non-failure output:
 
 final implementation commit: ec2c42e8628c627e54cbf8f7922d690f4c369243
 final test commit: 153f238d583809253f7f49833e285dde6db896a2
+production provider activation/test commit: 501d4996fa4eec7c6caddb9c8f5f7f59fa703e2d
 final docs commit: 이 STATUS/CHECKLIST commit (git log 기준)
-Stage 4 status: BLOCKED
+Stage 4 status: COMPLETE
 
 completion blocker:
-  production ambiguous path의 document screenshot 전송 및 multimodal provider 기본
-  활성화에 대한 명시적 승인/consent가 없다. 이 경계가 해결되기 전에는 Phase C
-  production screenshot/VLM exactly-once criterion이 충족되지 않으므로 COMPLETE로
-  표시하지 않는다. 승인 후 기존 optional placementJudge 포트에 same-origin provider를
-  주입하고 browser ambiguous/failure smoke를 수행해야 한다.
+  없음. production multimodal consent와 provider wiring blocker가 해소됐다.
 
 remaining capability coverage:
   spatial MOVE, table/graph/math runtime, new-page/canvas expansion은 Stage 4 pipeline
@@ -743,7 +747,8 @@ remaining capability coverage:
   clipping semantics를 Preview/Commit 양쪽에서 동일하게 유지한다.
 
 next-stage handoff:
-  없음. 위 production multimodal consent blocker 해소와 browser smoke가 먼저다.
+  별도 Stage 5 scope는 정의되지 않았다. spatial MOVE, 새 capability, page expansion은
+  Stage 4 완료와 분리된 후속 capability milestone에서만 시작한다.
 ```
 
 ---
