@@ -100,6 +100,9 @@ function cloneTrace(trace: DirectCommandTrace): DirectCommandTrace {
     ...(trace.evidenceUsed === undefined
       ? {}
       : { evidenceUsed: { ...trace.evidenceUsed } }),
+    ...(trace.spatial === undefined
+      ? {}
+      : { spatial: { ...trace.spatial } }),
     timestamps: { ...trace.timestamps },
     metrics: { ...trace.metrics },
   };

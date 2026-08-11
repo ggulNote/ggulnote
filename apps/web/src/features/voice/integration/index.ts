@@ -23,6 +23,7 @@ export {
 export type {
   EditorDirectCommandComposition,
   EditorDirectCommandCompositionOptions,
+  EditorSpatialPlacementCompositionOptions,
 } from "./editor-direct-command-composition";
 export {
   DirectCommandVoiceTurnBridge,
@@ -78,3 +79,4 @@ export {
 export type {
   CanvasAnnotationSpatialPreviewRendererOptions,
 } from "./canvas-annotation-spatial-preview-renderer";
+export { TextSpatialCreateCapability } from "./text-spatial-create-capability";

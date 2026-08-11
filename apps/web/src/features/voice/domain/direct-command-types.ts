@@ -65,12 +65,22 @@ export type TextReplaceContentDirectCommand = {
   };
 };
 
+export type TextCreateDirectCommand = {
+  capability: "text";
+  operation: "create";
+  target: DirectCurrentPageTargetRef;
+  payload: {
+    text: string;
+  };
+};
+
 export type DirectEditorCommand =
   | AnnotationUnderlineDirectCommand
   | AnnotationHighlightDirectCommand
   | NavigationDirectCommand
   | HistoryUndoDirectCommand
-  | TextReplaceContentDirectCommand;
+  | TextReplaceContentDirectCommand
+  | TextCreateDirectCommand;
 
 type ExistingDirectCapabilityId = Extract<
   CapabilityId,
@@ -87,6 +97,7 @@ export const DIRECT_COMMAND_NAMES = [
   "navigation.previous_page",
   "history.undo",
   "text.replace_content",
+  "text.create",
 ] as const;
 
 export type DirectCommandName = (typeof DIRECT_COMMAND_NAMES)[number];
@@ -209,6 +220,13 @@ export type DirectCommandRouteErrorCode =
   | "TARGET_KIND_UNSUPPORTED"
   | "STALE_SCENE"
   | "SPATIAL_REQUIRED"
+  | "NO_FEASIBLE_PLACEMENT"
+  | "MULTIMODAL_UNRESOLVED"
+  | "PREVIEW_UNAVAILABLE"
+  | "PREVIEW_RENDER_FAILED"
+  | "VALIDATION_FAILED"
+  | "UNSUPPORTED_CAPABILITY"
+  | "INVALID_SPATIAL_SCENE"
   | "UNSUPPORTED_COMMAND"
   | "DUPLICATE_TURN"
   | "COMPILE_FAILED"

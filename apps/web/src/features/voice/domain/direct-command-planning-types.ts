@@ -34,6 +34,7 @@ export type DirectCommandPlanningResult =
       context: DirectCommandContext;
       plan: ExecutableDirectPlan;
       target?: ResolvedTarget;
+      spatialAnchorTarget?: ResolvedTarget;
       disambiguationUsed: boolean;
     })
   | (DirectCommandPlanningResultBase & {

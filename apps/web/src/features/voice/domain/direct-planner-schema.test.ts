@@ -84,6 +84,34 @@ describe("DirectPlannerResult runtime schema", () => {
     expect(parseDirectPlannerResult(value)).toEqual(value);
   });
 
+  it("accepts text.create only with a strict semantic placement query", () => {
+    const value = {
+      ...createExecutableResult(),
+      command: {
+        capability: "text",
+        operation: "create",
+        target: { kind: "CURRENT_PAGE" },
+        payload: { text: "그림 설명" },
+      },
+      placementQuery: {
+        reference: {
+          kind: "TARGET",
+          query: { kind: "object", objectType: "image", query: "이 그림" },
+        },
+        relation: "BELOW",
+        alignment: "START",
+        overlayIntent: "NONE",
+      },
+    };
+
+    expect(parseDirectPlannerResult(value)).toEqual(value);
+    const withoutPlacement = { ...value };
+    delete (withoutPlacement as { placementQuery?: unknown }).placementQuery;
+    expect(() => parseDirectPlannerResult(withoutPlacement)).toThrowError(
+      /text\.create requires a spatial placement query/u,
+    );
+  });
+
   it("rejects coordinate fields mixed into an executable command", () => {
     const value = createExecutableResult();
     value.command.target = {

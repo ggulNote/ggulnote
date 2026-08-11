@@ -1,6 +1,7 @@
 import type { Rect } from "@ggulnote/editor-core";
 import type {
   ResolvedSpatialAnchor,
+  ResolvedTarget,
   SpatialPlacementQuery,
   SpatialSceneObject,
   SpatialSceneSnapshot,
@@ -29,6 +30,7 @@ export interface ResolveSpatialAnchorInput {
   readonly snapshot: SpatialSceneSnapshot;
   readonly query: SpatialPlacementQuery;
   readonly targetResolution?: TargetResolutionResult;
+  readonly resolvedTarget?: ResolvedTarget;
 }
 
 export function resolveSpatialAnchor(
@@ -48,7 +50,13 @@ export function resolveSpatialAnchor(
     case "FOCUS":
       return resolveFocusAnchor(input.snapshot);
     case "TARGET":
-      return resolveTargetAnchor(input.snapshot, input.targetResolution);
+      return resolveTargetAnchor(
+        input.snapshot,
+        input.resolvedTarget
+          ?? (input.targetResolution?.status === "RESOLVED"
+            ? input.targetResolution.target
+            : undefined),
+      );
   }
 }
 
@@ -79,12 +87,11 @@ function resolveFocusAnchor(
 
 function resolveTargetAnchor(
   snapshot: SpatialSceneSnapshot,
-  resolution: TargetResolutionResult | undefined,
+  target: ResolvedTarget | undefined,
 ): SpatialAnchorResolutionResult {
-  if (resolution?.status !== "RESOLVED") {
+  if (target === undefined) {
     return { status: "ANCHOR_NOT_FOUND" };
   }
-  const target = resolution.target;
   if (
     target.pageId !== snapshot.pageId
     || target.sceneRevision !== snapshot.sceneRevision

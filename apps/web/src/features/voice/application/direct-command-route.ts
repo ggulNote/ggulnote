@@ -11,12 +11,14 @@ import type {
   DirectReusableTargetRecord,
   ReadyForDirectCommandExecution,
   ResolvedTarget,
+  SpatialCommandExecutionDiagnostics,
   TargetQuery,
 } from "../domain";
 import { calculateDirectCommandLatencyMetrics } from "./direct-command-diagnostics";
 import { DirectCommandExecutionRegistry } from "./direct-command-execution-registry";
 import { DirectCommandHistoryContext } from "./direct-command-history-context";
 import type { DirectCommandPlanningOptions } from "./direct-command-planning-pipeline";
+import type { SpatialPlacementExecutionResolution } from "./spatial-placement-execution";
 
 export interface DirectCommandPlanningPort {
   plan(
@@ -35,9 +37,17 @@ export interface DirectCommandExecutionPort {
   ): Promise<DirectCommandExecutionResult>;
 }
 
+export interface SpatialCommandExecutionPort {
+  execute(
+    ready: ReadyForDirectCommandExecution,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<SpatialPlacementExecutionResolution>;
+}
+
 export interface DirectCommandRouteOptions {
   planning: DirectCommandPlanningPort;
   executor: DirectCommandExecutionPort;
+  spatial?: SpatialCommandExecutionPort;
   history: DirectCommandHistoryContext;
   clock: Pick<InteractionClock, "now">;
   registry?: DirectCommandExecutionRegistry;
@@ -146,6 +156,17 @@ export class DirectCommandRoute {
       );
     }
 
+    if (planning.plan.placementQuery !== undefined) {
+      const spatial = await this.executeSpatial(planning, signal);
+      return this.finish(
+        turn,
+        planning,
+        spatial.result,
+        routeReceivedAt,
+        spatial.diagnostics,
+      );
+    }
+
     let result: DirectCommandRouteResult;
     switch (planning.plan.relation) {
       case "NEW":
@@ -166,6 +187,31 @@ export class DirectCommandRoute {
         break;
     }
     return this.finish(turn, planning, result, routeReceivedAt);
+  }
+
+  private async executeSpatial(
+    ready: ReadyForDirectCommandExecution,
+    signal: AbortSignal,
+  ): Promise<SpatialPlacementExecutionResolution> {
+    if (ready.plan.relation !== "NEW" || this.options.spatial === undefined) {
+      return {
+        result: error(ready, "UNSUPPORTED_CAPABILITY"),
+        diagnostics: unavailableSpatialDiagnostics(ready),
+      };
+    }
+    let resolution: SpatialPlacementExecutionResolution;
+    try {
+      resolution = await this.options.spatial.execute(ready, { signal });
+    } catch {
+      return {
+        result: error(ready, signal.aborted ? "ABORTED" : "COMMIT_FAILED"),
+        diagnostics: unavailableSpatialDiagnostics(ready),
+      };
+    }
+    if (resolution.result.status !== "ERROR") {
+      this.options.history.recordSuccessfulExecution(ready, resolution.result);
+    }
+    return resolution;
   }
 
   private async executeNew(
@@ -268,6 +314,7 @@ export class DirectCommandRoute {
     planning: DirectCommandPlanningResult | undefined,
     result: DirectCommandRouteResult,
     routeReceivedAt: number,
+    spatialDiagnostics?: SpatialCommandExecutionDiagnostics,
   ): DirectCommandRouteResult {
     const routeCompletedAt = this.now();
     const executionTimestamps = "executionTimestamps" in result
@@ -497,6 +544,9 @@ export class DirectCommandRoute {
       ...(result.status === "ERROR"
         ? { errorCode: result.errorCode }
         : {}),
+      ...(spatialDiagnostics === undefined
+        ? {}
+        : { spatial: spatialDiagnostics }),
       timestamps,
       metrics: calculateDirectCommandLatencyMetrics(timestamps),
     };
@@ -511,6 +561,37 @@ export class DirectCommandRoute {
   private now(): number {
     return Number(this.options.clock.now());
   }
+}
+
+function unavailableSpatialDiagnostics(
+  ready: ReadyForDirectCommandExecution,
+): SpatialCommandExecutionDiagnostics {
+  return {
+    placementRequested: true,
+    pageId: ready.context.frozenContext.pageId,
+    sceneRevision: ready.context.frozenContext.sceneRevision,
+    anchorResolution: "ANCHOR_NOT_FOUND",
+    rawCandidateCount: 0,
+    filteredCandidateCount: 0,
+    shortlistCandidateCount: 0,
+    deterministicGate: "NO_FEASIBLE_PLACEMENT",
+    multimodalUsed: false,
+    multimodalCallCount: 0,
+    multimodalProviderResult: "NOT_REQUIRED",
+    screenshotCallCount: 0,
+    previewAttemptCount: 0,
+    validationResult: "NOT_RUN",
+    commitGuard: "NOT_RUN",
+    runtimeExecuted: false,
+    operationRecorded: false,
+    failureReason: "UNSUPPORTED_CAPABILITY",
+    anchorResolutionMs: 0,
+    candidateGenerationMs: 0,
+    multimodalMs: 0,
+    previewValidationMs: 0,
+    commitMs: 0,
+    totalSpatialMs: 0,
+  };
 }
 
 function terminalPlanningResult(
@@ -595,7 +676,7 @@ function error(
     DirectCommandRouteResult,
     { status: "ERROR" }
   >["errorCode"],
-): DirectCommandRouteResult {
+): Extract<DirectCommandRouteResult, { status: "ERROR" }> {
   return { status: "ERROR", turnId: ready.turnId, errorCode };
 }
 

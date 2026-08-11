@@ -1064,6 +1064,18 @@ export function DocumentWorkspace({
       getCurrentSceneRevision: () => voiceSceneRevision.get(),
       getCurrentPage: () => state.currentPage,
       goToPage,
+      spatial: {
+        getBaseCanvas: () => canvas,
+        getOverlayCanvas: () => annotationCanvasRef.current?.getCanvas() ?? null,
+        mountPreviewCanvas: (previewCanvas) => {
+          const stage = stageElementRef.current;
+          if (stage === null) {
+            throw new Error("The document stage is unavailable for spatial preview.");
+          }
+          stage.appendChild(previewCanvas);
+          return () => previewCanvas.remove();
+        },
+      },
     });
   const voiceTurnController = voiceDirectCommandComposition.voice.controller;
   const voiceLensPage = useMemo(() => {

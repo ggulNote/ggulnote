@@ -21,6 +21,7 @@ export interface DirectCommandGuardInput {
   catalog: PageTargetCatalog;
   currentSceneRevision: number;
   resolution?: TargetResolutionResult;
+  spatialAnchorResolution?: TargetResolutionResult;
   allowedCommands?: readonly DirectCommandName[];
 }
 
@@ -29,6 +30,7 @@ export type DirectCommandGuardResult =
       status: "ALLOWED";
       plan: ExecutableDirectPlan;
       target?: ResolvedTarget;
+      spatialAnchorTarget?: ResolvedTarget;
     }
   | {
       status: "REJECTED";
@@ -65,26 +67,75 @@ export function guardDirectCommandPlan(
   ) {
     return reject("STALE_SCENE");
   }
-  if (result.placementQuery !== undefined) {
-    return reject("SPATIAL_REQUIRED");
-  }
-
   const commandName = directCommandName(result.command);
   const allowed = new Set(input.allowedCommands ?? DIRECT_COMMAND_NAMES);
   if (commandName === null || !allowed.has(commandName)) {
     return reject("UNSUPPORTED_COMMAND");
   }
+  if (result.placementQuery !== undefined) {
+    if (result.relation !== "NEW" || result.targetQuery !== undefined) {
+      return reject("UNSUPPORTED_CAPABILITY");
+    }
+    if (
+      result.command.capability !== "text"
+      || result.command.operation !== "create"
+    ) {
+      return reject("SPATIAL_REQUIRED");
+    }
+    if (result.placementQuery.reference.kind !== "TARGET") {
+      return { status: "ALLOWED", plan: result };
+    }
+    const anchor = validateResolvedTarget(
+      input.spatialAnchorResolution,
+      input,
+    );
+    return anchor.status === "REJECTED"
+      ? anchor
+      : {
+          status: "ALLOWED",
+          plan: result,
+          spatialAnchorTarget: anchor.target,
+        };
+  }
+  if (
+    result.command.capability === "text"
+    && result.command.operation === "create"
+  ) {
+    return reject("SPATIAL_REQUIRED");
+  }
   if (isControlCommand(result.command)) {
     return { status: "ALLOWED", plan: result };
   }
 
-  const resolution = input.resolution;
-  if (resolution === undefined) {
-    return reject("INVALID_TARGET");
+  const validated = validateResolvedTarget(input.resolution, input);
+  if (validated.status === "REJECTED") return validated;
+  const target = validated.target;
+
+  if (
+    result.command.capability === "annotation"
+    && !target.annotatable
+  ) {
+    return reject("TARGET_NOT_ANNOTATABLE");
   }
-  if (resolution.status === "AMBIGUOUS") {
-    return reject("TARGET_AMBIGUOUS");
+  if (result.command.capability === "text") {
+    if (target.source === "pdf" || !target.editable) {
+      return reject("TARGET_NOT_EDITABLE");
+    }
+    if (target.source !== "ggulnote" || target.type !== "text") {
+      return reject("TARGET_KIND_UNSUPPORTED");
+    }
   }
+  return { status: "ALLOWED", plan: result, target };
+}
+
+function validateResolvedTarget(
+  resolution: TargetResolutionResult | undefined,
+  input: DirectCommandGuardInput,
+):
+  | { readonly status: "RESOLVED"; readonly target: ResolvedTarget }
+  | Extract<DirectCommandGuardResult, { status: "REJECTED" }> {
+  if (resolution === undefined) return reject("INVALID_TARGET");
+  if (resolution.status === "AMBIGUOUS") return reject("TARGET_AMBIGUOUS");
   if (resolution.status === "NOT_FOUND") {
     return reject(
       resolution.reasonCode === "SUBRANGE_UNSUPPORTED"
@@ -105,6 +156,9 @@ export function guardDirectCommandPlan(
   );
   if (
     catalogCandidate === undefined
+    || catalogCandidate.pageId !== target.pageId
+    || catalogCandidate.source !== target.source
+    || catalogCandidate.type !== target.type
     || (
       target.objectId !== undefined
       && catalogCandidate.sceneObjectId !== target.objectId
@@ -112,22 +166,7 @@ export function guardDirectCommandPlan(
   ) {
     return reject("INVALID_TARGET");
   }
-
-  if (
-    result.command.capability === "annotation"
-    && !target.annotatable
-  ) {
-    return reject("TARGET_NOT_ANNOTATABLE");
-  }
-  if (result.command.capability === "text") {
-    if (target.source === "pdf" || !target.editable) {
-      return reject("TARGET_NOT_EDITABLE");
-    }
-    if (target.source !== "ggulnote" || target.type !== "text") {
-      return reject("TARGET_KIND_UNSUPPORTED");
-    }
-  }
-  return { status: "ALLOWED", plan: result, target };
+  return { status: "RESOLVED", target };
 }
 
 function directCommandName(
@@ -150,6 +189,6 @@ function isControlCommand(
 
 function reject(
   errorCode: DirectCommandRouteErrorCode,
-): DirectCommandGuardResult {
+): Extract<DirectCommandGuardResult, { status: "REJECTED" }> {
   return { status: "REJECTED", errorCode };
 }

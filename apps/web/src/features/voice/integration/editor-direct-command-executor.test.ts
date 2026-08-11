@@ -11,13 +11,16 @@ import type {
   ExecutableCommandRelation,
   ReadyForDirectCommandExecution,
   ResolvedTarget,
+  ValidatedSpatialPlacement,
 } from "../domain";
+import { InMemorySpatialCommandCapabilityRegistry } from "../application";
 import {
   type DirectCommandNavigationPort,
   createDocumentSessionDirectCommandNavigationPort,
   EditorDirectCommandExecutor,
 } from "./editor-direct-command-executor";
 import { editorAnnotationSceneId } from "./editor-voice-context";
+import { TextSpatialCreateCapability } from "./text-spatial-create-capability";
 import {
   documentSessionReducer,
   getInitialDocumentSessionState,
@@ -222,6 +225,106 @@ function collectOperations(editorEngine: EditorEngine): {
 }
 
 describe("EditorDirectCommandExecutor", () => {
+  it("E1 commits only a validated spatial TEXT placement through CommandManager and undo/redo", async () => {
+    const editorEngine = createEngine();
+    const log = collectOperations(editorEngine);
+    const capabilities = new InMemorySpatialCommandCapabilityRegistry();
+    capabilities.register(new TextSpatialCreateCapability());
+    const executor = new EditorDirectCommandExecutor({
+      editorEngine,
+      navigation: new FakeNavigationPort(),
+      getCurrentSceneRevision: () => 7,
+      clock: { now: () => toSessionTimeMs(100) },
+      spatialCapabilities: capabilities,
+    });
+    const spatialReady = ready({
+      capability: "text",
+      operation: "create",
+      target: { kind: "CURRENT_PAGE" },
+      payload: { text: "그림 설명" },
+    });
+    spatialReady.plan.placementQuery = {
+      reference: { kind: "PAGE" },
+      relation: "FREE_SPACE",
+    };
+    const candidate = {
+      internalId: "candidate-1",
+      alias: "S1" as const,
+      snapshotId: "snapshot-1",
+      sceneRevision: 7,
+      bounds: { x: 100, y: 300, width: 240, height: 96 },
+      strategy: "FREE_SPACE" as const,
+      relation: "FREE_SPACE" as const,
+      alignment: "AUTO" as const,
+      sizeVariant: "PREFERRED" as const,
+      evidence: {
+        hardOverlapArea: 0,
+        softOverlapArea: 0,
+        clearance: 20,
+        anchorDistance: 0,
+        relationSatisfied: true,
+        alignmentSatisfied: true,
+        preferredSizePreserved: true,
+        insideEditableBounds: true,
+        regionMatch: true,
+        nearbyObjectIds: [],
+      },
+    };
+    const placement: ValidatedSpatialPlacement = {
+      snapshotId: "snapshot-1",
+      pageId: PAGE_ID,
+      sceneRevision: 7,
+      candidate,
+      candidateInternalId: candidate.internalId,
+      draftKey: "spatial-draft:turn-phase-d",
+      requestedBounds: { ...candidate.bounds },
+      actualRenderBounds: { x: 100, y: 300, width: 238, height: 94 },
+      selectionSource: "DETERMINISTIC",
+      previewAttemptCount: 1,
+      validationEvidence: {
+        finiteGeometry: true,
+        insideEditableBounds: true,
+        footprintFits: true,
+        minimumSizeSatisfied: true,
+        hardOverlapArea: 0,
+        hardCollisionFree: true,
+        clearanceSatisfied: true,
+        softOverlapArea: 0,
+        softOverlapObjectCount: 0,
+        relationSatisfied: true,
+        alignmentSatisfied: true,
+        overlayPolicySatisfied: true,
+        sceneRevisionMatched: true,
+        draftIdentityMatched: true,
+        candidateIdentityMatched: true,
+      },
+    };
+
+    const result = await executor.executeSpatial(spatialReady, placement);
+    expect(result).toMatchObject({ status: "COMMITTED", annotationId: "ann-1" });
+    expect(editorEngine.exportPageSnapshot(PAGE_ID).annotations).toMatchObject([{
+      type: "TEXT",
+      bounds: { x: 0.1, y: 0.3, width: 0.24, height: 0.096 },
+      properties: { text: "그림 설명" },
+    }]);
+    expect(log.events).toHaveLength(1);
+    expect(log.events[0]).toMatchObject({
+      historyAction: "execute",
+      operation: { type: "CREATE_ANNOTATION" },
+    });
+
+    editorEngine.undo();
+    expect(editorEngine.exportPageSnapshot(PAGE_ID).annotations).toHaveLength(0);
+    editorEngine.redo();
+    expect(editorEngine.exportPageSnapshot(PAGE_ID).annotations).toHaveLength(1);
+    expect(log.events.map((event) => event.historyAction)).toEqual([
+      "execute",
+      "undo",
+      "redo",
+    ]);
+    log.dispose();
+  });
+
   it("D1 creates one underline operation over PDF geometry and undo removes it", async () => {
     const editorEngine = createEngine();
     const executor = createExecutor(editorEngine);

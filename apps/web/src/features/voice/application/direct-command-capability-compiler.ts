@@ -12,7 +12,9 @@ import type {
   DirectOperationRecord,
   ReadyForDirectCommandExecution,
   ResolvedTarget,
+  ValidatedSpatialPlacement,
 } from "../domain";
+import type { SpatialCommandCapabilitySource } from "./spatial-command-capability";
 
 const ANNOTATABLE_TARGET_TYPES = new Set([
   "sentence",
@@ -40,7 +42,9 @@ export function compileDirectCommandCapability(
     case "annotation":
       return compileAnnotation(command, ready, context);
     case "text":
-      return compileTextReplacement(command, ready);
+      return command.operation === "replace_content"
+        ? compileTextReplacement(command, ready)
+        : failed("SPATIAL_REQUIRED");
     case "navigation":
       return {
         status: "COMPILED",
@@ -55,6 +59,69 @@ export function compileDirectCommandCapability(
         instruction: { kind: "UNDO" },
       };
   }
+}
+
+export interface ValidatedSpatialCommandCompileContext {
+  readonly pageSize?: Size;
+  readonly capabilities: SpatialCommandCapabilitySource;
+}
+
+/**
+ * The only spatial compiler boundary. Raw candidates and multimodal aliases
+ * cannot enter this function because it requires a ValidatedSpatialPlacement.
+ */
+export function compileValidatedSpatialCommand(
+  ready: ReadyForDirectCommandExecution,
+  placement: ValidatedSpatialPlacement,
+  context: ValidatedSpatialCommandCompileContext,
+): DirectCommandCompileResult {
+  if (
+    ready.plan.placementQuery === undefined
+    || ready.plan.relation !== "NEW"
+    || ready.context.frozenContext.pageId !== placement.pageId
+    || ready.context.frozenContext.sceneRevision !== placement.sceneRevision
+    || ready.plan.sceneRevision !== placement.sceneRevision
+    || placement.snapshotId !== placement.candidate.snapshotId
+    || placement.candidateInternalId !== placement.candidate.internalId
+    || !sameRect(placement.requestedBounds, placement.candidate.bounds)
+  ) {
+    return failed("STALE_SCENE");
+  }
+  const pageSize = context.pageSize;
+  if (pageSize === undefined || !isPositiveFiniteSize(pageSize)) {
+    return failed("COMPILE_FAILED");
+  }
+  const command = ready.plan.command;
+  const capability = context.capabilities.get(
+    command.capability,
+    command.operation,
+  );
+  if (capability === undefined) {
+    return failed("UNSUPPORTED_CAPABILITY");
+  }
+  const normalizedBounds = canonicalToNormalizedRect(
+    placement.requestedBounds,
+    pageSize,
+  );
+  if (!isPositiveFiniteRect(normalizedBounds)) {
+    return failed("COMPILE_FAILED");
+  }
+  const annotationInput = capability.createCommitAnnotationInput({
+    ready,
+    placement,
+    normalizedBounds,
+    pageSize,
+  });
+  if (annotationInput === undefined) {
+    return failed("UNSUPPORTED_CAPABILITY");
+  }
+  return {
+    status: "COMPILED",
+    instruction: {
+      kind: "CREATE_ANNOTATION",
+      input: annotationInput,
+    },
+  };
 }
 
 export function compileDirectCommandRevision(
@@ -283,6 +350,13 @@ function isPositiveFiniteSize(size: Size): boolean {
     && Number.isFinite(size.height)
     && size.width > 0
     && size.height > 0;
+}
+
+function sameRect(left: Rect, right: Rect): boolean {
+  return left.x === right.x
+    && left.y === right.y
+    && left.width === right.width
+    && left.height === right.height;
 }
 
 function unsupportedRelation(

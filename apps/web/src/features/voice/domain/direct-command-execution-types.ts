@@ -13,7 +13,7 @@ export type ReadyForDirectCommandExecution = Extract<
 
 export type DirectAnnotationRuntimeInput = Extract<
   CreateAnnotationInput,
-  { type: "UNDERLINE" | "HIGHLIGHT" }
+  { type: "TEXT" | "UNDERLINE" | "HIGHLIGHT" }
 >;
 
 export type DirectCommandRuntimeInstruction =

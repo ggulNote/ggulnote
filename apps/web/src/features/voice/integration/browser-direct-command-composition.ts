@@ -15,6 +15,7 @@ import {
 import {
   createEditorDirectCommandComposition,
   type EditorDirectCommandComposition,
+  type EditorSpatialPlacementCompositionOptions,
 } from "./editor-direct-command-composition";
 import { DirectCommandVoiceTurnBridge } from "./direct-command-voice-turn-bridge";
 
@@ -32,6 +33,7 @@ export interface BrowserDirectCommandCompositionOptions {
   recovery?: GroundedTargetRecoveryProvider;
   speechRefiner?: SpeechRefinerProvider;
   targetResolver?: FrozenTargetResolver;
+  spatial?: EditorSpatialPlacementCompositionOptions;
 }
 
 export interface BrowserDirectCommandComposition {
@@ -71,6 +73,7 @@ export function createBrowserDirectCommandComposition(
     ...(options.targetResolver === undefined
       ? {}
       : { targetResolver: options.targetResolver }),
+    ...(options.spatial === undefined ? {} : { spatial: options.spatial }),
   });
   const bridge = new DirectCommandVoiceTurnBridge({
     controller: voice.controller,

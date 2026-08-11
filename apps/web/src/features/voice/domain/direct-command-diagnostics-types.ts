@@ -15,6 +15,47 @@ import type {
   TargetStrategyKind,
 } from "./target-grounding-types";
 import type { DirectCommandTarget } from "./target-query";
+import type {
+  SpatialPlacementReason,
+} from "./spatial-placement-types";
+import type { PlacementCandidateAlias } from "./multimodal-placement-types";
+import type { SpatialPreviewResolutionFailureStatus } from "./spatial-preview-types";
+
+export interface SpatialCommandExecutionDiagnostics {
+  readonly placementRequested: true;
+  readonly pageId: string;
+  readonly sceneRevision: number;
+  readonly anchorResolution: "RESOLVED" | "ANCHOR_NOT_FOUND" | "STALE_SCENE";
+  readonly rawCandidateCount: number;
+  readonly filteredCandidateCount: number;
+  readonly shortlistCandidateCount: number;
+  readonly deterministicGate: "RESOLVED" | "AMBIGUOUS" | "NO_FEASIBLE_PLACEMENT" | "STALE_SCENE";
+  readonly multimodalUsed: boolean;
+  readonly multimodalCallCount: 0 | 1;
+  readonly multimodalProviderResult:
+    | "NOT_REQUIRED"
+    | PlacementCandidateAlias
+    | "NONE"
+    | "ERROR"
+    | "UNAVAILABLE"
+    | "INVALID"
+    | "CANCELLED"
+    | "STALE";
+  readonly screenshotCallCount: 0 | 1;
+  readonly selectionSource?: "DETERMINISTIC" | "MULTIMODAL" | "VALIDATION_FALLBACK";
+  readonly previewAttemptCount: 0 | 1 | 2;
+  readonly validationResult: "NOT_RUN" | "VALIDATED" | SpatialPreviewResolutionFailureStatus;
+  readonly commitGuard: "NOT_RUN" | "PASSED" | "REJECTED";
+  readonly runtimeExecuted: boolean;
+  readonly operationRecorded: boolean;
+  readonly failureReason?: SpatialPlacementReason | DirectCommandRouteErrorCode;
+  readonly anchorResolutionMs: number;
+  readonly candidateGenerationMs: number;
+  readonly multimodalMs: number;
+  readonly previewValidationMs: number;
+  readonly commitMs: number;
+  readonly totalSpatialMs: number;
+}
 
 export interface DirectCommandExecutionTimestamps {
   compileStartedAt?: number;
@@ -184,6 +225,7 @@ export interface DirectCommandTrace {
   executionStatus: DirectCommandRouteResult["status"];
   editorOperationId?: string;
   errorCode?: DirectCommandRouteErrorCode;
+  spatial?: SpatialCommandExecutionDiagnostics;
   timestamps: DirectCommandLifecycleTimestamps;
   metrics: DirectCommandLatencyMetrics;
 }

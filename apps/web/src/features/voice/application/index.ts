@@ -264,7 +264,21 @@ export type {
 export {
   compileDirectCommandCapability,
   compileDirectCommandRevision,
+  compileValidatedSpatialCommand,
 } from "./direct-command-capability-compiler";
+export {
+  InMemorySpatialCommandCapabilityRegistry,
+} from "./spatial-command-capability";
+export type {
+  SpatialCommandCapability,
+  SpatialCommandCapabilitySource,
+} from "./spatial-command-capability";
+export { SpatialPlacementExecutionPipeline } from "./spatial-placement-execution";
+export type {
+  SpatialPlacementExecutionPipelineOptions,
+  SpatialPlacementExecutionResolution,
+  ValidatedSpatialPlacementExecutionPort,
+} from "./spatial-placement-execution";
 export { DirectCommandHistoryContext } from "./direct-command-history-context";
 export type {
   DirectCommandHistoryContextOptions,
@@ -296,3 +310,8 @@ export type {
   GroundingEvaluationCategory,
   GroundingEvaluationMetrics,
 } from "./grounding-evaluation";
+export { evaluateSpatialPlacementCases } from "./spatial-placement-evaluation";
+export type {
+  SpatialPlacementEvaluationCase,
+  SpatialPlacementEvaluationMetrics,
+} from "./spatial-placement-evaluation";

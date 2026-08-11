@@ -160,6 +160,39 @@ describe("guardDirectCommandPlan", () => {
     });
   });
 
+  it("allows a supported spatial text create and preserves the trusted anchor", () => {
+    const spatialPlan: ExecutableDirectPlan = {
+      ...plan({
+        capability: "text",
+        operation: "create",
+        target: { kind: "CURRENT_PAGE" },
+        payload: { text: "그림 설명" },
+      }),
+      placementQuery: {
+        reference: {
+          kind: "TARGET",
+          query: { kind: "object", objectType: "image", query: "이 그림" },
+        },
+        relation: "BELOW",
+      },
+    };
+
+    expect(guardDirectCommandPlan({
+      result: spatialPlan,
+      expectedTurnId: "turn-1",
+      frozenContext: FROZEN_CONTEXT,
+      catalog: CATALOG,
+      currentSceneRevision: 7,
+      spatialAnchorResolution: resolution(PDF_TEXT),
+    })).toMatchObject({
+      status: "ALLOWED",
+      spatialAnchorTarget: {
+        candidateId: PDF_TEXT.candidateId,
+        objectId: PDF_TEXT.sceneObjectId,
+      },
+    });
+  });
+
   it("rejects stale revisions, spatial plans, and commands outside the allowlist", () => {
     const underline = plan({
       capability: "annotation",

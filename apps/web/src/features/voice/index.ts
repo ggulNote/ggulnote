@@ -33,6 +33,7 @@ export type {
   DirectCommandPlanningDiagnostics,
   DirectCommandTrace,
   DirectCommandTraceDiagnostics,
+  SpatialCommandExecutionDiagnostics,
   DirectEditorCommand,
   DirectPlannerResult,
   DirectRecentOperation,
@@ -132,6 +133,7 @@ export {
   DirectCommandRoute,
   compileDirectCommandCapability,
   compileDirectCommandRevision,
+  compileValidatedSpatialCommand,
   DEFAULT_VOICE_TURN_TIMING_CONFIG,
   FrozenTargetResolver,
   GroundedTargetRecovery,
@@ -157,6 +159,9 @@ export {
   BoundedMultimodalPlacementResolver,
   MultimodalPlacementObservationBuilder,
   InMemorySpatialPreviewRendererRegistry,
+  InMemorySpatialCommandCapabilityRegistry,
+  SpatialPlacementExecutionPipeline,
+  evaluateSpatialPlacementCases,
   PreviewValidationOrchestrator,
   SPATIAL_PREVIEW_RENDER_TOLERANCE,
   SpatialPreviewUnavailableError,
@@ -257,6 +262,13 @@ export type {
   SpatialPreviewRendererRegistry,
   SpatialPreviewSession,
   SpatialPreviewValidationInput,
+  SpatialCommandCapability,
+  SpatialCommandCapabilitySource,
+  SpatialPlacementExecutionPipelineOptions,
+  SpatialPlacementExecutionResolution,
+  ValidatedSpatialPlacementExecutionPort,
+  SpatialPlacementEvaluationCase,
+  SpatialPlacementEvaluationMetrics,
 } from "./application";
 export { useVoiceTurn } from "./hooks";
 export type { UseVoiceTurnResult, VoiceTurnControllerPort } from "./hooks";
@@ -281,6 +293,7 @@ export {
   MAX_SPATIAL_SCREENSHOT_EDGE,
   CanvasAnnotationSpatialPreviewRenderer,
   measurePaintedCanonicalBounds,
+  TextSpatialCreateCapability,
 } from "./integration";
 export type {
   BrowserVoiceTurnComposition,
@@ -289,6 +302,7 @@ export type {
   BrowserDirectCommandCompositionOptions,
   EditorDirectCommandComposition,
   EditorDirectCommandCompositionOptions,
+  EditorSpatialPlacementCompositionOptions,
   CompletedVoiceTurnRoute,
   CompletedVoiceTurnSource,
   DirectCommandVoiceTurnBridgeOptions,

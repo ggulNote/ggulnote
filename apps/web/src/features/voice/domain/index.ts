@@ -305,4 +305,5 @@ export type {
   DirectCommandPlanningDiagnostics,
   DirectCommandTrace,
   DirectCommandTraceDiagnostics,
+  SpatialCommandExecutionDiagnostics,
 } from "./direct-command-diagnostics-types";

@@ -12,6 +12,7 @@ import {
   createBrowserDirectCommandComposition,
   type BrowserDirectCommandComposition,
 } from "./browser-direct-command-composition";
+import type { EditorSpatialPlacementCompositionOptions } from "./editor-direct-command-composition";
 import { subscribeToDevelopmentDirectCommandTraces } from "./direct-command-development-trace";
 
 export interface OwnedBrowserDirectCommandCompositionOptions {
@@ -21,6 +22,7 @@ export interface OwnedBrowserDirectCommandCompositionOptions {
   getCurrentSceneRevision(): number;
   getCurrentPage(): number;
   goToPage(page: number): void;
+  spatial?: EditorSpatialPlacementCompositionOptions;
 }
 
 class DirectCommandCompositionReaders {
@@ -41,6 +43,15 @@ class DirectCommandCompositionReaders {
   public getCurrentPage = (): number => this.options.getCurrentPage();
 
   public goToPage = (page: number): void => this.options.goToPage(page);
+
+  public getSpatialBaseCanvas = (): HTMLCanvasElement | null =>
+    this.options.spatial?.getBaseCanvas() ?? null;
+
+  public getSpatialOverlayCanvas = (): HTMLCanvasElement | null =>
+    this.options.spatial?.getOverlayCanvas() ?? null;
+
+  public mountSpatialPreviewCanvas = (canvas: HTMLCanvasElement): void | (() => void) =>
+    this.options.spatial?.mountPreviewCanvas(canvas);
 
   public update(options: OwnedBrowserDirectCommandCompositionOptions): void {
     this.options = options;
@@ -64,6 +75,18 @@ export function useOwnedBrowserDirectCommandComposition(
       goToPage: readers.goToPage,
       recovery: new HttpGroundedTargetRecoveryProvider(),
       speechRefiner: new HttpSpeechRefinerProvider(),
+      ...(options.spatial === undefined
+        ? {}
+        : {
+            spatial: {
+              getBaseCanvas: readers.getSpatialBaseCanvas,
+              getOverlayCanvas: readers.getSpatialOverlayCanvas,
+              mountPreviewCanvas: readers.mountSpatialPreviewCanvas,
+              ...(options.spatial.placementJudge === undefined
+                ? {}
+                : { placementJudge: options.spatial.placementJudge }),
+            },
+          }),
     }),
   );
 

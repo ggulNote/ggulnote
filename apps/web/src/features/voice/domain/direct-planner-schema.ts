@@ -6,6 +6,7 @@ import type {
   ExecutableCommandRelation,
   HistoryUndoDirectCommand,
   NavigationDirectCommand,
+  TextCreateDirectCommand,
   TextReplaceContentDirectCommand,
 } from "./direct-command-types";
 import {
@@ -78,6 +79,17 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
           "spatial subject requires placementQuery",
         );
       }
+      const command = parseDirectEditorCommand(result.command, "result.command");
+      if (
+        command.capability === "text"
+        && command.operation === "create"
+        && placementQuery === undefined
+      ) {
+        return fail(
+          "result.placementQuery",
+          "text.create requires a spatial placement query",
+        );
+      }
       return {
         status,
         planId: readNonEmptyString(result.planId, "result.planId"),
@@ -88,7 +100,7 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
           "result.normalizedIntent",
         ),
         relation: readExecutableRelation(result.relation, "result.relation"),
-        command: parseDirectEditorCommand(result.command, "result.command"),
+        command,
         ...(targetQuery === undefined ? {} : { targetQuery }),
         ...(placementQuery === undefined ? {} : { placementQuery }),
       };
@@ -152,6 +164,9 @@ export function parseDirectEditorCommand(
       }
       return fail(`${path}.operation`, `unsupported history operation: ${operation}`);
     case "text":
+      if (operation === "create") {
+        return parseTextCreateCommand(command, path);
+      }
       if (operation === "replace_content") {
         return parseTextReplaceCommand(command, path);
       }
@@ -159,6 +174,22 @@ export function parseDirectEditorCommand(
     default:
       return fail(`${path}.capability`, `unsupported capability: ${capability}`);
   }
+}
+
+function parseTextCreateCommand(
+  command: UnknownRecord,
+  path: string,
+): TextCreateDirectCommand {
+  const payload = readRecord(command.payload, `${path}.payload`);
+  assertOnlyKeys(payload, ["text"], `${path}.payload`);
+  return {
+    capability: "text",
+    operation: "create",
+    target: readSingleTarget(command.target, "CURRENT_PAGE", `${path}.target`),
+    payload: {
+      text: readNonEmptyString(payload.text, `${path}.payload.text`),
+    },
+  };
 }
 
 export function parseTargetQuery(
