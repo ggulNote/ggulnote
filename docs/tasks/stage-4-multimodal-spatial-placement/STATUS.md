@@ -986,3 +986,29 @@ COMPLETE
 
 Natural text placement omission blocker는 해소됐다. 기존 Stage 4 A~F production
 multimodal/preview/runtime completion criteria도 전체 회귀에서 유지된다.
+
+## Nested placement draft incident follow-up
+
+```text
+incident:
+  Planner가 placementQuery를 result top-level이 아니라
+  result.command.placementQuery에 넣어 strict command parser가 502를 반환했다.
+
+resolution:
+  Planner Draft parser에서만 text.create의 유효 nested placementQuery를 top-level로
+  승격한다. Effective Plan과 parseDirectPlannerResult는 계속 nested field를 거부한다.
+  top-level/nested 중복, 다른 capability, malformed/coordinate/ID field도 거부한다.
+
+prompt:
+  placementQuery가 command의 sibling임을 보여주는 exact text.create JSON shape를 추가했다.
+
+tests:
+  incident targeted: 4 files / 49 PASS
+  exact transcript production fixture: "왼쪽 위에 가나다라 써 줘" PASS
+  Web full: PASS
+  Web typecheck/lint: PASS
+  git diff --check: PASS
+
+implementation/test commit:
+  6ae329f (fix(voice): recover nested text placement drafts)
+```

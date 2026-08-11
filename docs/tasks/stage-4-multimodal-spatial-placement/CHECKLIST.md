@@ -548,6 +548,8 @@ Geometry-first safe candidates
 ## Planner Draft / Effective Plan
 
 - [x] `text.create` missing `placementQuery` draft 수용
+- [x] `text.create`의 nested `command.placementQuery`를 draft 단계에서 top-level로 승격
+- [x] top-level/nested 중복 및 다른 capability의 nested placement strict reject
 - [x] omission 외 unknown/coordinate/bounds/objectId/candidateId strict reject 유지
 - [x] normalization 후 기존 strict executable parser 재검증
 - [x] Planner call exactly once
@@ -579,6 +581,7 @@ Geometry-first safe candidates
 ## Verification
 
 - [x] 원래 실패한 네 음성 명령 production composition fixture
+- [x] `"왼쪽 위에 가나다라 써 줘"` nested planner output incident fixture
 - [x] planner omission/conflict/content negative/context tests
 - [x] targeted 10 files / 92 PASS
 - [x] Web full 122 test files PASS
