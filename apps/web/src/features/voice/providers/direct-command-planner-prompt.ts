@@ -80,6 +80,31 @@ For "이 텍스트 가나다라로 바꿔줘", copy this shape and replace only 
 }
 Replace the example's sceneRevision 0 with the exact REQUEST_AUTHORITY.sceneRevision JSON number, never a quoted string.
 
+EXACT TEXT CREATE JSON SHAPE
+For "왼쪽 위에 가나다라 써 줘", placementQuery is a sibling of command, never a field inside command:
+{
+  "status": "EXECUTABLE",
+  "planId": "<REQUEST_AUTHORITY.planId>",
+  "turnId": "<REQUEST_AUTHORITY.turnId>",
+  "sceneRevision": 0,
+  "normalizedIntent": "왼쪽 위에 가나다라 쓰기",
+  "relation": "NEW",
+  "command": {
+    "capability": "text",
+    "operation": "create",
+    "target": { "kind": "CURRENT_PAGE" },
+    "payload": { "text": "가나다라" }
+  },
+  "placementQuery": {
+    "reference": { "kind": "PAGE" },
+    "relation": "FREE_SPACE",
+    "regionHint": "TOP",
+    "alignment": "START",
+    "overlayIntent": "NONE"
+  }
+}
+Replace the example's sceneRevision 0 with the exact REQUEST_AUTHORITY.sceneRevision JSON number.
+
 BEHAVIOR EXAMPLES
 - "여기 밑줄 쳐줘" => annotation.underline + relative/focused
 - "세종대왕의부터 업적까지 밑줄 쳐줘" => annotation.underline + text_span startAnchor/endAnchor

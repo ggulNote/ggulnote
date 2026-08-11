@@ -55,7 +55,32 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
 export function parseDirectPlannerDraftResult(
   value: unknown,
 ): DirectPlannerDraftResult {
-  return parsePlannerResult(value, true);
+  return parsePlannerResult(liftNestedTextCreatePlacement(value), true);
+}
+
+function liftNestedTextCreatePlacement(value: unknown): unknown {
+  const result = readRecord(value, "result");
+  if (result.status !== "EXECUTABLE") return value;
+  const command = readRecord(result.command, "result.command");
+  if (
+    command.capability !== "text"
+    || command.operation !== "create"
+    || command.placementQuery === undefined
+  ) {
+    return value;
+  }
+  if (Object.prototype.hasOwnProperty.call(result, "placementQuery")) {
+    return fail(
+      "result.command.placementQuery",
+      "placementQuery must appear exactly once at result.placementQuery",
+    );
+  }
+  const { placementQuery, ...strictCommand } = command;
+  return {
+    ...result,
+    command: strictCommand,
+    placementQuery,
+  };
 }
 
 function parsePlannerResult(

@@ -133,6 +133,56 @@ describe("DirectPlannerResult runtime schema", () => {
     );
   });
 
+  it("lifts only a nested text.create placementQuery in planner draft mode", () => {
+    const placementQuery = {
+      reference: { kind: "PAGE" },
+      relation: "FREE_SPACE",
+      regionHint: "TOP",
+      alignment: "START",
+      overlayIntent: "NONE",
+    };
+    const nested = {
+      ...createExecutableResult(),
+      command: {
+        capability: "text",
+        operation: "create",
+        target: { kind: "CURRENT_PAGE" },
+        payload: { text: "가나다라" },
+        placementQuery,
+      },
+    };
+
+    const parsed = parseDirectPlannerDraftResult(nested);
+    expect(parsed).toMatchObject({
+      command: {
+        capability: "text",
+        operation: "create",
+        payload: { text: "가나다라" },
+      },
+      placementQuery,
+    });
+    if (parsed.status !== "EXECUTABLE") throw new Error("Expected executable draft.");
+    expect(parsed.command).not.toHaveProperty("placementQuery");
+    expect(() => parseDirectPlannerResult(nested)).toThrowError(
+      /result\.command\.placementQuery: unexpected field/u,
+    );
+    expect(() => parseDirectPlannerDraftResult({
+      ...nested,
+      placementQuery,
+    })).toThrowError(/placementQuery must appear exactly once/u);
+
+    const forbiddenCommand = {
+      ...createExecutableResult(),
+      command: {
+        ...createExecutableResult().command,
+        placementQuery,
+      },
+    };
+    expect(() => parseDirectPlannerDraftResult(forbiddenCommand)).toThrowError(
+      /result\.command\.placementQuery: unexpected field/u,
+    );
+  });
+
   it("rejects coordinate fields mixed into an executable command", () => {
     const value = createExecutableResult();
     value.command.target = {

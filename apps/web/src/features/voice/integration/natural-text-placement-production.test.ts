@@ -26,6 +26,14 @@ describe("natural text placement production flow", () => {
       stableFallbackUsed: false,
     },
     {
+      transcript: "왼쪽 위에 가나다라 써 줘",
+      mode: "EXPLICIT_REGION",
+      policy: "EXPLICIT_REGION",
+      regionHint: "TOP",
+      alignment: "START",
+      stableFallbackUsed: false,
+    },
+    {
       transcript: "가나다라라고 써 줘",
       mode: "AUTO_FLOW",
       policy: "WRITING_FLOW",
