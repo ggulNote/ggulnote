@@ -3,7 +3,7 @@
 ## Current Milestone
 
 ```text
-Phase 1 — Unified Object World Foundation
+Phase 2 — One Decision + Tool Runtime Shadow Mode
 Status: COMPLETE
 ```
 
@@ -78,10 +78,40 @@ Status: COMPLETE
 - [x] `git diff --check`
 - [x] 기존 `voice-debug-panel` flaky 단독 rerun PASS 확인
 
+## Phase 2 Contract / Runtime
+
+- [x] optional EntitySelector / spatial language / Destination
+- [x] strict CALL/BATCH/NEEDS_INPUT/UNSUPPORTED/NO_OP parser
+- [x] max selector depth 2 / max atomic batch 4
+- [x] unknown fields와 IDs/coordinates/bounds/offsets 거부
+- [x] dynamic namespaced NoteTool Registry와 availability/schema
+- [x] text create/replace, annotation, navigation, undo adapter
+- [x] Phase 1 World/ObjectIndex/Operation adapter 재사용
+- [x] Stage 3.5 resolver facade / explicit miss no fallback
+- [x] Stage 4 placement facade / user-created renderBounds anchor
+- [x] strict runtime / stale guard / shadow commit port 없음
+
+## Phase 2 Provider / Shadow / Verification
+
+- [x] existing same-origin/server-only model transport 재사용
+- [x] AbortSignal / strict response / available-tool authority
+- [x] compact input / dynamic tool schemas / one decision call
+- [x] explicit `NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE=1` flag
+- [x] existing route 단독 commit owner / shadow failure isolation
+- [x] bounded parity/latency/no-commit trace
+- [x] deterministic parity fixtures 12종
+- [x] Note Agent targeted 9 files / 53 tests
+- [x] Web full 131 files / 936 tests
+- [x] Editor Core full 7 files / 53 tests
+- [x] Web/Editor typecheck와 lint
+- [x] `git diff --check`
+
 ## Explicitly Deferred
 
-- [ ] Phase 2 — One Decision + Tool Runtime Shadow Mode
-- [ ] One Note Decision production provider
+- [x] Phase 2 — One Decision + Tool Runtime Shadow Mode
+- [x] One Note Decision production provider (shadow only)
 - [ ] NoteTool Registry production cutover
 - [ ] 기존 Direct/Spatial route 제거
 - [ ] Math/Graph/Table 새 production capability
+- [ ] real model shadow/parity/latency sample review
+- [ ] generic object move/delete/style production adapter

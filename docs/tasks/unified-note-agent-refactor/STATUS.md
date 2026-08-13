@@ -3,66 +3,84 @@
 ## Current State
 
 ```text
-Phase: 1 — Unified Object World Foundation
+Phase: 2 — One Decision + Tool Runtime Shadow Mode
 Status: COMPLETE
-Current Milestone: COMPLETE / READY FOR PHASE 2 REVIEW
+Current Milestone: COMPLETE / READY FOR PHASE 3 REVIEW
 Date: 2026-08-13
 ```
 
 ## Branch / Base
 
 ```text
-original branch: feat/stage-4.5-accuracy-improvements
-original HEAD: fc61be53f37580ebc0ba5a794264d70d390d1dd4
 branch: refactor/unified-note-agent
+start HEAD: 46eed4ee8184ac6724d69228e8db3d007d862a05
 base: feat/stage-4.5-accuracy-improvements @ fc61be5
+Phase 2 implementation: 7f1ed19f1fd9ce40b7b6e2c987959ab5e79ec438
 working tree at start: untracked next, pnpm
 preserved unrelated files: next, pnpm
 ```
 
-## Existing Architecture
+## Contracts
 
-- Canonical scene: `packages/editor-core/src/scene-core/types.ts`,
-  `scene-snapshot.ts`, `pdf-scene-adapter.ts`, `canvas-scene-adapter.ts`.
-- Production user objects: `EditorEngine`의 `SerializedAnnotation` /
-  `PageSceneSnapshot`; `LocalEditorPersistence`가 기존 IndexedDB
-  `pageSnapshots`와 `operations`에 저장한다.
-- `CanvasObjectStore`는 Scene Core generic source이며 현재 production Text source는
-  annotation snapshot이다.
-- Grounding은 기존 `PageTargetCatalog`, `TargetStrategyRouter`,
-  `FrozenTargetResolver`, Canonical Text Stream을 유지한다.
-- Spatial은 기존 `ExistingSceneSpatialSceneSource`, `SpatialSceneObject`,
-  `placement-candidate-engine`, Ghost Preview, deterministic validation을 유지한다.
-- Mutation은 `EditorEngine → CommandManager → publishOperation → persistence`와 기존
-  Undo/Redo를 그대로 사용한다.
+- `EntitySelector`는 scope/kind/source/content/attributes/temporal/ordinal/context/spatial을
+  optional constraint로 유지한다.
+- spatial relation 11종, page region 10종, Entity/Page Region/Focus/Selection reference,
+  Page/Relative `Destination`을 strict parser로 검증한다.
+- nested selector는 최대 깊이 2다. unknown/malformed/prototype-bearing object와
+  object/candidate/range/part ID, coordinate, bounds, rect, offset authority를 거부한다.
+- decision은 `CALL`, atomic `BATCH`(최대 4), `NEEDS_INPUT`, `UNSUPPORTED`, `NO_OP`만
+  허용한다.
 
-## Phase 1 Implementation
+## Runtime / Existing Adapter Reuse
 
-- `SceneObjectMetadataView`가 source, canonical/render geometry, multi-rect,
-  search/semantic/lifecycle/part/capability를 기존 `SceneObject`에서 파생한다.
-- PDF는 immutable capability, Canvas/Annotation은 실제 lock/kind/rect 정책에 따른
-  capability를 갖는다.
-- user Text, underline, highlight는 stable annotation ID, canonical Scene ID,
-  `createdByTurnId`, `creationOrder`, `targetObjectIds`, ordered rects를 refresh/hydrate
-  뒤에도 보존한다.
-- `ExistingUnifiedObjectWorld`가 기존 frozen snapshot source 뒤에서 PDF/Blank 공통
-  snapshot/object/page lookup을 제공한다.
-- `RebuildableObjectIndex`는 snapshot-derived in-memory index이며 revision/content hash,
-  delta upsert/delete, full rebuild parity를 지원한다.
-- `DirectCommandOperationLedgerAdapter`는 기존 direct history와 Editor operation ID를
-  EntityRef output, turn, tool, undo group read model로 노출한다.
-- `EditorOperation` metadata는 기존 Operation Log와 IndexedDB record를 그대로 통과한다.
-- DB version/table 추가는 없다. legacy optional metadata는 추정하지 않는다.
+- `NoteToolRegistry`는 namespaced ID, kind, compact input/output schema, availability,
+  execution과 duplicate protection을 제공한다.
+- adapter: `text.create`, `text.replace`, `annotation.apply`, `navigation.next_page`,
+  `navigation.previous_page`, `history.undo`.
+- `object.move/delete/style`과 Graph/Math/Table은 기존 stable direct compiler가 없어
+  production registry에 노출하지 않았다.
+- `ExistingWorldResolver`는 Phase 1 World/ObjectIndex와 기존 `FrozenTargetResolver`를
+  감싼다. explicit target miss는 focus/selection/history로 대체하지 않는다.
+- `ExistingPlacementEngine`은 기존 Stage 4 candidate engine/deterministic gate/profile/
+  measurement를 재사용하고 user-created object의 `renderBounds`/rects도 anchor로 쓴다.
+- Phase 2 `NoteRuntime`에는 editor commit port가 없다. strict input/output schema,
+  capability, scene revision을 검사하며 항상 `commitAttempted: false`다.
+
+## Decision Provider / Shadow Wiring
+
+- 기존 `DirectTextModelTransport`, server-only OpenAI transport, JSON/error boundary를
+  재사용한다. 새 API key/client 경로는 없다.
+- same-origin endpoint는 `/api/voice/note-decision`이며 AbortSignal, strict input/output,
+  available-tool authority를 검증한다.
+- decision input은 transcript, frozen document/page/revision/mode, selection/focus/last
+  operation summary, compact tool schema만 포함한다. 전체 scene/PDF/history/screenshot은 없다.
+- `NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE=1`일 때만 shadow path를 함께 실행한다. 기본값은
+  기존 production route 단독이다.
+- 기존 Direct/Spatial route가 유일한 commit owner다. shadow 실패는 명시적으로 trace되고
+  기존 route 결과를 막지 않는다.
+- bounded trace는 decision/tool/resolver/placement/old route status, LLM/tool call count,
+  decision/runtime/total latency, commit attempted 여부를 기록한다.
+
+## Shadow / Parity Result
+
+- deterministic decision fixture 12종으로 기본/page-region/relative 생성, user-created
+  anchor, graph/delete 계약, recent underline, PDF range, selection/no-selection,
+  explicit not-found, PDF immutable, unavailable graph를 검증했다.
+- PDF fuzzy grounding은 기존 Stage 3.5 resolver를, placement는 기존 Stage 4 engine을
+  실제 adapter 뒤에서 회귀 검증했다.
+- duplicate explicit target은 compact candidate 4개로 제한하고 missing explicit target은
+  focus/selection이 있어도 `NOT_FOUND`다. stale revision은 commit 전에 거부한다.
+- executable parity test에서 old route 1회, decision LLM 1회, tool 1회, persistent shadow
+  mutation 0회를 확인했다.
+- 실제 model/network latency는 credential 없는 deterministic test에서 측정하지 않았다.
+  운영 shadow trace의 latency 수집 경계만 완료했다.
 
 ## Verification
 
 ```text
-Unified world + production adapter targeted: 6 files / 28 tests PASS
-Editor targeted: 3 files / 35 tests PASS
-Stage 3.5 + Stage 4 targeted: 10 files / 100 tests PASS
-Final world/executor targeted: 2 files / 15 tests PASS
+Phase 1+2 Note Agent targeted: 9 files / 53 tests PASS
+Web full (Stage 2/3/3.5/4 포함): 131 files / 936 tests PASS
 Editor Core full: 7 files / 53 tests PASS
-Web full: 123 files / 886 tests PASS
 Web typecheck: PASS
 Editor Core typecheck: PASS
 Web package lint: PASS
@@ -70,38 +88,37 @@ Editor Core package lint: PASS (existing config warnings only)
 git diff --check: PASS
 ```
 
-Web full regression 첫 실행에서 기존 flaky
-`voice-debug-panel.test.tsx`의 fake-session timing 1건이 실패했다. 해당 파일 단독
-재실행은 2/2 PASS였고, 최종 Web full rerun도 123 files / 886 tests PASS였다.
-
 Environment:
 
 - repository requirement: Node `>=22`
 - validation runtime: Node `20.19.4`, pnpm `10.9.0`
 - engine mismatch와 Editor Core React/pages-directory lint warning은 기존 환경 warning이다.
+- Web validation stderr와 jsdom canvas stderr는 기존 의도된/known output이며 테스트는
+  PASS다.
 
 ## Known Limitations
 
-- world/index는 Phase 1 read boundary이며 production planner route에 아직 wiring하지 않았다.
-- ObjectIndex는 source of truth가 아니며 현재 in-memory다; snapshot에서 rebuild해야 한다.
-- legacy annotation/operation에는 `createdByTurnId`가 없을 수 있으며 이를 추정하지 않는다.
-- production renderer가 별도 `renderBounds`를 제공하지 않는 object는 canonical `bounds`를
-  fallback으로 사용한다.
-- user Text range의 glyph/character-level address resolution은 Phase 1 범위가 아니다.
-- session 밖 operation ledger hydration/cross-document query는 Phase 2 runtime wiring 전이다.
-- Graph/Math/Table part metadata는 read-only contract/view이며 새 production capability가 아니다.
+- real model parity/latency sample과 trace persistence는 아직 없다.
+- `text.create`는 기존 Stage 4 profile/measurement/snapshot이 준비된 composition에서만
+  shadow available이다.
+- `BETWEEN` search는 두 reference 계약이 없어 `UNSUPPORTED`이며 `MARGIN`은 placement
+  destination만 지원한다.
+- Graph/Math/Table과 generic object move/delete/style은 production tool로 노출하지 않았다.
+- 기존 Direct Planner, normalizer, fixed union, Direct/Spatial route는 유지했다.
 
 ## Commits
 
 ```text
-implementation: 4ab6d3a feat(scene): add unified object world foundation
-status: docs(note-agent): record phase 1 status
+phase 1 implementation: 4ab6d3a feat(scene): add unified object world foundation
+phase 1 status: 46eed4e docs(note-agent): record phase 1 status
+phase 2 implementation + tests: 7f1ed19 feat(note-agent): add shadow decision runtime
+phase 2 status: docs(note-agent): record phase 2 status
 ```
 
 ## Next Milestone
 
 ```text
-Phase 2 — One Decision + Tool Runtime Shadow Mode
+Phase 3 — Production Cutover / Cleanup / Extensibility Proof
 ```
 
-Phase 2는 Phase 1 commit과 shadow/parity 검토 후 별도 세션에서 시작한다.
+Phase 3는 real shadow/parity와 latency 결과를 검토한 뒤 별도 세션에서 시작한다.

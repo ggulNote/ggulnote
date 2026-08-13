@@ -2144,3 +2144,42 @@ Canvas object는 index view에서 기존 `createdAt`을 ordering fallback으로 
 
 Phase 1은 One Note Decision provider, EntitySelector production resolution, Tool Registry
 cutover, Direct/Spatial route 제거, Math/Graph/Table production capability를 연결하지 않는다.
+
+---
+
+# 28. Phase 2 실제 저장소 정렬 결정
+
+2026-08-13 Phase 2는 다음 실제 구조를 채택한다.
+
+```text
+decision provider
+→ 기존 DirectTextModelTransport와 server-only OpenAI transport 재사용
+→ same-origin /api/voice/note-decision
+→ compact context + dynamic available-tool schema
+
+world resolution
+→ Phase 1 ExistingUnifiedObjectWorld / ObjectIndex 사용
+→ PDF TextSpan/semantic/object resolution은 FrozenTargetResolver adapter로 재사용
+→ explicit target miss는 context/history로 대체하지 않음
+
+placement
+→ 기존 Stage 4 profile/measurement/candidate/deterministic gate 재사용
+→ Phase 2 shadow에는 별도 preview/commit 구현 없음
+→ production old route가 기존 preview/final guard를 계속 소유
+
+shadow ownership
+→ NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE=1에서만 enabled
+→ old Direct/Spatial route가 유일한 commit owner
+→ NoteRuntime에는 Editor commit port를 주입하지 않음
+→ shadow failure는 trace하되 old route 결과를 막지 않음
+
+tool surface
+→ text.create / text.replace / annotation.apply
+→ navigation.next_page / navigation.previous_page / history.undo
+→ generic object move/delete/style과 Graph/Math/Table은 stable compiler가 없어 미노출
+```
+
+Phase 2 trace는 bounded in-memory read model이다. real model/network parity 및 latency
+sample과 production analytics persistence는 Phase 3 cutover 전 검토 항목으로 남긴다.
+기존 Direct Planner, natural placement normalizer, fixed command union, Direct/Spatial route는
+Phase 2에서 삭제하거나 production default로 대체하지 않는다.
