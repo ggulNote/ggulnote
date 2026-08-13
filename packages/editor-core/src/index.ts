@@ -48,6 +48,20 @@ export { buildPdfSceneObjects } from './scene-core/pdf-scene-adapter';
 export { buildCanvasSceneObjects, resolveCanvasGroupBounds } from './scene-core/canvas-scene-adapter';
 export { CanvasObjectStore } from './scene-core/canvas-object-store';
 export { buildSceneSnapshot, type SceneSnapshotWithStats } from './scene-core/scene-snapshot';
+export {
+  describeSceneObject,
+  normalizeSceneObjectText,
+  sceneObjectCapabilities,
+  sceneObjectUnifiedSource,
+} from './scene-core/scene-object-metadata';
+export type {
+  SceneObjectCapabilities,
+  SceneObjectMetadataOptions,
+  SceneObjectMetadataView,
+  SceneObjectPartMetadata,
+  UnifiedSceneObjectSource,
+} from './scene-core/scene-object-metadata';
+export type { EditorOperationMetadata } from './operations/editor-operation';
 export { createSceneRevisionTracker } from './scene-core/revision';
 export { buildOccupancyMap } from './scene-core/occupancy';
 export { buildPlacementCandidates } from './scene-core/placement';

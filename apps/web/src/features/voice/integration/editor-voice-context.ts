@@ -187,6 +187,7 @@ function annotationToSceneObject(
   const bounds = normalizedToCanonicalRect(annotation.bounds, pageSize);
   const base = {
     id: editorAnnotationSceneId(annotation),
+    sourceObjectId: annotation.id,
     pageId: annotation.pageId,
     source: "canvas" as const,
     bounds,
@@ -196,6 +197,13 @@ function annotationToSceneObject(
     objectRevision: Math.max(1, Math.floor(pageRevision)),
     createdAt: annotation.createdAt,
     updatedAt: annotation.updatedAt,
+    ...(annotation.createdByTurnId === undefined
+      ? {}
+      : { createdByTurnId: annotation.createdByTurnId }),
+    ...(annotation.creationOrder === undefined
+      ? {}
+      : { creationOrder: annotation.creationOrder }),
+    renderBounds: bounds,
   };
 
   switch (annotation.type) {
@@ -225,7 +233,13 @@ function annotationToSceneObject(
         ...base,
         kind: "annotation",
         annotationType: "underline",
-        targetObjectIds: [],
+        targetObjectIds: [...(annotation.targetObjectIds ?? [])],
+        ...(annotation.rects === undefined
+          ? {}
+          : {
+              rects: annotation.rects.map((rect) =>
+                normalizedToCanonicalRect(rect, pageSize)),
+            }),
         style: {
           color: readString(annotation.properties, "color", "#1f2937"),
           thickness: readNumber(annotation.properties, "thickness", 2),
@@ -236,7 +250,13 @@ function annotationToSceneObject(
         ...base,
         kind: "annotation",
         annotationType: "highlight",
-        targetObjectIds: [],
+        targetObjectIds: [...(annotation.targetObjectIds ?? [])],
+        ...(annotation.rects === undefined
+          ? {}
+          : {
+              rects: annotation.rects.map((rect) =>
+                normalizedToCanonicalRect(rect, pageSize)),
+            }),
         style: {
           color: readString(annotation.properties, "color", "#facc15"),
           opacity: readNumber(annotation.properties, "opacity", 0.35),

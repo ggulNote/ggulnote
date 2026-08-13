@@ -3,6 +3,7 @@ import { translateRect } from "../geometry/geometry-utils";
 import { isPointInRect } from "../geometry/bounds-utils";
 import { Annotation } from "./annotation";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
+import type { AnnotationObjectMetadata } from "./annotation-types";
 
 export class TableAnnotation extends Annotation {
   public readonly type = "TABLE" as const;
@@ -18,8 +19,9 @@ export class TableAnnotation extends Annotation {
     public columns: number,
     public strokeColor: string,
     public strokeWidth: number,
+    objectMetadata: AnnotationObjectMetadata = {},
   ) {
-    super(id, pageId, bounds, zIndex, createdAt, updatedAt);
+    super(id, pageId, bounds, zIndex, createdAt, updatedAt, objectMetadata);
   }
 
   public hitTest(point: NormalizedPoint, _pageSize: Size): boolean {
@@ -43,6 +45,7 @@ export class TableAnnotation extends Annotation {
       this.columns,
       this.strokeColor,
       this.strokeWidth,
+      this.cloneObjectMetadata(),
     );
   }
 
@@ -62,6 +65,7 @@ export class TableAnnotation extends Annotation {
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
+      ...this.serializeObjectMetadata(),
     };
   }
 }

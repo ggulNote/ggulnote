@@ -316,6 +316,7 @@ export {
   measurePaintedCanonicalBounds,
   TextSpatialCreateCapability,
 } from "./integration";
+export * from "./note-agent";
 export type {
   BrowserVoiceTurnComposition,
   BrowserVoiceTurnCompositionOptions,

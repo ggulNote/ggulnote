@@ -17,7 +17,7 @@ import type { SerializedAnnotation } from "../serialization/serialized-annotatio
 import { CommandManager } from "../commands/command-manager";
 import { SceneStore } from "../scene/scene-store";
 import type { AnnotationRenderer } from "../rendering/annotation-renderer";
-import { EditorOperation } from "../operations/editor-operation";
+import type { EditorOperation, EditorOperationMetadata } from "../operations/editor-operation";
 import type { EditorSnapshot, PageSceneSnapshot } from "./editor-snapshot";
 import type { EditorOptions } from "./editor-options";
 import { EditorHistoryAction, type EditorEvents, type EditorPersistenceEvent } from "./editor-events";
@@ -232,7 +232,10 @@ export class EditorEngine {
     this.emit();
   }
 
-  public createAnnotation(input: CreateAnnotationInput): AnnotationId {
+  public createAnnotation(
+    input: CreateAnnotationInput,
+    operationMetadata: EditorOperationMetadata = {},
+  ): AnnotationId {
     this.assertActiveSession();
 
     if (!input || !input.pageId) {
@@ -251,7 +254,11 @@ export class EditorEngine {
 
     const annotation = this.annotationFactory.create(annotationInput);
     this.sceneStore.getOrCreatePage(pageId);
-    const command = new CreateAnnotationCommand(annotation, this.documentId as DocumentId);
+    const command = new CreateAnnotationCommand(
+      annotation,
+      this.documentId as DocumentId,
+      operationMetadata,
+    );
     this.commandManager.execute(command);
     this.lastOperation = command.toOperation();
     this.publishOperation(this.lastOperation, "execute");
@@ -454,20 +461,27 @@ export class EditorEngine {
     this.publishOperation(this.lastOperation, "execute");
   }
 
-  public deleteSelected(): void {
+  public deleteSelected(operationMetadata: EditorOperationMetadata = {}): void {
     const selected = this.getSelectedAnnotation();
     if (!selected || !this.documentId) {
       return;
     }
 
-    const command = new DeleteAnnotationCommand(selected.serialize(), this.documentId);
+    const command = new DeleteAnnotationCommand(
+      selected.serialize(),
+      this.documentId,
+      operationMetadata,
+    );
     this.commandManager.execute(command);
     this.lastOperation = command.toOperation();
     this.publishOperation(this.lastOperation, "execute");
     this.selectedAnnotationId = null;
   }
 
-  public updateSelected(updated: SerializedAnnotation): void {
+  public updateSelected(
+    updated: SerializedAnnotation,
+    operationMetadata: EditorOperationMetadata = {},
+  ): void {
     if (!this.documentId) {
       return;
     }
@@ -482,7 +496,12 @@ export class EditorEngine {
       return;
     }
 
-    const command = new UpdateAnnotationCommand(before, updated, this.documentId);
+    const command = new UpdateAnnotationCommand(
+      before,
+      updated,
+      this.documentId,
+      operationMetadata,
+    );
     this.commandManager.execute(command);
     this.lastOperation = command.toOperation();
     this.publishOperation(this.lastOperation, "execute");

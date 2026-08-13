@@ -8,6 +8,7 @@ import {
 } from "../geometry/multi-rect-geometry";
 import { Annotation } from "./annotation";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
+import type { AnnotationObjectMetadata } from "./annotation-types";
 
 export class UnderlineAnnotation extends Annotation {
   public readonly type = "UNDERLINE" as const;
@@ -23,8 +24,9 @@ export class UnderlineAnnotation extends Annotation {
     public lineStyle: "solid" | "double" | "wavy",
     public color: string,
     public rects?: NormalizedRect[],
+    objectMetadata: AnnotationObjectMetadata = {},
   ) {
-    super(id, pageId, bounds, zIndex, createdAt, updatedAt);
+    super(id, pageId, bounds, zIndex, createdAt, updatedAt, objectMetadata);
   }
 
   public hitTest(point: NormalizedPoint, pageSize: Size): boolean {
@@ -74,6 +76,7 @@ export class UnderlineAnnotation extends Annotation {
       this.lineStyle,
       this.color,
       this.rects?.map((rect) => ({ ...rect })),
+      this.cloneObjectMetadata(),
     );
   }
 
@@ -95,6 +98,7 @@ export class UnderlineAnnotation extends Annotation {
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
+      ...this.serializeObjectMetadata(),
     };
   }
 }

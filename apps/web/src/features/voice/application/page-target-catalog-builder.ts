@@ -59,6 +59,13 @@ export function summarizeEditorOperation(
     annotationId: operation.annotationId,
     createdAt: operation.createdAt,
     ...(historyAction === undefined ? {} : { historyAction }),
+    ...(operation.sourceTurnId === undefined
+      ? {}
+      : { sourceTurnId: operation.sourceTurnId }),
+    ...(operation.toolId === undefined ? {} : { toolId: operation.toolId }),
+    ...(operation.undoGroupId === undefined
+      ? {}
+      : { undoGroupId: operation.undoGroupId }),
     ...(targetSceneObjectId === undefined ? {} : { targetSceneObjectId }),
   };
 }

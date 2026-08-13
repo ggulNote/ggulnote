@@ -8,6 +8,7 @@ import {
 import { Annotation } from "./annotation";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
 import { isPointNearRect } from "../geometry/bounds-utils";
+import type { AnnotationObjectMetadata } from "./annotation-types";
 
 export class HighlightAnnotation extends Annotation {
   public readonly type = "HIGHLIGHT" as const;
@@ -22,8 +23,9 @@ export class HighlightAnnotation extends Annotation {
     public opacity: number,
     public color: string,
     public rects?: NormalizedRect[],
+    objectMetadata: AnnotationObjectMetadata = {},
   ) {
-    super(id, pageId, bounds, zIndex, createdAt, updatedAt);
+    super(id, pageId, bounds, zIndex, createdAt, updatedAt, objectMetadata);
   }
 
   public hitTest(point: NormalizedPoint, pageSize: Size): boolean {
@@ -66,6 +68,7 @@ export class HighlightAnnotation extends Annotation {
       this.opacity,
       this.color,
       this.rects?.map((rect) => ({ ...rect })),
+      this.cloneObjectMetadata(),
     );
   }
 
@@ -86,6 +89,7 @@ export class HighlightAnnotation extends Annotation {
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
+      ...this.serializeObjectMetadata(),
     };
   }
 }

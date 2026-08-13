@@ -21,6 +21,30 @@ function createEngine(id = "multi-rect-1"): EditorEngine {
 }
 
 describe("multi-rect annotations", () => {
+  it("publishes turn, tool, and undo-group metadata through the existing operation log", () => {
+    const engine = createEngine("operation-metadata");
+    const events: Array<Parameters<Parameters<typeof engine.subscribeToOperations>[0]>[0]> = [];
+    engine.subscribeToOperations((event) => events.push(event));
+
+    engine.createAnnotation({
+      type: "TEXT",
+      pageId: PAGE_ID,
+      bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 },
+      text: "metadata",
+      createdByTurnId: "turn-operation",
+    }, {
+      sourceTurnId: "turn-operation",
+      toolId: "text.create",
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.operation).toMatchObject({
+      sourceTurnId: "turn-operation",
+      toolId: "text.create",
+    });
+    expect(events[0]?.operation.undoGroupId).toBe(events[0]?.operation.operationId);
+  });
+
   it.each(["UNDERLINE", "HIGHLIGHT"] as const)(
     "creates one %s annotation and preserves ordered rects",
     (type) => {
@@ -30,6 +54,9 @@ describe("multi-rect annotations", () => {
         pageId: PAGE_ID,
         bounds: RECTS[0],
         rects: RECTS,
+        createdByTurnId: "turn-multi-rect",
+        creationOrder: 42,
+        targetObjectIds: ["pdf:doc-1:0:paragraph:p-1"],
       });
 
       const snapshot = engine.exportPageSnapshot(PAGE_ID);
@@ -39,12 +66,21 @@ describe("multi-rect annotations", () => {
       expect(snapshot.annotations[0]?.bounds.y).toBeCloseTo(0.2);
       expect(snapshot.annotations[0]?.bounds.width).toBeCloseTo(0.3);
       expect(snapshot.annotations[0]?.bounds.height).toBeCloseTo(0.1);
+      expect(snapshot.annotations[0]).toMatchObject({
+        createdByTurnId: "turn-multi-rect",
+        creationOrder: 42,
+        targetObjectIds: ["pdf:doc-1:0:paragraph:p-1"],
+      });
       expect(engine.getUndoStackSize()).toBe(1);
 
       engine.undo();
       expect(engine.exportPageSnapshot(PAGE_ID).annotations).toEqual([]);
       engine.redo();
       expect(engine.exportPageSnapshot(PAGE_ID).annotations[0]?.rects).toEqual(RECTS);
+      expect(engine.exportPageSnapshot(PAGE_ID).annotations[0]).toMatchObject({
+        createdByTurnId: "turn-multi-rect",
+        creationOrder: 42,
+      });
     },
   );
 

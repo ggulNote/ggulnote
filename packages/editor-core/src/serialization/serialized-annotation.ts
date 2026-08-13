@@ -17,4 +17,7 @@ export interface SerializedAnnotation {
   properties: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
+  createdByTurnId?: string;
+  creationOrder?: number;
+  targetObjectIds?: string[];
 }

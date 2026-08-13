@@ -208,8 +208,18 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
       { kind: "CREATE_ANNOTATION" }
     >,
   ): DirectCommandExecutionResult {
+    const targetObjectIds = ready.target?.objectId === undefined
+      ? undefined
+      : [ready.target.objectId];
     const captured = this.captureOperation(() =>
-      this.options.editorEngine.createAnnotation(instruction.input));
+      this.options.editorEngine.createAnnotation({
+        ...instruction.input,
+        createdByTurnId: ready.turnId,
+        ...(targetObjectIds === undefined ? {} : { targetObjectIds }),
+      }, {
+        sourceTurnId: ready.turnId,
+        toolId: `${ready.plan.command.capability}.${ready.plan.command.operation}`,
+      }));
     if (
       captured.event?.historyAction !== "execute"
       || captured.event.operation.type !== "CREATE_ANNOTATION"
@@ -257,7 +267,10 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
     };
     this.options.editorEngine.select(target.id);
     const captured = this.captureOperation(() =>
-      this.options.editorEngine.updateSelected(updated));
+      this.options.editorEngine.updateSelected(updated, {
+        sourceTurnId: ready.turnId,
+        toolId: `${ready.plan.command.capability}.${ready.plan.command.operation}`,
+      }));
     if (
       captured.event?.historyAction !== "execute"
       || captured.event.operation.type !== "UPDATE_ANNOTATION"
@@ -303,7 +316,10 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
     };
     this.options.editorEngine.select(target.id);
     const captured = this.captureOperation(() =>
-      this.options.editorEngine.updateSelected(updated));
+      this.options.editorEngine.updateSelected(updated, {
+        sourceTurnId: ready.turnId,
+        toolId: `${ready.plan.command.capability}.${ready.plan.command.operation}`,
+      }));
     if (
       captured.event?.historyAction !== "execute"
       || captured.event.operation.type !== "UPDATE_ANNOTATION"

@@ -23,6 +23,7 @@ export interface BaseSceneObject {
   id: string;
   pageId: PageId;
   source: SceneObjectSource;
+  sourceObjectId?: string;
   kind: SceneObjectKind;
   bounds: Rect;
   zIndex: number;
@@ -33,6 +34,9 @@ export interface BaseSceneObject {
   groupId?: string;
   createdAt?: number;
   updatedAt?: number;
+  createdByTurnId?: string;
+  creationOrder?: number;
+  renderBounds?: Rect;
 }
 
 export interface PdfRegionSceneObject extends BaseSceneObject {
@@ -198,6 +202,7 @@ export interface AnnotationSceneObject extends BaseSceneObject {
   source: "canvas";
   annotationType: "underline" | "highlight" | "strikethrough" | "box" | "emphasis";
   targetObjectIds: string[];
+  rects?: readonly Rect[];
   style: {
     color?: string;
     opacity?: number;

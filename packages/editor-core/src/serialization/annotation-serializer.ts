@@ -9,6 +9,7 @@ import { TableAnnotation } from "../annotations/table-annotation";
 import type { SerializedAnnotation } from "./serialized-annotation";
 import { MAX_ANNOTATION_RECT_COUNT } from "../annotations/annotation-types";
 import { unionAnnotationRects } from "../geometry/multi-rect-geometry";
+import type { AnnotationObjectMetadata } from "../annotations/annotation-types";
 
 export const serializeAnnotation = (annotation: Annotation): SerializedAnnotation => annotation.serialize();
 
@@ -108,6 +109,45 @@ const ensureObject = (value: unknown): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 
+const ensureObjectMetadata = (
+  raw: SerializedAnnotation,
+): AnnotationObjectMetadata => {
+  if (
+    raw.createdByTurnId !== undefined
+    && (typeof raw.createdByTurnId !== "string" || raw.createdByTurnId.trim().length === 0)
+  ) {
+    throw new Error("Invalid createdByTurnId");
+  }
+  if (
+    raw.creationOrder !== undefined
+    && (!Number.isFinite(raw.creationOrder) || raw.creationOrder < 0)
+  ) {
+    throw new Error("Invalid creationOrder");
+  }
+  if (
+    raw.targetObjectIds !== undefined
+    && (
+      !Array.isArray(raw.targetObjectIds)
+      || raw.targetObjectIds.some(
+        (value) => typeof value !== "string" || value.trim().length === 0,
+      )
+    )
+  ) {
+    throw new Error("Invalid targetObjectIds");
+  }
+  return {
+    ...(raw.createdByTurnId === undefined
+      ? {}
+      : { createdByTurnId: raw.createdByTurnId }),
+    ...(raw.creationOrder === undefined
+      ? {}
+      : { creationOrder: raw.creationOrder }),
+    ...(raw.targetObjectIds === undefined
+      ? {}
+      : { targetObjectIds: [...raw.targetObjectIds] }),
+  };
+};
+
 const ensurePoint = (value: unknown): { x: number; y: number } => {
   if (!value || typeof value !== "object") {
     throw new Error("Invalid point");
@@ -140,6 +180,7 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
     createdAt: ensureNumber(raw.createdAt),
     updatedAt: ensureNumber(raw.updatedAt),
     properties: ensureObject(raw.properties),
+    objectMetadata: ensureObjectMetadata(raw),
   };
 
   switch (raw.type) {
@@ -159,6 +200,7 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         ensureColor(base.properties.textColor, "#111827"),
         ensureString(base.properties.textFontFamily ?? "Arial"),
         ensureFontWeight(base.properties.textFontWeight),
+        base.objectMetadata,
       );
 
     case "UNDERLINE": {
@@ -174,6 +216,7 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         ensureLineStyle(base.properties.lineStyle),
         ensureColor(base.properties.color, "#1f2937"),
         rects,
+        base.objectMetadata,
       );
     }
 
@@ -189,6 +232,7 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         ensureOpacity(base.properties.opacity ?? 0.35),
         ensureColor(base.properties.color, "#facc15"),
         rects,
+        base.objectMetadata,
       );
     }
 
@@ -210,6 +254,7 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.properties.filled === true,
         ensureColor(base.properties.strokeColor, "#1f2937"),
         ensureColor(base.properties.fillColor, "rgba(250, 204, 21, 0.25)"),
+        base.objectMetadata,
       );
     }
 
@@ -228,6 +273,7 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         base.properties.lineKind === "arrow" ? "arrow" : "line",
         Math.max(1, Math.round(ensureNumber(base.properties.strokeWidth ?? 2))),
         ensureColor(base.properties.color, "#1f2937"),
+        base.objectMetadata,
       );
     }
 
@@ -243,6 +289,7 @@ export const deserializeAnnotation = (raw: SerializedAnnotation): Annotation => 
         ensureIntRange(base.properties.columns, 1, 20),
         ensureColor(base.properties.strokeColor, "#1f2937"),
         Math.max(1, Math.round(ensureNumber(base.properties.strokeWidth ?? 1))),
+        base.objectMetadata,
       );
 
     default:

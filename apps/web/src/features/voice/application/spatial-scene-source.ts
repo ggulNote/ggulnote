@@ -179,9 +179,7 @@ export function toSpatialSceneObject(
     id: object.id,
     kind: object.kind,
     bounds: freezeRect(object.bounds),
-    // Scene Core currently has one authoritative canonical footprint. Phase D may
-    // replace this with renderer-measured bounds without changing this contract.
-    renderBounds: freezeRect(object.bounds),
+    renderBounds: freezeRect(object.renderBounds ?? object.bounds),
     sourceLayer: sourceLayer(object),
     semanticRole: semanticRole(object),
     protection: policy.classify(object),

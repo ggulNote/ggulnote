@@ -2,7 +2,7 @@ import type { AnnotationId, PageId } from "@ggulnote/shared-types";
 import type { NormalizedPoint } from "@ggulnote/shared-types";
 import type { NormalizedRect } from "@ggulnote/shared-types";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
-import type { AnnotationType } from "./annotation-types";
+import type { AnnotationObjectMetadata, AnnotationType } from "./annotation-types";
 
 export abstract class Annotation {
   public abstract readonly type: AnnotationType;
@@ -14,6 +14,7 @@ export abstract class Annotation {
     public zIndex: number,
     public readonly createdAt: number,
     public updatedAt: number,
+    protected readonly objectMetadata: AnnotationObjectMetadata = {},
   ) {}
 
   public abstract hitTest(point: NormalizedPoint, pageSize: { width: number; height: number }): boolean;
@@ -55,5 +56,29 @@ export abstract class Annotation {
 
   protected touch(): void {
     this.updatedAt = Date.now();
+  }
+
+  protected cloneObjectMetadata(): Pick<
+    SerializedAnnotation,
+    "createdByTurnId" | "creationOrder" | "targetObjectIds"
+  > {
+    return {
+      ...(this.objectMetadata.createdByTurnId === undefined
+        ? {}
+        : { createdByTurnId: this.objectMetadata.createdByTurnId }),
+      ...(this.objectMetadata.creationOrder === undefined
+        ? {}
+        : { creationOrder: this.objectMetadata.creationOrder }),
+      ...(this.objectMetadata.targetObjectIds === undefined
+        ? {}
+        : { targetObjectIds: [...this.objectMetadata.targetObjectIds] }),
+    };
+  }
+
+  protected serializeObjectMetadata(): Pick<
+    SerializedAnnotation,
+    "createdByTurnId" | "creationOrder" | "targetObjectIds"
+  > {
+    return this.cloneObjectMetadata();
   }
 }

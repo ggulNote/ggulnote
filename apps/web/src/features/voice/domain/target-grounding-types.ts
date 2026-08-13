@@ -35,6 +35,9 @@ export interface DirectRecentOperation {
   createdAt: EditorOperation["createdAt"];
   historyAction?: EditorHistoryAction;
   targetSceneObjectId?: string;
+  sourceTurnId?: string;
+  toolId?: string;
+  undoGroupId?: string;
 }
 
 export interface PageTargetCandidate {

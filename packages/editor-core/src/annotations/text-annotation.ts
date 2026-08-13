@@ -3,6 +3,7 @@ import { translateRect } from "../geometry/geometry-utils";
 import { isPointInRect, isPointNearRect } from "../geometry/bounds-utils";
 import { Annotation } from "./annotation";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
+import type { AnnotationObjectMetadata } from "./annotation-types";
 
 export class TextAnnotation extends Annotation {
   public readonly type = "TEXT" as const;
@@ -20,8 +21,9 @@ export class TextAnnotation extends Annotation {
     public textColor: string,
     public textFontFamily: string,
     public textFontWeight: "normal" | "bold",
+    objectMetadata: AnnotationObjectMetadata = {},
   ) {
-    super(id, pageId, bounds, zIndex, createdAt, updatedAt);
+    super(id, pageId, bounds, zIndex, createdAt, updatedAt, objectMetadata);
   }
 
   public hitTest(point: NormalizedPoint, pageSize: Size): boolean {
@@ -48,6 +50,7 @@ export class TextAnnotation extends Annotation {
       this.textColor,
       this.textFontFamily,
       this.textFontWeight,
+      this.cloneObjectMetadata(),
     );
   }
 
@@ -69,6 +72,7 @@ export class TextAnnotation extends Annotation {
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
+      ...this.serializeObjectMetadata(),
     };
   }
 }

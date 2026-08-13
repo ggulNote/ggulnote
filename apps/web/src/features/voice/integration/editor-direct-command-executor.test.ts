@@ -306,12 +306,19 @@ describe("EditorDirectCommandExecutor", () => {
       type: "TEXT",
       bounds: { x: 0.1, y: 0.3, width: 0.24, height: 0.096 },
       properties: { text: "그림 설명" },
+      createdByTurnId: TURN.id,
     }]);
     expect(log.events).toHaveLength(1);
     expect(log.events[0]).toMatchObject({
       historyAction: "execute",
-      operation: { type: "CREATE_ANNOTATION" },
+      operation: {
+        type: "CREATE_ANNOTATION",
+        sourceTurnId: TURN.id,
+        toolId: "text.create",
+      },
     });
+    expect(log.events[0]?.operation.undoGroupId)
+      .toBe(log.events[0]?.operation.operationId);
 
     editorEngine.undo();
     expect(editorEngine.exportPageSnapshot(PAGE_ID).annotations).toHaveLength(0);
@@ -347,12 +354,18 @@ describe("EditorDirectCommandExecutor", () => {
       {
         type: "UNDERLINE",
         bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.02 },
+        createdByTurnId: TURN.id,
+        targetObjectIds: [PDF_TEXT.objectId],
       },
     ]);
     expect(log.events).toHaveLength(1);
     expect(log.events[0]).toMatchObject({
       historyAction: "execute",
-      operation: { type: "CREATE_ANNOTATION" },
+      operation: {
+        type: "CREATE_ANNOTATION",
+        sourceTurnId: TURN.id,
+        toolId: "annotation.underline",
+      },
     });
     if (result.status === "COMMITTED") {
       expect(result.operationId).toBe(log.events[0]?.operation.operationId);

@@ -4,6 +4,7 @@ import { isPointInRect, isPointNearRect } from "../geometry/bounds-utils";
 import { Annotation } from "./annotation";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
 import type { ShapeKind } from "./annotation-types";
+import type { AnnotationObjectMetadata } from "./annotation-types";
 
 export class ShapeAnnotation extends Annotation {
   public readonly type = "SHAPE" as const;
@@ -20,8 +21,9 @@ export class ShapeAnnotation extends Annotation {
     public filled: boolean,
     public strokeColor: string,
     public fillColor: string,
+    objectMetadata: AnnotationObjectMetadata = {},
   ) {
-    super(id, pageId, bounds, zIndex, createdAt, updatedAt);
+    super(id, pageId, bounds, zIndex, createdAt, updatedAt, objectMetadata);
   }
 
   public hitTest(point: NormalizedPoint, _pageSize: Size): boolean {
@@ -51,6 +53,7 @@ export class ShapeAnnotation extends Annotation {
       this.filled,
       this.strokeColor,
       this.fillColor,
+      this.cloneObjectMetadata(),
     );
   }
 
@@ -71,6 +74,7 @@ export class ShapeAnnotation extends Annotation {
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
+      ...this.serializeObjectMetadata(),
     };
   }
 

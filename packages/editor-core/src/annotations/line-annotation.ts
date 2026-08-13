@@ -5,6 +5,7 @@ import { hitTestLineSegment, hitTestArrowHead } from "../geometry/hit-test";
 import { Annotation } from "./annotation";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
 import type { LineKind } from "./annotation-types";
+import type { AnnotationObjectMetadata } from "./annotation-types";
 
 export class LineAnnotation extends Annotation {
   public readonly type = "LINE" as const;
@@ -20,8 +21,9 @@ export class LineAnnotation extends Annotation {
     public lineKind: LineKind,
     public strokeWidth: number,
     public color: string,
+    objectMetadata: AnnotationObjectMetadata = {},
   ) {
-    super(id, pageId, rectFromPoints(start, end), zIndex, createdAt, updatedAt);
+    super(id, pageId, rectFromPoints(start, end), zIndex, createdAt, updatedAt, objectMetadata);
   }
 
   public hitTest(point: NormalizedPoint, pageSize: Size): boolean {
@@ -79,6 +81,7 @@ export class LineAnnotation extends Annotation {
       this.lineKind,
       this.strokeWidth,
       this.color,
+      this.cloneObjectMetadata(),
     );
   }
 
@@ -119,6 +122,7 @@ export class LineAnnotation extends Annotation {
       },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
+      ...this.serializeObjectMetadata(),
     };
   }
 }
