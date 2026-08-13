@@ -2183,3 +2183,53 @@ Phase 2 trace는 bounded in-memory read model이다. real model/network parity �
 sample과 production analytics persistence는 Phase 3 cutover 전 검토 항목으로 남긴다.
 기존 Direct Planner, natural placement normalizer, fixed command union, Direct/Spatial route는
 Phase 2에서 삭제하거나 production default로 대체하지 않는다.
+
+---
+
+# 29. Phase 3 실제 저장소 정렬 결정
+
+2026-08-13 Phase 3 구현은 다음 안전 경계를 채택한다.
+
+```text
+production routing
+→ CompletedVoiceTurn → One Note Decision → NoteRuntime → Existing Editor Runtime
+→ NEXT_PUBLIC_NOTE_AGENT_ROUTE=production 명시 시에만 새 route가 commit owner
+→ flag 없음은 legacy rollback route, shadow는 계속 no-commit
+
+transaction
+→ tool handler는 Editor port를 소유하지 않음
+→ runtime이 validation/resolve/placement/guard 후 단일 transaction을 호출
+→ 기존 EditorDirectCommandExecutor/SpatialPlacementExecutionPipeline로 compile
+→ multi-mutation batch는 atomic editor transaction 부재로 commit 전에 거부
+
+ambiguity
+→ WorldResolver 후보 C1–C6만 같은 Decision provider에 최대 한 번 전달
+→ alias 또는 NONE만 허용
+→ Stage 4 placement 후보는 text disambiguation으로 성공 처리하지 않음
+→ 새 bounded VLM/preview/final-guard 연결 전까지 ambiguity는 no-commit
+
+extensibility
+→ math.add / math.matrix_multiply는 pure COMPUTE tool
+→ registry 등록만으로 Decision schema에 노출
+→ central DirectEditorCommand union/switch 수정 없음
+→ math.create/graph/table mutation은 실제 renderer/compiler가 없어 fake 구현하지 않음
+
+object parts
+→ graph curve, table row/column/cell, math root expression metadata
+→ parent object resolve 후 deterministic PartResolver가 실제 part ID를 선택
+→ LLM은 partId를 계속 생성하지 않음
+```
+
+Phase 3 production-default gate는 아직 닫지 않는다. Phase 2의 deterministic fixture는
+통과했지만 real model/network representative parity와 실제 latency sample이 없고, 새
+runtime에서 Stage 4의 visual-only ambiguity를 candidate crop/preview/final guard까지 연결하는
+경계가 아직 없다. 이 상태에서 기본값을 전환하면 기존 안전한 VLM path의 기능 parity를
+잃을 수 있다.
+
+따라서 legacy natural-language normalizer, Direct/Spatial route, fixed command union은 rollback과
+existing-editor compiler compatibility를 위해 유지한다. 새 production core 자체는 이 natural
+language normalizer와 fixed command-name 목록에 의존하지 않는다. 제거는 real parity 승인,
+visual ambiguity handoff, stable mutation compiler parity, production rollback 관찰 후 수행한다.
+
+이 결정은 `One Decision`, `SceneObject` canonical source of truth, deterministic Grounding/Placement,
+failure side effect 0이라는 핵심 불변식을 변경하지 않는다.
