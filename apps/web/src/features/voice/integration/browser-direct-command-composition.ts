@@ -15,9 +15,13 @@ import {
 import {
   createEditorDirectCommandComposition,
   type EditorDirectCommandComposition,
+  type EditorDirectCommandCompositionOptions,
   type EditorSpatialPlacementCompositionOptions,
 } from "./editor-direct-command-composition";
-import { DirectCommandVoiceTurnBridge } from "./direct-command-voice-turn-bridge";
+import {
+  DirectCommandVoiceTurnBridge,
+  type CompletedVoiceTurnRoute,
+} from "./direct-command-voice-turn-bridge";
 
 export interface BrowserDirectCommandCompositionOptions {
   editorEngine: EditorEngine;
@@ -34,6 +38,7 @@ export interface BrowserDirectCommandCompositionOptions {
   speechRefiner?: SpeechRefinerProvider;
   targetResolver?: FrozenTargetResolver;
   spatial?: EditorSpatialPlacementCompositionOptions;
+  noteAgentShadow?: EditorDirectCommandCompositionOptions["noteAgentShadow"];
 }
 
 export interface BrowserDirectCommandComposition {
@@ -74,10 +79,23 @@ export function createBrowserDirectCommandComposition(
       ? {}
       : { targetResolver: options.targetResolver }),
     ...(options.spatial === undefined ? {} : { spatial: options.spatial }),
+    ...(options.noteAgentShadow === undefined
+      ? {}
+      : { noteAgentShadow: options.noteAgentShadow }),
   });
+  const route: CompletedVoiceTurnRoute = direct.noteAgentShadow === undefined
+    ? direct.route
+    : {
+        execute: (turn, executeOptions) =>
+          direct.noteAgentShadow?.executeAlongside(
+            turn,
+            direct.route,
+            executeOptions,
+          ) ?? direct.route.execute(turn, executeOptions),
+      };
   const bridge = new DirectCommandVoiceTurnBridge({
     controller: voice.controller,
-    route: direct.route,
+    route,
   });
 
   let disposed = false;

@@ -14,6 +14,7 @@ import {
 } from "./browser-direct-command-composition";
 import type { EditorSpatialPlacementCompositionOptions } from "./editor-direct-command-composition";
 import { subscribeToDevelopmentDirectCommandTraces } from "./direct-command-development-trace";
+import { HttpNoteDecisionProvider } from "../note-agent";
 
 export interface OwnedBrowserDirectCommandCompositionOptions {
   editorEngine: EditorEngine;
@@ -75,6 +76,14 @@ export function useOwnedBrowserDirectCommandComposition(
       goToPage: readers.goToPage,
       recovery: new HttpGroundedTargetRecoveryProvider(),
       speechRefiner: new HttpSpeechRefinerProvider(),
+      ...(isNoteAgentShadowEnabled()
+        ? {
+            noteAgentShadow: {
+              enabled: true,
+              provider: new HttpNoteDecisionProvider(),
+            },
+          }
+        : {}),
       ...(options.spatial === undefined
         ? {}
         : {
@@ -112,4 +121,8 @@ export function useOwnedBrowserDirectCommandComposition(
   );
 
   return composition;
+}
+
+function isNoteAgentShadowEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE === "1";
 }

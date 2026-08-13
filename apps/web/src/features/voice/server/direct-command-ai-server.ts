@@ -4,6 +4,7 @@ import { LlmDirectTargetDisambiguatorProvider } from "../providers/llm-direct-ta
 import { LlmGroundedTargetRecoveryProvider } from "../providers/llm-grounded-target-recovery-provider";
 import { LlmSpeechRefinerProvider } from "../providers/llm-speech-refiner-provider";
 import { LlmMultimodalPlacementJudgeProvider } from "../providers/llm-multimodal-placement-judge-provider";
+import { LlmNoteDecisionProvider } from "../note-agent/decision";
 import {
   OpenAiResponsesDirectTextTransport,
   type OpenAiResponsesFetch,
@@ -61,5 +62,6 @@ export function createDirectCommandAiProviders(
     recovery: new LlmGroundedTargetRecoveryProvider(transport),
     refiner: new LlmSpeechRefinerProvider(transport),
     placementJudge: new LlmMultimodalPlacementJudgeProvider(multimodalTransport),
+    noteDecision: new LlmNoteDecisionProvider(transport),
   };
 }

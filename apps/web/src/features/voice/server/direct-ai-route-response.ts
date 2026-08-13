@@ -6,6 +6,7 @@ import {
   MultimodalPlacementValidationError,
   SpeechRefinementValidationError,
 } from "../domain";
+import { NoteAgentValidationError } from "../note-agent/domain";
 
 export async function readDirectAiRouteInput(request: Request): Promise<unknown> {
   let value: unknown;
@@ -42,6 +43,7 @@ function normalizeRouteError(error: unknown): DirectAiProviderError {
     || error instanceof DirectTargetDisambiguationValidationError
     || error instanceof MultimodalPlacementValidationError
     || error instanceof SpeechRefinementValidationError
+    || error instanceof NoteAgentValidationError
   ) {
     return new DirectAiProviderError(
       "PLANNER_INVALID_OUTPUT",

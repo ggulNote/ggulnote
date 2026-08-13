@@ -24,6 +24,16 @@ export {
   ExistingSceneUnifiedObjectWorldSource,
   ExistingUnifiedObjectWorld,
 } from "./unified-object-world";
+export {
+  capabilitiesForRef,
+  ExistingWorldResolver,
+} from "./world-resolver";
+export type {
+  ExistingWorldResolverOptions,
+  FrozenWorldContext,
+  WorldResolutionCandidate,
+  WorldResolutionResult,
+} from "./world-resolver";
 export type {
   ExistingUnifiedObjectWorldOptions,
   UnifiedObjectWorld,
