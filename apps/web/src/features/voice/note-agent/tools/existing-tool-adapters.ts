@@ -13,14 +13,16 @@ import {
   type NoteSchema,
   type NoteTool,
   type NoteToolContext,
+  resolveEntitySelector,
   unknownOutputSchema,
 } from "./note-tool-registry";
+import { createMathTools } from "./math-tools";
+import { createUnavailableExtensionTools } from "./extension-boundary-tools";
 
 type ShadowToolOutput = {
   readonly existingCommand: Readonly<Record<string, unknown>>;
   readonly target?: unknown;
   readonly placement?: unknown;
-  readonly commitAttempted: false;
 };
 
 interface TextCreateInput {
@@ -47,6 +49,8 @@ export function createExistingNoteToolRegistry(): NoteToolRegistry {
   registry.register(controlTool("navigation.next_page", "navigation", "next_page"));
   registry.register(controlTool("navigation.previous_page", "navigation", "previous_page"));
   registry.register(controlTool("history.undo", "history", "undo"));
+  for (const tool of createMathTools()) registry.register(tool);
+  for (const tool of createUnavailableExtensionTools()) registry.register(tool);
   return registry;
 }
 
@@ -58,7 +62,9 @@ function textCreateTool(): NoteTool<TextCreateInput, ShadowToolOutput> {
     inputSchema: textCreateSchema,
     outputSchema: unknownOutputSchema as NoteSchema<ShadowToolOutput>,
     isAvailable: (context) =>
-      context.placement !== undefined && context.preparePlacement !== undefined,
+      context.placement !== undefined
+      && context.preparePlacement !== undefined
+      && (context.mode === "SHADOW" || context.productionPlacementAvailable === true),
     execute: async (input, context) => {
       if (context.placement === undefined || context.preparePlacement === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "PLACEMENT_UNAVAILABLE" };
@@ -67,11 +73,50 @@ function textCreateTool(): NoteTool<TextCreateInput, ShadowToolOutput> {
       if (prepared === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "MEASUREMENT_UNAVAILABLE" };
       }
+      let anchorRef;
+      if (input.destination?.kind === "RELATIVE") {
+        const selector = "context" in input.destination.anchor
+          ? { context: input.destination.anchor.context }
+          : input.destination.anchor;
+        const anchorStartedAt = context.metrics?.now();
+        const resolved = await context.resolver.resolve(selector, context.frozenWorld);
+        if (anchorStartedAt !== undefined) {
+          context.metrics?.add("resolverMs", context.metrics.now() - anchorStartedAt);
+        }
+        const resolvedAnchor = resolved.status === "AMBIGUOUS"
+          && context.candidateSelection?.stepId === context.stepId
+          ? resolved.candidates.find((candidate) =>
+              candidate.label === context.candidateSelection?.alias)?.ref
+          : resolved.status === "RESOLVED" ? resolved.ref : undefined;
+        if (resolvedAnchor === undefined) {
+          if (resolved.status === "AMBIGUOUS") {
+            return { status: "AMBIGUOUS", candidates: resolved.candidates };
+          }
+          if (resolved.status === "NOT_FOUND") return { status: "NOT_FOUND" };
+          return resolved.status === "UNSUPPORTED" && resolved.reasonCode === "STALE_SCENE"
+            ? { status: "STALE_SCENE" }
+            : { status: "FAILED", reasonCode: resolved.status === "UNSUPPORTED"
+                ? resolved.reasonCode
+                : "ANCHOR_RESOLUTION_FAILED" };
+        }
+        anchorRef = resolvedAnchor;
+      }
+      const placementStartedAt = context.metrics?.now();
+      const selection = context.candidateSelection;
+      const selectedCandidate = selection !== undefined
+        && selection.stepId === context.stepId
+        ? selection.alias
+        : undefined;
       const placement = await context.placement.resolve({
         ...(input.destination === undefined ? {} : { destination: input.destination }),
         ...prepared,
         worldContext: context.frozenWorld,
+        ...(anchorRef === undefined ? {} : { anchorRef }),
+        ...(selectedCandidate === undefined ? {} : { candidateAlias: selectedCandidate }),
       });
+      if (placementStartedAt !== undefined) {
+        context.metrics?.add("placementMs", context.metrics.now() - placementStartedAt);
+      }
       if (placement.status === "AMBIGUOUS") {
         return { status: "AMBIGUOUS", candidates: placement.candidates };
       }
@@ -88,7 +133,8 @@ function textCreateTool(): NoteTool<TextCreateInput, ShadowToolOutput> {
             payload: { text: input.text },
           },
           placement: placement.placement,
-          commitAttempted: false,
+          ...(input.destination === undefined ? {} : { destination: input.destination }),
+          ...(anchorRef === undefined ? {} : { target: anchorRef }),
         },
       };
     },
@@ -104,7 +150,7 @@ function textReplaceTool(): NoteTool<TargetedTextInput, ShadowToolOutput> {
     outputSchema: unknownOutputSchema as NoteSchema<ShadowToolOutput>,
     isAvailable: () => true,
     execute: async (input, context) => {
-      const resolved = await context.resolver.resolve(input.target, context.frozenWorld);
+      const resolved = await resolveEntitySelector(input.target, context);
       const failure = resolutionFailure(resolved);
       if (failure !== undefined) return failure;
       if (resolved.status !== "RESOLVED") {
@@ -123,7 +169,6 @@ function textReplaceTool(): NoteTool<TargetedTextInput, ShadowToolOutput> {
             payload: { text: input.text },
           },
           target: resolved.ref,
-          commitAttempted: false,
         },
       };
     },
@@ -139,7 +184,7 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, ShadowToolOutput>
     outputSchema: unknownOutputSchema as NoteSchema<ShadowToolOutput>,
     isAvailable: () => true,
     execute: async (input, context) => {
-      const resolved = await context.resolver.resolve(input.target, context.frozenWorld);
+      const resolved = await resolveEntitySelector(input.target, context);
       const failure = resolutionFailure(resolved);
       if (failure !== undefined) return failure;
       if (resolved.status !== "RESOLVED") {
@@ -160,7 +205,6 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, ShadowToolOutput>
             payload: input.color === undefined ? {} : { color: input.color },
           },
           target: resolved.ref,
-          commitAttempted: false,
         },
       };
     },
@@ -183,7 +227,6 @@ function controlTool(
       status: "SUCCESS",
       data: {
         existingCommand: { capability, operation, payload: {} },
-        commitAttempted: false,
       },
     }),
   };

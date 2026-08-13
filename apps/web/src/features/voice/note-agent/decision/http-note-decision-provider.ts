@@ -7,8 +7,12 @@ import {
   NoteAgentValidationError,
   parseNoteDecision,
   parseNoteDecisionInput,
+  parseNoteDisambiguationChoice,
+  parseNoteDisambiguationInput,
   type NoteDecision,
   type NoteDecisionInput,
+  type NoteDisambiguationChoice,
+  type NoteDisambiguationInput,
 } from "../domain";
 import type {
   NoteDecisionProvider,
@@ -22,9 +26,11 @@ export interface HttpNoteDecisionProviderOptions {
 export class HttpNoteDecisionProvider implements NoteDecisionProvider {
   private readonly endpoint: string;
   private readonly fetchImpl: DirectAiFetch;
+  private readonly disambiguationEndpoint: string;
 
   public constructor(options: HttpNoteDecisionProviderOptions = {}) {
     this.endpoint = options.endpoint ?? "/api/voice/note-decision";
+    this.disambiguationEndpoint = `${this.endpoint}/disambiguate`;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
@@ -57,6 +63,30 @@ export class HttpNoteDecisionProvider implements NoteDecisionProvider {
         throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT", { cause: error });
       }
       throw error;
+    }
+  }
+
+  public async disambiguate(
+    input: NoteDisambiguationInput,
+    options: NoteDecisionProviderOptions = {},
+  ): Promise<NoteDisambiguationChoice> {
+    const safeInput = parseNoteDisambiguationInput(input);
+    const value = await postDirectAiRequest(
+      this.disambiguationEndpoint,
+      safeInput,
+      this.fetchImpl,
+      options.signal,
+    );
+    try {
+      const choice = parseNoteDisambiguationChoice(value);
+      if (
+        choice.status === "SELECTED"
+        && !safeInput.candidates.some((candidate) => candidate.alias === choice.alias)
+      ) throw new Error("Disambiguation selected an unknown alias.");
+      return choice;
+    } catch (error) {
+      if (error instanceof DirectAiProviderError) throw error;
+      throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT", { cause: error });
     }
   }
 }

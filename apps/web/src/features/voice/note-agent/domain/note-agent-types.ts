@@ -18,6 +18,21 @@ export type EntitySelectorSource = "PDF_BASE" | "USER_CREATED" | "ANY";
 export type EntitySelectorTemporal = "RECENT" | "FIRST_CREATED" | "LAST_CREATED";
 export type EntitySelectorContext = "FOCUS" | "SELECTION";
 
+export const NOTE_OBJECT_PART_KINDS = [
+  "curve", "point", "tangent", "row", "column", "cell", "expression", "subexpression",
+] as const;
+
+export type NoteObjectPartKind = (typeof NOTE_OBJECT_PART_KINDS)[number];
+
+/** Declarative part criteria. Runtime resolves the real partId deterministically. */
+export interface EntityPartSelector {
+  readonly kind: NoteObjectPartKind;
+  readonly index?: number;
+  readonly row?: number;
+  readonly column?: number;
+  readonly text?: string;
+}
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | {
   readonly [key: string]: JsonValue;
@@ -39,6 +54,7 @@ export interface EntitySelector {
   readonly ordinal?: number | "FIRST" | "LAST";
   readonly context?: EntitySelectorContext;
   readonly spatial?: readonly SpatialConstraint[];
+  readonly part?: EntityPartSelector;
 }
 
 export type SpatialReference =
@@ -113,6 +129,26 @@ export interface NoteToolCall {
   readonly toolId: NoteToolId;
   readonly input: unknown;
 }
+
+export interface NoteDisambiguationCandidate {
+  readonly alias: `${"C" | "S"}${number}`;
+  readonly kind?: string;
+  readonly source?: string;
+  readonly textPreview?: string;
+}
+
+export interface NoteDisambiguationInput {
+  readonly turnId: string;
+  readonly language: string;
+  readonly rawFinalTranscript: string;
+  readonly stepId: string;
+  readonly toolId: NoteToolId;
+  readonly candidates: readonly NoteDisambiguationCandidate[];
+}
+
+export type NoteDisambiguationChoice =
+  | { readonly status: "SELECTED"; readonly alias: NoteDisambiguationCandidate["alias"] }
+  | { readonly status: "NONE" };
 
 export type NoteDecision =
   | { readonly status: "CALL"; readonly call: NoteToolCall }

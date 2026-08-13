@@ -39,6 +39,7 @@ export interface BrowserDirectCommandCompositionOptions {
   targetResolver?: FrozenTargetResolver;
   spatial?: EditorSpatialPlacementCompositionOptions;
   noteAgentShadow?: EditorDirectCommandCompositionOptions["noteAgentShadow"];
+  noteAgent?: EditorDirectCommandCompositionOptions["noteAgent"];
 }
 
 export interface BrowserDirectCommandComposition {
@@ -82,17 +83,19 @@ export function createBrowserDirectCommandComposition(
     ...(options.noteAgentShadow === undefined
       ? {}
       : { noteAgentShadow: options.noteAgentShadow }),
+    ...(options.noteAgent === undefined ? {} : { noteAgent: options.noteAgent }),
   });
-  const route: CompletedVoiceTurnRoute = direct.noteAgentShadow === undefined
-    ? direct.route
-    : {
+  const route: CompletedVoiceTurnRoute = direct.noteAgentProduction
+    ?? (direct.noteAgentShadow === undefined
+      ? direct.route
+      : {
         execute: (turn, executeOptions) =>
           direct.noteAgentShadow?.executeAlongside(
             turn,
             direct.route,
             executeOptions,
           ) ?? direct.route.execute(turn, executeOptions),
-      };
+      });
   const bridge = new DirectCommandVoiceTurnBridge({
     controller: voice.controller,
     route,

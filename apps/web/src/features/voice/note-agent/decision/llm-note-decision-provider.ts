@@ -7,16 +7,22 @@ import type { DirectTextModelTransport } from "../../providers/direct-text-model
 import {
   NoteAgentValidationError,
   parseNoteDecision,
+  parseNoteDisambiguationChoice,
   type NoteDecision,
   type NoteDecisionInput,
+  type NoteDisambiguationChoice,
+  type NoteDisambiguationInput,
 } from "../domain";
 import { buildNoteDecisionModelRequest } from "./note-decision-prompt";
 import type {
   NoteDecisionProvider,
   NoteDecisionProviderOptions,
 } from "./note-decision-provider";
+import type { NoteDisambiguationProvider } from "./note-decision-provider";
+import { buildNoteDisambiguationModelRequest } from "./note-disambiguation-prompt";
 
-export class LlmNoteDecisionProvider implements NoteDecisionProvider {
+export class LlmNoteDecisionProvider
+implements NoteDecisionProvider, NoteDisambiguationProvider {
   public constructor(private readonly transport: DirectTextModelTransport) {}
 
   public async decide(
@@ -45,6 +51,32 @@ export class LlmNoteDecisionProvider implements NoteDecisionProvider {
         throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT", { cause: error });
       }
       throw error;
+    }
+  }
+
+  public async disambiguate(
+    input: NoteDisambiguationInput,
+    options: NoteDecisionProviderOptions = {},
+  ): Promise<NoteDisambiguationChoice> {
+    throwIfAborted(options.signal);
+    try {
+      const raw = await this.transport.generate(
+        buildNoteDisambiguationModelRequest(input),
+        options,
+      );
+      throwIfAborted(options.signal);
+      const choice = parseNoteDisambiguationChoice(parseDirectModelJsonObject(raw));
+      if (
+        choice.status === "SELECTED"
+        && !input.candidates.some((candidate) => candidate.alias === choice.alias)
+      ) throw new Error("Disambiguation selected an unknown alias.");
+      return choice;
+    } catch (error) {
+      if (error instanceof DirectAiProviderError) throw error;
+      if (isAbortError(error) || options.signal?.aborted) {
+        throw new DirectAiProviderError("ABORTED", "ABORTED", { cause: error });
+      }
+      throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT", { cause: error });
     }
   }
 }

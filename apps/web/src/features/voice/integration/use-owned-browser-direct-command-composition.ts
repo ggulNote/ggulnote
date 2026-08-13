@@ -76,14 +76,7 @@ export function useOwnedBrowserDirectCommandComposition(
       goToPage: readers.goToPage,
       recovery: new HttpGroundedTargetRecoveryProvider(),
       speechRefiner: new HttpSpeechRefinerProvider(),
-      ...(isNoteAgentShadowEnabled()
-        ? {
-            noteAgentShadow: {
-              enabled: true,
-              provider: new HttpNoteDecisionProvider(),
-            },
-          }
-        : {}),
+      ...noteAgentRoutingOptions(),
       ...(options.spatial === undefined
         ? {}
         : {
@@ -123,6 +116,19 @@ export function useOwnedBrowserDirectCommandComposition(
   return composition;
 }
 
-function isNoteAgentShadowEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE === "1";
+function noteAgentRoutingOptions(): Pick<
+  Parameters<typeof createBrowserDirectCommandComposition>[0],
+  "noteAgent"
+> | Record<string, never> {
+  const configured = process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE;
+  const legacyShadow = process.env.NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE === "1";
+  if (configured !== "production" && configured !== "shadow" && !legacyShadow) {
+    return {};
+  }
+  return {
+    noteAgent: {
+      mode: configured === "production" ? "PRODUCTION" : "SHADOW",
+      provider: new HttpNoteDecisionProvider(),
+    },
+  };
 }

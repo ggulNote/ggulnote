@@ -6,6 +6,7 @@ import type {
 } from "../../providers/direct-text-model-transport";
 import type { NoteDecisionInput } from "../domain";
 import { buildNoteDecisionModelRequest } from "./note-decision-prompt";
+import { buildNoteDisambiguationModelRequest } from "./note-disambiguation-prompt";
 import { FakeNoteDecisionProvider } from "./note-decision-provider";
 import { LlmNoteDecisionProvider } from "./llm-note-decision-provider";
 
@@ -45,6 +46,31 @@ class StubTransport implements DirectTextModelTransport {
 }
 
 describe("One Note Decision provider", () => {
+  it("uses the same provider transport for one alias-only ambiguity choice", async () => {
+    const transport = new StubTransport(JSON.stringify({
+      status: "SELECTED",
+      alias: "C2",
+    }));
+    const provider = new LlmNoteDecisionProvider(transport);
+    await expect(provider.disambiguate({
+      turnId: "turn-1",
+      language: "ko-KR",
+      rawFinalTranscript: "두 번째 것",
+      stepId: "s1",
+      toolId: "text.replace",
+      candidates: [{ alias: "C1" }, { alias: "C2", textPreview: "second" }],
+    })).resolves.toEqual({ status: "SELECTED", alias: "C2" });
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls[0]?.maxOutputTokens).toBe(80);
+    expect(JSON.stringify(transport.calls[0])).not.toContain("objectId");
+
+    const request = buildNoteDisambiguationModelRequest({
+      turnId: "turn-1", language: "ko-KR", rawFinalTranscript: "x",
+      stepId: "s1", toolId: "text.replace",
+      candidates: [{ alias: "C1" }, { alias: "C2" }],
+    });
+    expect(request.input).toHaveLength(1);
+  });
   it("uses one compact schema-only model call and validates the selected tool", async () => {
     const transport = new StubTransport(JSON.stringify({
       status: "CALL",

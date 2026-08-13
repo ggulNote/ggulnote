@@ -1,5 +1,7 @@
 export { cloneEntityRef } from "./entity-ref";
 export type { EntityRef } from "./entity-ref";
+export { DeterministicPartResolver } from "./part-resolver";
+export type { PartResolutionResult } from "./part-resolver";
 export {
   objectIndexEntryFromSceneObject,
   RebuildableObjectIndex,

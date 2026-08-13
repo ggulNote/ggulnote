@@ -48,10 +48,14 @@ import {
   ExistingUnifiedObjectWorld,
   ExistingWorldResolver,
   NoteAgentShadowRoute,
+  NoteAgentProductionRoute,
   type NoteDecisionProvider,
+  type NoteDecisionCompositionProvider,
   type FrozenWorldContext,
   type NoteToolContext,
+  type NoteRuntimeMetricsRecorder,
 } from "../note-agent";
+import { EditorNoteAgentTransaction } from "./editor-note-agent-transaction";
 
 export interface EditorSpatialPlacementCompositionOptions {
   getBaseCanvas(): HTMLCanvasElement | null;
@@ -77,12 +81,17 @@ export interface EditorDirectCommandCompositionOptions {
     readonly enabled: boolean;
     readonly provider: NoteDecisionProvider;
   };
+  noteAgent?: {
+    readonly mode: "PRODUCTION" | "SHADOW";
+    readonly provider: NoteDecisionCompositionProvider;
+  };
 }
 
 export interface EditorDirectCommandComposition {
   route: DirectCommandRoute;
   traces: DirectCommandTraceStore;
   noteAgentShadow?: NoteAgentShadowRoute;
+  noteAgentProduction?: NoteAgentProductionRoute;
   dispose(): void;
 }
 
@@ -135,22 +144,21 @@ export function createEditorDirectCommandComposition(
     spatialCapabilities,
   });
   const traces = new DirectCommandTraceStore();
+  const spatial = options.spatial === undefined
+    ? undefined
+    : createSpatialExecutionPipeline(
+        options,
+        options.spatial,
+        executor,
+        spatialCapabilities,
+      );
   const route = new DirectCommandRoute({
     planning,
     executor,
     history,
     clock: options.clock,
     diagnostics: traces,
-    ...(options.spatial === undefined
-      ? {}
-      : {
-          spatial: createSpatialExecutionPipeline(
-            options,
-            options.spatial,
-            executor,
-            spatialCapabilities,
-          ),
-        }),
+    ...(spatial === undefined ? {} : { spatial }),
   });
   const noteAgentShadow = options.noteAgentShadow?.enabled === true
     ? createNoteAgentShadowRoute({
@@ -159,21 +167,47 @@ export function createEditorDirectCommandComposition(
         history,
         capabilities: spatialCapabilities,
         provider: options.noteAgentShadow.provider,
+        executor,
+        spatial,
       })
     : undefined;
+  const noteAgentProduction = options.noteAgent?.mode === "PRODUCTION"
+    ? createNoteAgentProductionRoute({
+        options,
+        contextBuilder,
+        history,
+        capabilities: spatialCapabilities,
+        provider: options.noteAgent.provider,
+        executor,
+        spatial,
+      })
+    : undefined;
+  const configuredShadow = options.noteAgent?.mode === "SHADOW"
+    ? createNoteAgentShadowRoute({
+        options,
+        contextBuilder,
+        history,
+        capabilities: spatialCapabilities,
+        provider: options.noteAgent.provider,
+        executor,
+        spatial,
+      })
+    : noteAgentShadow;
 
   let disposed = false;
   return {
     route,
     traces,
-    ...(noteAgentShadow === undefined ? {} : { noteAgentShadow }),
+    ...(configuredShadow === undefined ? {} : { noteAgentShadow: configuredShadow }),
+    ...(noteAgentProduction === undefined ? {} : { noteAgentProduction }),
     dispose() {
       if (disposed) return;
       disposed = true;
       route.dispose();
       recentOperations.dispose();
       traces.clear();
-      noteAgentShadow?.traces.clear();
+      configuredShadow?.traces.clear();
+      noteAgentProduction?.dispose();
     },
   };
 }
@@ -184,11 +218,55 @@ interface CreateNoteAgentShadowRouteInput {
   readonly history: DirectCommandHistoryContext;
   readonly capabilities: InMemorySpatialCommandCapabilityRegistry;
   readonly provider: NoteDecisionProvider;
+  readonly executor: EditorDirectCommandExecutor;
+  readonly spatial?: SpatialPlacementExecutionPipeline;
 }
 
 function createNoteAgentShadowRoute(
   input: CreateNoteAgentShadowRouteInput,
 ): NoteAgentShadowRoute {
+  const environment = createNoteAgentEnvironment(input);
+  return new NoteAgentShadowRoute({
+    contextBuilder: input.contextBuilder,
+    history: input.history,
+    world: environment.world,
+    registry: environment.registry,
+    provider: input.provider,
+    now: () => Number(input.options.clock.now()),
+    createToolContext: (frozenWorld, turnId) =>
+      environment.createToolContext("SHADOW", frozenWorld, turnId),
+  });
+}
+
+interface CreateNoteAgentProductionRouteInput
+extends Omit<CreateNoteAgentShadowRouteInput, "provider"> {
+  readonly provider: NoteDecisionCompositionProvider;
+}
+
+function createNoteAgentProductionRoute(
+  input: CreateNoteAgentProductionRouteInput,
+): NoteAgentProductionRoute {
+  const environment = createNoteAgentEnvironment(input);
+  return new NoteAgentProductionRoute({
+    contextBuilder: input.contextBuilder,
+    history: input.history,
+    world: environment.world,
+    registry: environment.registry,
+    provider: input.provider,
+    now: () => Number(input.options.clock.now()),
+    createToolContext: (frozenWorld, turnId, runtimeOptions) =>
+      environment.createToolContext(
+        "PRODUCTION",
+        frozenWorld,
+        turnId,
+        runtimeOptions,
+      ),
+  });
+}
+
+function createNoteAgentEnvironment(
+  input: Omit<CreateNoteAgentShadowRouteInput, "provider">,
+) {
   const readSnapshot = input.options.readCurrentGroundingSnapshot;
   const frozenSource = new CurrentRevisionSceneSnapshotSource(readSnapshot);
   const ledger = new DirectCommandOperationLedgerAdapter({
@@ -220,21 +298,46 @@ function createNoteAgentShadowRoute(
     },
   });
 
-  return new NoteAgentShadowRoute({
-    contextBuilder: input.contextBuilder,
+  const transaction = new EditorNoteAgentTransaction({
+    executor: input.executor,
+    ...(input.spatial === undefined ? {} : { spatial: input.spatial }),
     history: input.history,
+    clock: input.options.clock,
+    getCurrentSceneRevision: input.options.getCurrentSceneRevision,
+  });
+
+  return {
     world,
     registry,
-    provider: input.provider,
-    now: () => Number(input.options.clock.now()),
-    createToolContext: (frozenWorld, turnId): NoteToolContext => ({
-      mode: "SHADOW",
+    createToolContext: (
+      mode: "SHADOW" | "PRODUCTION",
+      frozenWorld: FrozenWorldContext,
+      turnId: string,
+      runtimeOptions: {
+        readonly signal?: AbortSignal;
+        readonly metrics?: NoteRuntimeMetricsRecorder;
+        readonly candidateSelection?: {
+          readonly stepId: string;
+          readonly alias: `${"C" | "S"}${number}`;
+        };
+      } = {},
+    ): NoteToolContext => ({
+      mode,
       turnId,
       frozenWorld,
       world,
       resolver,
       placement,
       getCurrentSceneRevision: input.options.getCurrentSceneRevision,
+      ...(runtimeOptions.signal === undefined ? {} : { signal: runtimeOptions.signal }),
+      ...(runtimeOptions.metrics === undefined ? {} : { metrics: runtimeOptions.metrics }),
+      ...(runtimeOptions.candidateSelection === undefined
+        ? {}
+        : { candidateSelection: runtimeOptions.candidateSelection }),
+      ...(mode === "SHADOW" ? {} : { transaction }),
+      ...(mode === "PRODUCTION"
+        ? { productionPlacementAvailable: input.spatial !== undefined }
+        : {}),
       preparePlacement: async (toolId, toolInput) => {
         if (toolId !== "text.create" || !hasText(toolInput)) return undefined;
         const command = {
@@ -257,7 +360,7 @@ function createNoteAgentShadowRoute(
         if (spatialSnapshot.status !== "READY") return undefined;
         const measured = await input.capabilities.measure({
           kind: "NEW_DRAFT",
-          draftKey: `note-shadow:${turnId}:${toolId}`,
+          draftKey: `note:${turnId}:${toolId}`,
           capability: "text",
           command,
           profile: profile.profile,
@@ -271,7 +374,7 @@ function createNoteAgentShadowRoute(
             };
       },
     }),
-  });
+  };
 }
 
 function spatialReferenceForShadow(

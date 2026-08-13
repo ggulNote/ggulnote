@@ -40,6 +40,8 @@ export interface NotePlacementInput {
   readonly profile: PlacementProfile;
   readonly snapshot: SpatialSceneSnapshot;
   readonly worldContext: FrozenWorldContext;
+  readonly anchorRef?: EntityRef;
+  readonly candidateAlias?: `${"C" | "S"}${number}`;
 }
 
 export interface ExistingPlacementEngineOptions {
@@ -79,10 +81,9 @@ export class ExistingPlacementEngine {
     const anchorSelector: EntitySelector = "context" in destination.anchor
       ? { context: destination.anchor.context }
       : destination.anchor;
-    const resolved = await this.options.resolver.resolve(
-      anchorSelector,
-      input.worldContext,
-    );
+    const resolved = input.anchorRef === undefined
+      ? await this.options.resolver.resolve(anchorSelector, input.worldContext)
+      : { status: "RESOLVED" as const, ref: input.anchorRef };
     if (resolved.status !== "RESOLVED") {
       return resolved.status === "UNSUPPORTED" && resolved.reasonCode === "STALE_SCENE"
         ? { status: "STALE_SCENE" }
@@ -135,6 +136,24 @@ export class ExistingPlacementEngine {
       return { status: "RESOLVED", placement: result.placement };
     }
     if (result.status === "AMBIGUOUS") {
+      const selected = input.candidateAlias === undefined
+        ? undefined
+        : result.candidates.find((candidate) => candidate.alias === input.candidateAlias);
+      if (selected !== undefined) {
+        return {
+          status: "RESOLVED",
+          placement: {
+            snapshotId: input.snapshot.snapshotId,
+            pageId: input.snapshot.pageId,
+            sceneRevision: input.snapshot.sceneRevision,
+            bounds: { ...selected.bounds },
+            relation: query.relation,
+            alignment: selected.alignment,
+            candidate: selected,
+            ...(anchor === undefined ? {} : { anchor }),
+          },
+        };
+      }
       return { status: "AMBIGUOUS", candidates: result.candidates };
     }
     return result.status === "STALE_SCENE"
@@ -155,6 +174,26 @@ function pageRegionQuery(
     alignment: requestedAlignment ?? mapped.alignment,
     overlayIntent: "NONE",
   };
+}
+
+export function spatialQueryForDestination(
+  destination: Destination | undefined,
+  resolvedRelation?: SpatialPlacementRelation,
+): SpatialPlacementQuery {
+  const effective = destination ?? {
+    kind: "PAGE_REGION" as const,
+    region: "TOP_LEFT" as const,
+    alignment: "START" as const,
+    avoidOverlap: true,
+  };
+  if (effective.kind === "PAGE_REGION") {
+    return pageRegionQuery(effective.region, effective.alignment);
+  }
+  const relation = resolvedRelation ?? toExistingRelation(effective.relation);
+  if (relation === undefined) {
+    throw new RangeError(`Unsupported production placement relation: ${effective.relation}`);
+  }
+  return relativeQuery(relation, effective.alignment, effective.distance);
 }
 
 function pageRegionMapping(region: NotePageRegion): {

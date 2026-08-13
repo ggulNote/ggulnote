@@ -182,7 +182,7 @@ export class NoteAgentShadowRoute {
   }
 }
 
-function buildFrozenWorldContext(
+export function buildFrozenWorldContext(
   documentId: string,
   context: DirectCommandContext,
 ): FrozenWorldContext {
@@ -196,6 +196,7 @@ function buildFrozenWorldContext(
     frozenVoiceContext: context.frozenContext,
     catalog: context.pageTargetCatalog,
     recentOperations: context.recentOperations,
+    directContext: context,
     ...(focus === undefined ? {} : { focus }),
     ...(focus === undefined || context.frozenContext.focusSource !== "selection"
       ? {}
@@ -207,7 +208,7 @@ function buildFrozenWorldContext(
   };
 }
 
-function buildDecisionInput(
+export function buildDecisionInput(
   documentId: string,
   context: DirectCommandContext,
   availableTools: NoteDecisionInput["availableTools"],

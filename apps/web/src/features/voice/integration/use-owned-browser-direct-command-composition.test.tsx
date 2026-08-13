@@ -361,6 +361,22 @@ function createProductionHarness(fetchMock: typeof fetch) {
 }
 
 describe("useOwnedBrowserDirectCommandComposition", () => {
+  it("keeps production cutover explicit and rollback-safe by feature flag", () => {
+    vi.stubEnv("NEXT_PUBLIC_NOTE_AGENT_ROUTE", "production");
+    const editorEngine = new EditorEngine();
+    const { result } = renderHook(() => useOwnedBrowserDirectCommandComposition({
+      editorEngine,
+      readCurrentVoiceContext: () => {
+        throw new Error("Context is not read before speech-start.");
+      },
+      readCurrentGroundingSnapshot: () => undefined,
+      getCurrentSceneRevision: () => 1,
+      getCurrentPage: () => 1,
+      goToPage: () => undefined,
+    }));
+    expect(result.current.direct.noteAgentProduction).toBeDefined();
+    expect(result.current.direct.noteAgentShadow).toBeUndefined();
+  });
   it("keeps one session composition through Strict Mode and disposes route on unmount", async () => {
     const editorEngine = new EditorEngine();
     const { result, rerender, unmount } = renderHook(

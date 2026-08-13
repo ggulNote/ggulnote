@@ -2,6 +2,7 @@ import type { SceneObjectKind } from "@ggulnote/editor-core";
 import { DIRECT_TARGET_OBJECT_TYPES } from "../../domain";
 import {
   NOTE_DECISION_MAX_BATCH_STEPS,
+  NOTE_OBJECT_PART_KINDS,
   NOTE_PAGE_REGIONS,
   NOTE_SELECTOR_MAX_DEPTH,
   NOTE_SPATIAL_RELATIONS,
@@ -13,6 +14,8 @@ import {
   type NoteAlignment,
   type NoteDecision,
   type NoteDecisionInput,
+  type NoteDisambiguationChoice,
+  type NoteDisambiguationInput,
   type NotePageRegion,
   type NoteSpatialRelation,
   type NoteToolCall,
@@ -165,6 +168,7 @@ function readEntitySelector(value: unknown, path: string, depth: number): Entity
   assertOnlyKeys(selector, [
     "scope", "kinds", "source", "content", "attributes", "temporal",
     "ordinal", "context", "spatial",
+    "part",
   ], path);
   const content = selector.content === undefined
     ? undefined
@@ -194,7 +198,68 @@ function readEntitySelector(value: unknown, path: string, depth: number): Entity
     ...(selector.ordinal === undefined ? {} : { ordinal: readOrdinal(selector.ordinal, `${path}.ordinal`) }),
     ...(selector.context === undefined ? {} : { context: readContext(selector.context, `${path}.context`) }),
     ...(spatial === undefined ? {} : { spatial }),
+    ...(selector.part === undefined
+      ? {}
+      : { part: readPartSelector(selector.part, `${path}.part`) }),
   };
+}
+
+function readPartSelector(value: unknown, path: string) {
+  const part = readRecord(value, path);
+  assertOnlyKeys(part, ["kind", "index", "row", "column", "text"], path);
+  return {
+    kind: readUnion(part.kind, `${path}.kind`, NOTE_OBJECT_PART_KINDS),
+    ...(part.index === undefined ? {} : { index: readPositiveInteger(part.index, `${path}.index`) }),
+    ...(part.row === undefined ? {} : { row: readPositiveInteger(part.row, `${path}.row`) }),
+    ...(part.column === undefined ? {} : { column: readPositiveInteger(part.column, `${path}.column`) }),
+    ...(part.text === undefined ? {} : { text: readNonEmptyString(part.text, `${path}.text`) }),
+  };
+}
+
+export function parseNoteDisambiguationInput(value: unknown): NoteDisambiguationInput {
+  const input = readRecord(value, "input");
+  assertOnlyKeys(input, [
+    "turnId", "language", "rawFinalTranscript", "stepId", "toolId", "candidates",
+  ], "input");
+  const candidates = readArray(input.candidates, "input.candidates").map((value, index) => {
+    const path = `input.candidates[${index}]`;
+    const candidate = readRecord(value, path);
+    assertOnlyKeys(candidate, ["alias", "kind", "source", "textPreview"], path);
+    return {
+      alias: readCandidateAlias(candidate.alias, `${path}.alias`),
+      ...(candidate.kind === undefined ? {} : { kind: readNonEmptyString(candidate.kind, `${path}.kind`) }),
+      ...(candidate.source === undefined ? {} : { source: readNonEmptyString(candidate.source, `${path}.source`) }),
+      ...(candidate.textPreview === undefined ? {} : { textPreview: readString(candidate.textPreview, `${path}.textPreview`) }),
+    };
+  });
+  if (candidates.length < 2 || candidates.length > 6) {
+    fail("input.candidates", "expected between 2 and 6 candidates");
+  }
+  if (new Set(candidates.map((candidate) => candidate.alias)).size !== candidates.length) {
+    fail("input.candidates", "candidate aliases must be unique");
+  }
+  return {
+    turnId: readNonEmptyString(input.turnId, "input.turnId"),
+    language: readNonEmptyString(input.language, "input.language"),
+    rawFinalTranscript: readString(input.rawFinalTranscript, "input.rawFinalTranscript"),
+    stepId: readNonEmptyString(input.stepId, "input.stepId"),
+    toolId: readToolId(input.toolId, "input.toolId"),
+    candidates,
+  };
+}
+
+export function parseNoteDisambiguationChoice(value: unknown): NoteDisambiguationChoice {
+  const choice = readRecord(value, "choice");
+  const status = readString(choice.status, "choice.status");
+  if (status === "NONE") {
+    assertOnlyKeys(choice, ["status"], "choice");
+    return { status };
+  }
+  if (status === "SELECTED") {
+    assertOnlyKeys(choice, ["status", "alias"], "choice");
+    return { status, alias: readCandidateAlias(choice.alias, "choice.alias") };
+  }
+  return fail("choice.status", `unsupported choice status: ${status}`);
 }
 
 function readContent(value: unknown, path: string) {
@@ -371,6 +436,20 @@ function readOrdinal(value: unknown, path: string): number | "FIRST" | "LAST" {
   if (value === "FIRST" || value === "LAST") return value;
   if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
   return fail(path, "expected a positive integer, FIRST, or LAST");
+}
+
+function readPositiveInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return fail(path, "expected a positive integer");
+  }
+  return value;
+}
+
+function readCandidateAlias(value: unknown, path: string): `${"C" | "S"}${number}` {
+  const alias = readNonEmptyString(value, path);
+  return /^[CS][1-9][0-9]*$/u.test(alias)
+    ? alias as `${"C" | "S"}${number}`
+    : fail(path, "expected a candidate alias");
 }
 
 function readToolId(value: unknown, path: string): NoteToolId {

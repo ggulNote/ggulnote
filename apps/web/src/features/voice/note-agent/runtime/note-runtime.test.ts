@@ -187,3 +187,80 @@ describe("NoteRuntime shadow boundary", () => {
       .toEqual({ status: "STALE_SCENE", commitAttempted: false });
   });
 });
+
+describe("NoteRuntime production transaction boundary", () => {
+  it("returns pure compute results without a transaction", async () => {
+    const registry = new NoteToolRegistry();
+    registry.register(fakeTool());
+    const result = await new NoteRuntime({ registry }).execute({
+      status: "CALL",
+      call: { stepId: "s1", toolId: "test.echo", input: { value: "ok" } },
+    }, { ...toolContext(), mode: "PRODUCTION" });
+    expect(result).toMatchObject({ status: "SUCCESS", commitAttempted: false });
+  });
+
+  it("prepares one mutation then invokes one transaction", async () => {
+    const execute = vi.fn(async (input: { value: string }) => ({
+      status: "SUCCESS" as const,
+      data: { echoed: input.value },
+    }));
+    const registry = new NoteToolRegistry();
+    registry.register({ ...fakeTool(execute), kind: "MUTATION" });
+    const commit = vi.fn(async () => ({
+      status: "SUCCESS" as const,
+      receipt: {
+        kind: "COMMITTED" as const,
+        operationId: "op-1",
+        planId: "plan-1",
+        guardMs: 1,
+        commitMs: 2,
+        visualMs: 0,
+      },
+      commitAttempted: true as const,
+    }));
+    const result = await new NoteRuntime({ registry }).execute({
+      status: "CALL",
+      call: { stepId: "s1", toolId: "test.echo", input: { value: "ok" } },
+    }, {
+      ...toolContext(),
+      mode: "PRODUCTION",
+      transaction: { commit },
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      status: "SUCCESS",
+      commitAttempted: true,
+      receipt: { operationId: "op-1" },
+    });
+  });
+
+  it("rejects two mutation steps before any handler or transaction side effect", async () => {
+    const execute = vi.fn(async (input: { value: string }) => ({
+      status: "SUCCESS" as const,
+      data: { echoed: input.value },
+    }));
+    const registry = new NoteToolRegistry();
+    registry.register({ ...fakeTool(execute), kind: "MUTATION" });
+    const commit = vi.fn();
+    const result = await new NoteRuntime({ registry }).execute({
+      status: "BATCH",
+      atomic: true,
+      steps: [
+        { stepId: "s1", toolId: "test.echo", input: { value: "one" } },
+        { stepId: "s2", toolId: "test.echo", input: { value: "two" } },
+      ],
+    }, {
+      ...toolContext(),
+      mode: "PRODUCTION",
+      transaction: { commit },
+    });
+    expect(result).toMatchObject({
+      status: "NOT_ALLOWED",
+      reasonCode: "MULTI_MUTATION_BATCH_UNSUPPORTED",
+      commitAttempted: false,
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+});

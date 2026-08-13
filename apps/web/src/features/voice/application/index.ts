@@ -320,6 +320,7 @@ export type {
   DirectCommandPlanningPort,
   DirectCommandRouteExecuteOptions,
   DirectCommandRouteOptions,
+  SpatialCommandExecutionPort,
 } from "./direct-command-route";
 export type {
   DirectCommandCompileContext,

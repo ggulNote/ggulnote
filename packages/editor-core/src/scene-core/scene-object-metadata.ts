@@ -21,6 +21,8 @@ export interface SceneObjectPartMetadata {
   readonly partId: string;
   readonly kind: string;
   readonly searchableText?: string;
+  readonly bounds?: Rect;
+  readonly attributes?: Readonly<Record<string, string | number>>;
 }
 
 export interface SceneObjectMetadataView {
@@ -126,6 +128,7 @@ export function sceneObjectCapabilities(
     textRangeAddressable: object.kind === "text",
     partAddressable: object.kind === "graph"
       || object.kind === "table"
+      || object.kind === "math"
       || object.kind === "group",
   });
 }
@@ -198,18 +201,43 @@ function sceneObjectParts(
   object: SceneObject,
 ): readonly SceneObjectPartMetadata[] | undefined {
   if (object.kind === "graph") {
-    return Object.freeze(object.expressions.map((entry) => Object.freeze({
+    return Object.freeze(object.expressions.map((entry, index) => Object.freeze({
       partId: entry.id,
-      kind: "expression",
+      kind: "curve",
       searchableText: entry.expression,
+      attributes: Object.freeze({ index: index + 1 }),
     })));
   }
   if (object.kind === "table") {
-    return Object.freeze(object.cells.map((cell) => Object.freeze({
-      partId: cell.id,
-      kind: "cell",
-      ...(cell.text === undefined ? {} : { searchableText: cell.text }),
-    })));
+    const rows = Array.from({ length: object.rows }, (_, index) => Object.freeze({
+      partId: `row:${index + 1}`,
+      kind: "row",
+      attributes: Object.freeze({ index: index + 1 }),
+    }));
+    const columns = Array.from({ length: object.columns }, (_, index) => Object.freeze({
+      partId: `column:${index + 1}`,
+      kind: "column",
+      attributes: Object.freeze({ index: index + 1 }),
+    }));
+    const cells = object.cells.map((cell) => Object.freeze({
+        partId: cell.id,
+        kind: "cell",
+        ...(cell.text === undefined ? {} : { searchableText: cell.text }),
+        attributes: Object.freeze({
+          row: cell.row,
+          column: cell.column,
+          ...(cell.rowSpan === undefined ? {} : { rowSpan: cell.rowSpan }),
+          ...(cell.columnSpan === undefined ? {} : { columnSpan: cell.columnSpan }),
+        }),
+      }));
+    return Object.freeze([...rows, ...columns, ...cells]);
+  }
+  if (object.kind === "math") {
+    return Object.freeze([Object.freeze({
+      partId: "expression:root",
+      kind: "expression",
+      searchableText: object.latex,
+    })]);
   }
   if (object.kind === "group") {
     return Object.freeze(object.childIds.map((partId) => Object.freeze({

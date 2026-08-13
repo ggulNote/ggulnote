@@ -6,7 +6,7 @@ export interface NoteAgentShadowTrace {
   readonly turnId: string;
   readonly pageId: string;
   readonly sceneRevision: number;
-  readonly shadowMode: true;
+  readonly shadowMode: boolean;
   readonly decision?: NoteDecision;
   readonly toolId?: NoteToolId;
   readonly resolverStatus?: string;
@@ -14,12 +14,20 @@ export interface NoteAgentShadowTrace {
   readonly oldRouteStatus?: DirectCommandRouteResult["status"];
   readonly resultStatus: NoteRuntimeResult["status"] | "DECISION_FAILED" | "CONTEXT_FAILED";
   readonly errorCode?: string;
-  readonly llmCallCount: 0 | 1;
+  readonly llmCallCount: 0 | 1 | 2;
   readonly toolCallCount: number;
   readonly decisionMs: number;
   readonly runtimeMs: number;
+  readonly resolverMs?: number;
+  readonly computeMs?: number;
+  readonly placementMs?: number;
+  readonly disambiguationMs?: number;
+  readonly visualMs?: number;
+  readonly guardMs?: number;
+  readonly commitMs?: number;
+  readonly endToVisibleMs?: number;
   readonly totalMs: number;
-  readonly commitAttempted: false;
+  readonly commitAttempted: boolean;
   readonly recordedAt: number;
 }
 export class NoteAgentShadowTraceStore {

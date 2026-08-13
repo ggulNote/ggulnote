@@ -8,6 +8,7 @@ import {
 } from "../../application";
 import type {
   DirectRecentOperation,
+  DirectCommandContext,
   DirectReusableTargetRecord,
   FrozenVoiceTurnContext,
   PageTargetCatalog,
@@ -26,6 +27,7 @@ import type {
 import type { EntityRef } from "./entity-ref";
 import type { ObjectIndexEntry, ObjectIndexQuery } from "./object-index";
 import type { UnifiedObjectWorld } from "./unified-object-world";
+import { DeterministicPartResolver } from "./part-resolver";
 
 const MAX_COMPACT_CANDIDATES = 4;
 
@@ -40,6 +42,7 @@ export interface FrozenWorldContext {
   readonly focus?: EntityRef;
   readonly speechGroundingEvidence?: SpeechGroundingEvidence;
   readonly lastReusableTarget?: DirectReusableTargetRecord;
+  readonly directContext?: DirectCommandContext;
 }
 
 export interface WorldResolutionCandidate {
@@ -59,13 +62,16 @@ export type WorldResolutionResult =
 export interface ExistingWorldResolverOptions {
   readonly world: UnifiedObjectWorld;
   readonly targetResolver?: FrozenTargetResolver;
+  readonly partResolver?: DeterministicPartResolver;
 }
 
 export class ExistingWorldResolver {
   private readonly targetResolver: FrozenTargetResolver;
+  private readonly partResolver: DeterministicPartResolver;
 
   public constructor(private readonly options: ExistingWorldResolverOptions) {
     this.targetResolver = options.targetResolver ?? new FrozenTargetResolver();
+    this.partResolver = options.partResolver ?? new DeterministicPartResolver();
   }
 
   public async resolve(
@@ -81,6 +87,12 @@ export class ExistingWorldResolver {
     depth: number,
   ): Promise<WorldResolutionResult> {
     if (depth > 2) return { status: "UNSUPPORTED", reasonCode: "SELECTOR_DEPTH" };
+    if (selector.part !== undefined) {
+      const { part, ...parentSelector } = selector;
+      const parent = await this.resolveAtDepth(parentSelector, context, depth);
+      if (parent.status !== "RESOLVED") return parent;
+      return this.partResolver.resolve(parent.ref, part, this.options.world);
+    }
     const scene = this.options.world.getSnapshot(context.pageId, context.sceneRevision);
     if (
       scene === undefined

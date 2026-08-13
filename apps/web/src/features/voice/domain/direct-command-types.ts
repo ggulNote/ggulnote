@@ -284,6 +284,12 @@ export type DirectCommandExecutionResult =
 export type DirectCommandRouteResult =
   | DirectCommandExecutionResult
   | {
+      status: "COMPUTED";
+      turnId: DirectCommandTurnId;
+      toolId: string;
+      data: unknown;
+    }
+  | {
       status: "REVISED";
       turnId: DirectCommandTurnId;
       planId: DirectCommandPlanId;

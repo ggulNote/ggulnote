@@ -6,9 +6,21 @@ import {
   parseEntitySelector,
   parseNoteDecision,
   parseNoteDecisionInput,
+  parseNoteDisambiguationChoice,
+  parseNoteDisambiguationInput,
 } from "./index";
 
 describe("EntitySelector strict schema", () => {
+  it("accepts declarative object part criteria but rejects a supplied partId", () => {
+    expect(parseEntitySelector({
+      kinds: ["table"],
+      part: { kind: "cell", row: 2, column: 3 },
+    })).toMatchObject({ part: { kind: "cell", row: 2, column: 3 } });
+    expect(() => parseEntitySelector({
+      kinds: ["table"],
+      part: { kind: "cell", partId: "invented" },
+    })).toThrowError(/partId|runtime authority/u);
+  });
   it("keeps every unspoken constraint optional", () => {
     expect(parseEntitySelector({})).toEqual({});
     expect(parseEntitySelector({
@@ -68,6 +80,26 @@ describe("EntitySelector strict schema", () => {
       });
       expect(result.spatial?.[0]?.relation).toBe(relation);
     }
+  });
+});
+
+describe("Note disambiguation strict schema", () => {
+  it("bounds candidates and accepts only aliases", () => {
+    const input = parseNoteDisambiguationInput({
+      turnId: "turn-1",
+      language: "ko-KR",
+      rawFinalTranscript: "두 번째 것",
+      stepId: "s1",
+      toolId: "text.replace",
+      candidates: [{ alias: "C1" }, { alias: "C2", textPreview: "second" }],
+    });
+    expect(input.candidates).toHaveLength(2);
+    expect(parseNoteDisambiguationChoice({ status: "SELECTED", alias: "C2" }))
+      .toEqual({ status: "SELECTED", alias: "C2" });
+    expect(() => parseNoteDisambiguationChoice({
+      status: "SELECTED",
+      alias: "object-1",
+    })).toThrowError(/candidate alias/u);
   });
 });
 describe("Destination strict schema", () => {
