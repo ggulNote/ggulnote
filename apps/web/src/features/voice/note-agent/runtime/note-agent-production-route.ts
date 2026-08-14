@@ -11,14 +11,19 @@ import {
 } from "../../application";
 import type { CompletedVoiceTurnRoute } from "../../integration/direct-command-voice-turn-bridge";
 import type { NoteDecisionCompositionProvider } from "../decision";
+import { NoteContextAssembler } from "../context";
 import type {
   NoteDecisionInput,
   NoteDisambiguationCandidate,
   NoteToolId,
 } from "../domain";
 import type { FrozenWorldContext, UnifiedObjectWorld } from "../world";
-import type { NoteToolContext, NoteToolRegistry } from "../tools";
-import { buildDecisionInput, buildFrozenWorldContext } from "./note-agent-shadow-route";
+import {
+  AllEnabledActionsLoader,
+  type NoteRuntimeContext,
+  type NoteToolRegistry,
+} from "../tools";
+import { buildFrozenWorldContext } from "./note-agent-shadow-route";
 import { NoteAgentShadowTraceStore } from "./note-agent-trace";
 import { NoteRuntime, type NoteRuntimeResult } from "./note-runtime";
 import { NoteRuntimeMetricsRecorder } from "./note-runtime-metrics";
@@ -30,6 +35,7 @@ export interface NoteAgentProductionRouteOptions {
   readonly registry: NoteToolRegistry;
   readonly provider: NoteDecisionCompositionProvider;
   readonly runtime?: NoteRuntime;
+  readonly contextAssembler?: NoteContextAssembler;
   readonly createToolContext: (
     frozenWorld: FrozenWorldContext,
     turnId: string,
@@ -41,7 +47,7 @@ export interface NoteAgentProductionRouteOptions {
         readonly alias: `${"C" | "S"}${number}`;
       };
     },
-  ) => NoteToolContext;
+  ) => NoteRuntimeContext;
   readonly traces?: NoteAgentShadowTraceStore;
   readonly now?: () => number;
 }
@@ -50,11 +56,15 @@ export interface NoteAgentProductionRouteOptions {
 export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
   public readonly traces: NoteAgentShadowTraceStore;
   private readonly runtime: NoteRuntime;
+  private readonly contextAssembler: NoteContextAssembler;
   private readonly registry = new DirectCommandExecutionRegistry();
   private readonly now: () => number;
 
   public constructor(private readonly options: NoteAgentProductionRouteOptions) {
     this.runtime = options.runtime ?? new NoteRuntime({ registry: options.registry });
+    this.contextAssembler = options.contextAssembler ?? new NoteContextAssembler({
+      actionLoader: new AllEnabledActionsLoader(options.registry),
+    });
     this.traces = options.traces ?? new NoteAgentShadowTraceStore();
     this.now = options.now ?? Date.now;
   }
@@ -99,11 +109,28 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       ...(signal === undefined ? {} : { signal }),
       metrics,
     });
-    const decisionInput = buildDecisionInput(
-      documentId,
-      directContext,
-      this.options.registry.compactSchemas(baseContext),
-    );
+    let decisionInput: NoteDecisionInput;
+    const contextAssemblyStartedAt = this.now();
+    try {
+      decisionInput = (await this.contextAssembler.assemble({
+        turn,
+        documentId,
+        frozenWorld,
+        world: this.options.world,
+        toolContext: baseContext,
+      })).decisionInput;
+    } catch {
+      return this.recordFailure(
+        turn,
+        startedAt,
+        "CONTEXT_ASSEMBLY_FAILED",
+        0,
+        0,
+        0,
+        elapsed(contextAssemblyStartedAt, this.now()),
+      );
+    }
+    const contextAssemblyMs = elapsed(contextAssemblyStartedAt, this.now());
     const decisionStartedAt = this.now();
     let decision;
     try {
@@ -115,6 +142,8 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
         providerErrorCode(error),
         1,
         elapsed(decisionStartedAt, this.now()),
+        0,
+        contextAssemblyMs,
       );
     }
 
@@ -158,6 +187,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
             2,
             elapsed(decisionStartedAt, runtimeStartedAt),
             disambiguationMs,
+            contextAssemblyMs,
           );
         }
       }
@@ -165,6 +195,10 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     const completedAt = this.now();
     const routeResult = routeResultFor(turn.id, result);
     const runtimeMetrics = metrics.snapshot();
+    const visualMs = result.status === "SUCCESS" ? result.receipt?.visualMs ?? 0 : 0;
+    const visualCallCount = result.status === "SUCCESS"
+      ? result.receipt?.visualCallCount ?? 0
+      : 0;
     this.traces.record({
       turnId: turn.id,
       pageId: turn.frozenContext.pageId,
@@ -174,20 +208,30 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       ...primaryTool(decisionInput, decision),
       resultStatus: result.status,
       llmCallCount,
+      decisionCallCount: llmCallCount,
       toolCallCount: decision.status === "CALL"
         ? 1
         : decision.status === "BATCH" ? decision.steps.length : 0,
+      contextAssemblyMs,
       decisionMs: elapsed(decisionStartedAt, runtimeStartedAt),
       runtimeMs: elapsed(runtimeStartedAt, completedAt),
+      prepareMs: runtimeMetrics.prepareMs,
+      worldResolveMs: runtimeMetrics.resolverMs,
       resolverMs: runtimeMetrics.resolverMs,
       computeMs: runtimeMetrics.computeMs,
       placementMs: runtimeMetrics.placementMs,
       disambiguationMs,
-      visualMs: result.status === "SUCCESS" ? result.receipt?.visualMs ?? 0 : 0,
+      visualMs,
+      visualFallbackMs: visualMs,
+      visualCallCount,
       guardMs: result.status === "SUCCESS" ? result.receipt?.guardMs ?? 0 : 0,
       commitMs: result.status === "SUCCESS" ? result.receipt?.commitMs ?? 0 : 0,
       totalMs: elapsed(startedAt, completedAt),
       endToVisibleMs: elapsed(turn.completedAt ?? turn.startedAt, completedAt),
+      // Rendering is owned by the Editor subscriber and is not separately observable here.
+      renderMs: 0,
+      usedAmbiguityPass: llmCallCount === 2,
+      usedVisualFallback: visualCallCount > 0,
       commitAttempted: result.commitAttempted,
       recordedAt: completedAt,
     });
@@ -201,6 +245,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     llmCallCount: 0 | 1 | 2,
     decisionMs = 0,
     disambiguationMs = 0,
+    contextAssemblyMs = 0,
   ): DirectCommandRouteResult {
     const completedAt = this.now();
     this.traces.record({
@@ -211,10 +256,19 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       resultStatus: llmCallCount === 0 ? "CONTEXT_FAILED" : "DECISION_FAILED",
       errorCode,
       llmCallCount,
+      decisionCallCount: llmCallCount,
       toolCallCount: 0,
+      contextAssemblyMs,
       decisionMs,
       runtimeMs: 0,
+      prepareMs: 0,
+      worldResolveMs: 0,
       disambiguationMs,
+      visualFallbackMs: 0,
+      visualCallCount: 0,
+      renderMs: 0,
+      usedAmbiguityPass: llmCallCount === 2,
+      usedVisualFallback: false,
       totalMs: elapsed(startedAt, completedAt),
       endToVisibleMs: elapsed(turn.completedAt ?? turn.startedAt, completedAt),
       commitAttempted: false,

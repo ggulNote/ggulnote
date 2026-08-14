@@ -17,6 +17,7 @@ import {
 } from "./object-index";
 import {
   DirectCommandOperationLedgerAdapter,
+  type OperationLedgerRecord,
   type OperationLedgerQuery,
 } from "./operation-ledger";
 
@@ -37,6 +38,7 @@ export interface UnifiedObjectWorld {
   getObjectMetadata(objectId: string): SceneObjectMetadataView | undefined;
   listPageObjects(pageId: string): readonly SceneObject[];
   searchIndex(query: ObjectIndexQuery): readonly ObjectIndexEntry[];
+  getRecentOperations?(query: OperationLedgerQuery): readonly OperationLedgerRecord[];
   getRecentOperationOutputs(query: OperationLedgerQuery): readonly EntityRef[];
 }
 
@@ -108,6 +110,12 @@ export class ExistingUnifiedObjectWorld implements UnifiedObjectWorld {
     query: OperationLedgerQuery,
   ): readonly EntityRef[] {
     return this.options.operationLedger.getRecentOutputs(query);
+  }
+
+  public getRecentOperations(
+    query: OperationLedgerQuery,
+  ): readonly OperationLedgerRecord[] {
+    return this.options.operationLedger.list(query);
   }
 }
 

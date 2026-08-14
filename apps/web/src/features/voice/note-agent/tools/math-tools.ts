@@ -44,12 +44,14 @@ function mathAddTool(): NoteTool<{ values: readonly number[] }, { value: number 
     id: "math.add",
     kind: "COMPUTE",
     description: "Add two or more finite numbers deterministically.",
+    examples: ["1, 2, 3을 더해 줘"],
     inputSchema: finiteNumberArraySchema,
     outputSchema: finiteNumberOutputSchema,
     isAvailable: () => true,
-    execute: async (input, context) => compute(context, () => ({
-      status: "SUCCESS" as const,
-      data: { value: addFiniteNumbers(input.values) },
+    prepare: async (input, context) => compute(context, () => ({
+      status: "READY" as const,
+      value: { value: addFiniteNumbers(input.values) },
+      operations: [],
     })),
   };
 }
@@ -62,12 +64,17 @@ function matrixMultiplyTool(): NoteTool<
     id: "math.matrix_multiply",
     kind: "COMPUTE",
     description: "Multiply two rectangular numeric matrices when dimensions are compatible.",
+    examples: ["첫 번째 행렬과 두 번째 행렬을 곱해 줘"],
     inputSchema: matrixMultiplyInputSchema,
     outputSchema: matrixMultiplyOutputSchema,
     isAvailable: () => true,
-    execute: async (input, context) => compute(context, () => {
+    prepare: async (input, context) => compute(context, () => {
       try {
-        return { status: "SUCCESS" as const, data: multiplyNumericMatrices(input.left, input.right) };
+        return {
+          status: "READY" as const,
+          value: multiplyNumericMatrices(input.left, input.right),
+          operations: [],
+        };
       } catch (error) {
         return error instanceof RangeError && error.message === "INCOMPATIBLE_MATRIX_DIMENSIONS"
           ? { status: "FAILED" as const, reasonCode: "INCOMPATIBLE_MATRIX_DIMENSIONS" }
@@ -78,7 +85,7 @@ function matrixMultiplyTool(): NoteTool<
 }
 
 function compute<T>(
-  context: Parameters<NoteTool["execute"]>[1],
+  context: Parameters<NoteTool["prepare"]>[1],
   operation: () => T,
 ): T {
   const startedAt = context.metrics?.now();

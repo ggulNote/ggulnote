@@ -37,6 +37,7 @@ export type DirectCommandPlanningResult =
       target?: ResolvedTarget;
       spatialAnchorTarget?: ResolvedTarget;
       textPlacement?: NormalizedTextPlacement;
+      spatialDecisionInstruction?: string;
       disambiguationUsed: boolean;
     })
   | (DirectCommandPlanningResultBase & {

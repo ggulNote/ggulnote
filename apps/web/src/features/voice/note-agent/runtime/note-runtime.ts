@@ -1,5 +1,6 @@
 import {
   NoteAgentValidationError,
+  type NoteActionPrepareResult,
   type NoteDecision,
   type NoteToolId,
   type NoteToolResult,
@@ -7,6 +8,7 @@ import {
 import type {
   NoteTool,
   NoteToolContext,
+  NoteRuntimeContext,
   NoteToolRegistry,
   NoteTransactionReceipt,
   NoteTransactionResult,
@@ -48,7 +50,7 @@ export interface NoteRuntimeOptions {
 interface PreparedCall {
   readonly stepId: string;
   readonly toolId: NoteToolId;
-  readonly input: unknown;
+  readonly rawInput: unknown;
   readonly tool: NoteTool;
 }
 
@@ -62,7 +64,7 @@ export class NoteRuntime {
 
   public async execute(
     decision: NoteDecision,
-    context: NoteToolContext,
+    context: NoteRuntimeContext,
   ): Promise<NoteRuntimeResult> {
     if (decision.status === "NEEDS_INPUT") {
       return { status: "NEEDS_INPUT", missing: decision.missing, commitAttempted: false };
@@ -73,90 +75,128 @@ export class NoteRuntime {
     if (decision.status === "NO_OP") return { status: "NO_OP", commitAttempted: false };
 
     const calls = decision.status === "CALL" ? [decision.call] : decision.steps;
-    const prepared: PreparedCall[] = [];
+    const callsToPrepare: PreparedCall[] = [];
     for (const call of calls) {
       const tool = this.options.registry.get(call.toolId);
       if (tool === undefined) return failed("UNKNOWN_TOOL");
       if (!tool.isAvailable(context)) return notAllowed("TOOL_UNAVAILABLE");
-      try {
-        prepared.push({
-          stepId: call.stepId,
-          toolId: call.toolId,
-          input: tool.inputSchema.parse(call.input, `tool.${call.toolId}.input`),
-          tool,
-        });
-      } catch (error) {
-        if (error instanceof NoteAgentValidationError) return failed("INVALID_TOOL_INPUT");
-        return failed("INVALID_TOOL_INPUT");
-      }
-    }
-
-    const mutationCount = prepared.filter((call) => call.tool.kind === "MUTATION").length;
-    if (context.mode === "PRODUCTION" && mutationCount > 1) {
-      return notAllowed("MULTI_MUTATION_BATCH_UNSUPPORTED");
+      callsToPrepare.push({
+        stepId: call.stepId,
+        toolId: call.toolId,
+        rawInput: call.input,
+        tool,
+      });
     }
 
     const steps: NoteRuntimeStepResult[] = [];
-    for (const call of prepared) {
+    const values = new Map<string, unknown>();
+    const transactionSteps: import("../tools").NoteTransactionStep[] = [];
+    for (const call of callsToPrepare) {
       if (isStale(context)) return { status: "STALE_SCENE", commitAttempted: false };
-      let result: NoteToolResult;
+      let input: unknown;
       try {
-        result = await call.tool.execute(call.input, {
-          ...context,
-          stepId: call.stepId,
-        });
+        input = call.tool.inputSchema.parse(
+          bindStepResults(call.rawInput, values),
+          `tool.${call.toolId}.input`,
+        );
+      } catch {
+        return failed("INVALID_TOOL_INPUT");
+      }
+      let prepared: NoteActionPrepareResult;
+      const prepareStartedAt = context.metrics?.now();
+      try {
+        prepared = await call.tool.prepare(
+          input,
+          prepareContext(context, call.stepId),
+        );
       } catch (error) {
         if (error instanceof NoteAgentValidationError) return failed("INVALID_TOOL_INPUT");
-        return failed("TOOL_EXECUTION_FAILED");
+        return failed("ACTION_PREPARE_FAILED");
+      } finally {
+        if (prepareStartedAt !== undefined) {
+          context.metrics?.add("prepareMs", context.metrics.now() - prepareStartedAt);
+        }
       }
-      if (result.status === "SUCCESS") {
+      if (prepared.status === "READY") {
+        let value: unknown;
         try {
-          result = {
-            ...result,
-            data: call.tool.outputSchema.parse(
-              result.data,
-              `tool.${call.toolId}.output`,
-            ),
-          };
+          value = call.tool.outputSchema.parse(prepared.value, `tool.${call.toolId}.output`);
         } catch {
           return failed("INVALID_TOOL_OUTPUT");
         }
+        if (call.tool.kind === "MUTATION" && prepared.operations.length === 0) {
+          return failed("MUTATION_PREPARED_WITHOUT_OPERATION");
+        }
+        if (call.tool.kind !== "MUTATION" && prepared.operations.length !== 0) {
+          return failed("NON_MUTATION_PREPARED_OPERATION");
+        }
+        values.set(call.stepId, value);
+        prepared.operations.forEach((operation) => transactionSteps.push({
+          stepId: call.stepId,
+          toolId: call.toolId,
+          operation,
+        }));
+        steps.push({
+          stepId: call.stepId,
+          toolId: call.toolId,
+          result: { status: "SUCCESS", data: value },
+        });
+      } else {
+        return mapPrepareFailure(call, prepared);
       }
       if (isStale(context)) return { status: "STALE_SCENE", commitAttempted: false };
-      steps.push({ stepId: call.stepId, toolId: call.toolId, result });
-      if (result.status !== "SUCCESS") return mapToolFailure(call, result);
     }
 
-    if (context.mode === "SHADOW" || mutationCount === 0) {
+    if (context.mode === "SHADOW" || transactionSteps.length === 0) {
       return { status: "SUCCESS", steps: Object.freeze(steps), commitAttempted: false };
     }
     if (context.transaction === undefined) return notAllowed("TRANSACTION_UNAVAILABLE");
     if (isStale(context)) return { status: "STALE_SCENE", commitAttempted: false };
 
-    const mutationSteps = steps.filter((step) =>
-      this.options.registry.get(step.toolId)?.kind === "MUTATION"
-      && step.result.status === "SUCCESS").map((step) => ({
-        stepId: step.stepId,
-        toolId: step.toolId,
-        data: step.result.status === "SUCCESS" ? step.result.data : undefined,
-      }));
     const transaction = await context.transaction.commit({
       turnId: context.turnId,
       frozenWorld: context.frozenWorld,
-      steps: mutationSteps,
+      steps: transactionSteps,
       ...(context.signal === undefined ? {} : { signal: context.signal }),
     });
     return mapTransactionResult(steps, transaction);
   }
 }
 
-function isStale(context: NoteToolContext): boolean {
+function prepareContext(
+  context: NoteRuntimeContext,
+  stepId: string,
+): NoteToolContext {
+  return {
+    mode: context.mode,
+    turnId: context.turnId,
+    frozenWorld: context.frozenWorld,
+    world: context.world,
+    resolver: context.resolver,
+    getCurrentSceneRevision: context.getCurrentSceneRevision,
+    stepId,
+    ...(context.placement === undefined ? {} : { placement: context.placement }),
+    ...(context.signal === undefined ? {} : { signal: context.signal }),
+    ...(context.candidateSelection === undefined
+      ? {}
+      : { candidateSelection: context.candidateSelection }),
+    ...(context.metrics === undefined ? {} : { metrics: context.metrics }),
+    ...(context.productionPlacementAvailable === undefined
+      ? {}
+      : { productionPlacementAvailable: context.productionPlacementAvailable }),
+    ...(context.preparePlacement === undefined
+      ? {}
+      : { preparePlacement: context.preparePlacement }),
+  };
+}
+
+function isStale(context: NoteRuntimeContext): boolean {
   return context.getCurrentSceneRevision() !== context.frozenWorld.sceneRevision;
 }
 
-function mapToolFailure(
+function mapPrepareFailure(
   call: Pick<PreparedCall, "stepId" | "toolId">,
-  result: Exclude<NoteToolResult, { status: "SUCCESS" }>,
+  result: Exclude<NoteActionPrepareResult, { status: "READY" }>,
 ): NoteRuntimeResult {
   switch (result.status) {
     case "AMBIGUOUS":
@@ -173,6 +213,37 @@ function mapToolFailure(
     case "NO_FEASIBLE_PLACEMENT": return { status: "NO_FEASIBLE_PLACEMENT", commitAttempted: false };
     case "STALE_SCENE": return { status: "STALE_SCENE", commitAttempted: false };
   }
+}
+
+function bindStepResults(
+  value: unknown,
+  completed: ReadonlyMap<string, unknown>,
+): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => bindStepResults(entry, completed));
+  const record = value as Record<string, unknown>;
+  if ("fromStep" in record) {
+    if (
+      Object.keys(record).some((key) => key !== "fromStep" && key !== "path")
+      || typeof record.fromStep !== "string"
+      || !completed.has(record.fromStep)
+      || (record.path !== undefined
+        && (!Array.isArray(record.path)
+          || record.path.some((entry) => typeof entry !== "string" || entry.length === 0)))
+    ) throw new NoteAgentValidationError("stepRef", "invalid or forward step reference");
+    let resolved = completed.get(record.fromStep);
+    for (const segment of record.path ?? []) {
+      if (typeof resolved !== "object" || resolved === null || !(segment in resolved)) {
+        throw new NoteAgentValidationError("stepRef.path", "step result path not found");
+      }
+      resolved = (resolved as Record<string, unknown>)[segment];
+    }
+    return resolved;
+  }
+  return Object.fromEntries(Object.entries(record).map(([key, entry]) => [
+    key,
+    bindStepResults(entry, completed),
+  ]));
 }
 
 function mapTransactionResult(

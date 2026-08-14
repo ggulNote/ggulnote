@@ -1,9 +1,9 @@
 import type { SpatialSceneSnapshot } from "../../domain";
 import type {
   CompactToolSchema,
+  NoteActionPrepareResult,
   NoteToolId,
   NoteToolKind,
-  NoteToolResult,
 } from "../domain";
 import type {
   ExistingPlacementEngine,
@@ -45,7 +45,6 @@ export interface NoteToolContext {
     readonly stepId: string;
     readonly alias: `${"C" | "S"}${number}`;
   };
-  readonly transaction?: NoteTransactionPort;
   readonly metrics?: NoteRuntimeMetricsSink;
   readonly productionPlacementAvailable?: boolean;
   readonly preparePlacement?: (
@@ -54,10 +53,14 @@ export interface NoteToolContext {
   ) => Promise<NotePlacementPreparation | undefined>;
 }
 
+export interface NoteRuntimeContext extends NoteToolContext {
+  readonly transaction?: NoteTransactionPort;
+}
+
 export interface NoteTransactionStep {
   readonly stepId: string;
   readonly toolId: NoteToolId;
-  readonly data: unknown;
+  readonly operation: import("../domain").PreparedNoteOperation;
 }
 
 export interface NoteTransactionReceipt {
@@ -69,6 +72,7 @@ export interface NoteTransactionReceipt {
   readonly guardMs: number;
   readonly commitMs: number;
   readonly visualMs: number;
+  readonly visualCallCount?: 0 | 1;
 }
 
 export type NoteTransactionResult =
@@ -101,10 +105,14 @@ export interface NoteTool<TInput = unknown, TOutput = unknown> {
   readonly id: NoteToolId;
   readonly kind: NoteToolKind;
   readonly description: string;
+  readonly examples: readonly string[];
   readonly inputSchema: NoteSchema<TInput>;
   readonly outputSchema: NoteSchema<TOutput>;
   isAvailable(context: NoteToolContext): boolean;
-  execute(input: TInput, context: NoteToolContext): Promise<NoteToolResult<TOutput>>;
+  prepare(
+    input: TInput,
+    context: NoteToolContext,
+  ): Promise<NoteActionPrepareResult<TOutput>>;
 }
 
 export class NoteToolRegistry {
@@ -130,8 +138,32 @@ export class NoteToolRegistry {
       id: tool.id,
       kind: tool.kind,
       description: tool.description,
+      examples: Object.freeze([...tool.examples]),
       input: tool.inputSchema.compact,
     })));
+  }
+}
+
+export type RegisteredActionDefinition = CompactToolSchema;
+
+export interface ActionLoadContext {
+  readonly toolContext: NoteToolContext;
+}
+
+export interface ActionContextLoader {
+  loadActions(
+    context: ActionLoadContext,
+  ): Promise<readonly RegisteredActionDefinition[]>;
+}
+
+/** Phase 4 starts simple: every enabled registered action is supplied once. */
+export class AllEnabledActionsLoader implements ActionContextLoader {
+  public constructor(private readonly registry: NoteToolRegistry) {}
+
+  public loadActions(
+    context: ActionLoadContext,
+  ): Promise<readonly RegisteredActionDefinition[]> {
+    return Promise.resolve(this.registry.compactSchemas(context.toolContext));
   }
 }
 

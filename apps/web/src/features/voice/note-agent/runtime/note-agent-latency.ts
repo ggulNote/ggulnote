@@ -10,7 +10,10 @@ export interface NoteLatencyPercentiles {
 
 export interface NoteToolLatencySummary {
   readonly toolId: NoteToolId | "unknown";
+  readonly contextAssemblyMs: NoteLatencyPercentiles;
   readonly decisionMs: NoteLatencyPercentiles;
+  readonly prepareMs: NoteLatencyPercentiles;
+  readonly commitMs: NoteLatencyPercentiles;
   readonly endToVisibleMs: NoteLatencyPercentiles;
 }
 
@@ -26,7 +29,10 @@ export function summarizeNoteAgentLatency(
   }
   return Object.freeze([...groups.entries()].map(([toolId, group]) => ({
     toolId,
+    contextAssemblyMs: percentiles(group.map((trace) => trace.contextAssemblyMs ?? 0)),
     decisionMs: percentiles(group.map((trace) => trace.decisionMs)),
+    prepareMs: percentiles(group.map((trace) => trace.prepareMs ?? 0)),
+    commitMs: percentiles(group.map((trace) => trace.commitMs ?? 0)),
     endToVisibleMs: percentiles(group.map((trace) => trace.endToVisibleMs ?? trace.totalMs)),
   })));
 }

@@ -93,7 +93,27 @@ export interface CompactToolSchema {
   readonly id: NoteToolId;
   readonly kind: NoteToolKind;
   readonly description: string;
+  readonly examples?: readonly string[];
   readonly input: Readonly<Record<string, string>>;
+}
+
+export const NOTE_CONTEXT_PART_IDS = [
+  "user-turn",
+  "frozen-context",
+  "selection-focus",
+  "recent-operations",
+  "object-detail",
+  "candidates",
+  "screenshot-crop",
+] as const;
+
+export type NoteContextPartId = (typeof NOTE_CONTEXT_PART_IDS)[number];
+
+/** Request-local, ordered projection sent to the single Decision call. */
+export interface DecisionContextFragment {
+  readonly id: NoteContextPartId;
+  readonly priority: number;
+  readonly content: JsonValue;
 }
 
 export interface NoteDecisionInput {
@@ -128,6 +148,12 @@ export interface NoteToolCall {
   readonly stepId: string;
   readonly toolId: NoteToolId;
   readonly input: unknown;
+}
+
+/** The runtime binds only already-completed step values before schema parsing. */
+export interface StepResultRef {
+  readonly fromStep: string;
+  readonly path?: readonly string[];
 }
 
 export interface NoteDisambiguationCandidate {

@@ -1,4 +1,5 @@
 export {
+  NOTE_CONTEXT_PART_IDS,
   NOTE_DECISION_MAX_BATCH_STEPS,
   NOTE_OBJECT_PART_KINDS,
   NOTE_PAGE_REGIONS,
@@ -7,6 +8,7 @@ export {
 } from "./note-agent-types";
 export type {
   CompactToolSchema,
+  DecisionContextFragment,
   Destination,
   EntitySelector,
   EntitySelectorContent,
@@ -19,6 +21,7 @@ export type {
   JsonValue,
   NoteAlignment,
   NoteContextSummary,
+  NoteContextPartId,
   NoteDecision,
   NoteDecisionInput,
   NoteDisambiguationCandidate,
@@ -30,10 +33,15 @@ export type {
   NoteToolCall,
   NoteToolId,
   NoteToolKind,
+  StepResultRef,
   SpatialConstraint,
   SpatialReference,
 } from "./note-agent-types";
-export type { NoteToolResult } from "./note-tool-result";
+export type {
+  NoteActionPrepareResult,
+  NoteToolResult,
+  PreparedNoteOperation,
+} from "./note-tool-result";
 export {
   NoteAgentValidationError,
   parseDestination,

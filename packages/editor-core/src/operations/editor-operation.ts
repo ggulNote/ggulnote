@@ -5,7 +5,7 @@ export interface EditorOperation {
   documentId: DocumentId;
   pageId: PageId;
   annotationId: AnnotationId;
-  type: "CREATE_ANNOTATION" | "UPDATE_ANNOTATION" | "DELETE_ANNOTATION" | "MOVE_ANNOTATION";
+  type: "CREATE_ANNOTATION" | "UPDATE_ANNOTATION" | "DELETE_ANNOTATION" | "MOVE_ANNOTATION" | "BATCH";
   payload: unknown;
   createdAt: number;
   sourceTurnId?: string;

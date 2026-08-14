@@ -14,16 +14,13 @@ import {
   type NoteTool,
   type NoteToolContext,
   resolveEntitySelector,
-  unknownOutputSchema,
 } from "./note-tool-registry";
 import { createMathTools } from "./math-tools";
 import { createUnavailableExtensionTools } from "./extension-boundary-tools";
 
-type ShadowToolOutput = {
-  readonly existingCommand: Readonly<Record<string, unknown>>;
-  readonly target?: unknown;
-  readonly placement?: unknown;
-};
+interface PreparedActionValue {
+  readonly prepared: true;
+}
 
 interface TextCreateInput {
   readonly text: string;
@@ -54,18 +51,19 @@ export function createExistingNoteToolRegistry(): NoteToolRegistry {
   return registry;
 }
 
-function textCreateTool(): NoteTool<TextCreateInput, ShadowToolOutput> {
+function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
   return {
     id: "text.create",
     kind: "MUTATION",
     description: "Create user text with an optional declarative destination.",
+    examples: ["가나다라 써 줘", "안녕하세요 아래에 가나다라 써 줘"],
     inputSchema: textCreateSchema,
-    outputSchema: unknownOutputSchema as NoteSchema<ShadowToolOutput>,
+    outputSchema: preparedActionValueSchema,
     isAvailable: (context) =>
       context.placement !== undefined
       && context.preparePlacement !== undefined
       && (context.mode === "SHADOW" || context.productionPlacementAvailable === true),
-    execute: async (input, context) => {
+    prepare: async (input, context) => {
       if (context.placement === undefined || context.preparePlacement === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "PLACEMENT_UNAVAILABLE" };
       }
@@ -107,12 +105,17 @@ function textCreateTool(): NoteTool<TextCreateInput, ShadowToolOutput> {
         && selection.stepId === context.stepId
         ? selection.alias
         : undefined;
+      const spatialDecisionInstruction = JSON.stringify({
+        destination: input.destination ?? null,
+      });
       const placement = await context.placement.resolve({
         ...(input.destination === undefined ? {} : { destination: input.destination }),
         ...prepared,
         worldContext: context.frozenWorld,
         ...(anchorRef === undefined ? {} : { anchorRef }),
         ...(selectedCandidate === undefined ? {} : { candidateAlias: selectedCandidate }),
+        instruction: spatialDecisionInstruction,
+        requirePreviewValidation: context.mode === "PRODUCTION",
       });
       if (placementStartedAt !== undefined) {
         context.metrics?.add("placementMs", context.metrics.now() - placementStartedAt);
@@ -124,32 +127,44 @@ function textCreateTool(): NoteTool<TextCreateInput, ShadowToolOutput> {
         return { status: "NO_FEASIBLE_PLACEMENT" };
       }
       if (placement.status === "STALE_SCENE") return { status: "STALE_SCENE" };
+      if (placement.status === "FAILED") {
+        return { status: "FAILED", reasonCode: placement.reasonCode };
+      }
       return {
-        status: "SUCCESS",
-        data: {
-          existingCommand: {
-            capability: "text",
-            operation: "create",
-            payload: { text: input.text },
+        status: "READY",
+        value: { prepared: true },
+        operations: [{
+          kind: "EXISTING_EDITOR_OPERATION",
+          data: {
+            existingCommand: {
+              capability: "text",
+              operation: "create",
+              payload: { text: input.text },
+            },
+            placement: placement.placement,
+            ...(input.destination === undefined ? {} : { destination: input.destination }),
+            ...(anchorRef === undefined ? {} : { target: anchorRef }),
+            ...(placement.preparedSpatial === undefined
+              ? {}
+              : { preparedSpatial: placement.preparedSpatial }),
+            spatialDecisionInstruction,
           },
-          placement: placement.placement,
-          ...(input.destination === undefined ? {} : { destination: input.destination }),
-          ...(anchorRef === undefined ? {} : { target: anchorRef }),
-        },
+        }],
       };
     },
   };
 }
 
-function textReplaceTool(): NoteTool<TargetedTextInput, ShadowToolOutput> {
+function textReplaceTool(): NoteTool<TargetedTextInput, PreparedActionValue> {
   return {
     id: "text.replace",
     kind: "MUTATION",
     description: "Replace content of an editable user text object.",
+    examples: ["이 텍스트를 새 내용으로 바꿔 줘"],
     inputSchema: targetedTextSchema,
-    outputSchema: unknownOutputSchema as NoteSchema<ShadowToolOutput>,
+    outputSchema: preparedActionValueSchema,
     isAvailable: () => true,
-    execute: async (input, context) => {
+    prepare: async (input, context) => {
       const resolved = await resolveEntitySelector(input.target, context);
       const failure = resolutionFailure(resolved);
       if (failure !== undefined) return failure;
@@ -161,29 +176,34 @@ function textReplaceTool(): NoteTool<TargetedTextInput, ShadowToolOutput> {
         return { status: "NOT_ALLOWED", reasonCode: "TARGET_NOT_EDITABLE" };
       }
       return {
-        status: "SUCCESS",
-        data: {
-          existingCommand: {
-            capability: "text",
-            operation: "replace_content",
-            payload: { text: input.text },
+        status: "READY",
+        value: { prepared: true },
+        operations: [{
+          kind: "EXISTING_EDITOR_OPERATION",
+          data: {
+            existingCommand: {
+              capability: "text",
+              operation: "replace_content",
+              payload: { text: input.text },
+            },
+            target: resolved.ref,
           },
-          target: resolved.ref,
-        },
+        }],
       };
     },
   };
 }
 
-function annotationApplyTool(): NoteTool<AnnotationApplyInput, ShadowToolOutput> {
+function annotationApplyTool(): NoteTool<AnnotationApplyInput, PreparedActionValue> {
   return {
     id: "annotation.apply",
     kind: "MUTATION",
     description: "Apply an underline or highlight to a grounded text target.",
+    examples: ["Moreover부터 instance까지 밑줄 쳐 줘"],
     inputSchema: annotationApplySchema,
-    outputSchema: unknownOutputSchema as NoteSchema<ShadowToolOutput>,
+    outputSchema: preparedActionValueSchema,
     isAvailable: () => true,
-    execute: async (input, context) => {
+    prepare: async (input, context) => {
       const resolved = await resolveEntitySelector(input.target, context);
       const failure = resolutionFailure(resolved);
       if (failure !== undefined) return failure;
@@ -197,15 +217,19 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, ShadowToolOutput>
         return { status: "NOT_ALLOWED", reasonCode: "TARGET_NOT_ANNOTATABLE" };
       }
       return {
-        status: "SUCCESS",
-        data: {
-          existingCommand: {
-            capability: "annotation",
-            operation: input.annotationType === "UNDERLINE" ? "underline" : "highlight",
-            payload: input.color === undefined ? {} : { color: input.color },
+        status: "READY",
+        value: { prepared: true },
+        operations: [{
+          kind: "EXISTING_EDITOR_OPERATION",
+          data: {
+            existingCommand: {
+              capability: "annotation",
+              operation: input.annotationType === "UNDERLINE" ? "underline" : "highlight",
+              payload: input.color === undefined ? {} : { color: input.color },
+            },
+            target: resolved.ref,
           },
-          target: resolved.ref,
-        },
+        }],
       };
     },
   };
@@ -215,19 +239,24 @@ function controlTool(
   id: NoteToolId,
   capability: string,
   operation: string,
-): NoteTool<Record<string, never>, ShadowToolOutput> {
+): NoteTool<Record<string, never>, PreparedActionValue> {
   return {
     id,
     kind: "MUTATION",
     description: `${capability}.${operation} through the existing runtime boundary.`,
+    examples: operation === "next_page"
+      ? ["다음 페이지"]
+      : operation === "previous_page" ? ["이전 페이지"] : ["방금 거 취소해"],
     inputSchema: emptyObjectSchema,
-    outputSchema: unknownOutputSchema as NoteSchema<ShadowToolOutput>,
+    outputSchema: preparedActionValueSchema,
     isAvailable: () => true,
-    execute: async () => ({
-      status: "SUCCESS",
-      data: {
-        existingCommand: { capability, operation, payload: {} },
-      },
+    prepare: async () => ({
+      status: "READY",
+      value: { prepared: true },
+      operations: [{
+        kind: "EXISTING_EDITOR_OPERATION",
+        data: { existingCommand: { capability, operation, payload: {} } },
+      }],
     }),
   };
 }
@@ -302,6 +331,17 @@ const emptyObjectSchema: NoteSchema<Record<string, never>> = {
   parse(value, path = "input") {
     strictRecord(value, path, []);
     return {};
+  },
+};
+
+const preparedActionValueSchema: NoteSchema<PreparedActionValue> = {
+  compact: Object.freeze({ prepared: "true" }),
+  parse(value, path = "output") {
+    const output = strictRecord(value, path, ["prepared"]);
+    if (output.prepared !== true) {
+      throw new NoteAgentValidationError(`${path}.prepared`, "expected true");
+    }
+    return { prepared: true };
   },
 };
 

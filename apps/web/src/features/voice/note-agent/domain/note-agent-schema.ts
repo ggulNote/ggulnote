@@ -88,7 +88,11 @@ export function parseNoteDecision(value: unknown): NoteDecision {
   switch (status) {
     case "CALL":
       assertOnlyKeys(decision, ["status", "call"], "decision");
-      return { status, call: readToolCall(decision.call, "decision.call") };
+      {
+        const call = readToolCall(decision.call, "decision.call");
+        validateStepReferences([call]);
+        return { status, call };
+      }
     case "BATCH": {
       assertOnlyKeys(decision, ["status", "atomic", "steps"], "decision");
       if (decision.atomic !== true) fail("decision.atomic", "BATCH must be atomic true");
@@ -101,6 +105,7 @@ export function parseNoteDecision(value: unknown): NoteDecision {
       if (new Set(parsed.map((step) => step.stepId)).size !== parsed.length) {
         fail("decision.steps", "stepId values must be unique");
       }
+      validateStepReferences(parsed);
       return { status, atomic: true, steps: parsed };
     }
     case "NEEDS_INPUT":
@@ -323,12 +328,15 @@ function readToolCall(value: unknown, path: string): NoteToolCall {
 
 function readCompactToolSchema(value: unknown, path: string): CompactToolSchema {
   const tool = readRecord(value, path);
-  assertOnlyKeys(tool, ["id", "kind", "description", "input"], path);
+  assertOnlyKeys(tool, ["id", "kind", "description", "examples", "input"], path);
   const fields = readRecord(tool.input, `${path}.input`);
   return {
     id: readToolId(tool.id, `${path}.id`),
     kind: readUnion(tool.kind, `${path}.kind`, ["QUERY", "COMPUTE", "MUTATION"] as const),
     description: readNonEmptyString(tool.description, `${path}.description`),
+    ...(tool.examples === undefined
+      ? {}
+      : { examples: readNonEmptyStringArray(tool.examples, `${path}.examples`) }),
     input: Object.fromEntries(Object.entries(fields).map(([key, entry]) => [
       key,
       readNonEmptyString(entry, `${path}.input.${key}`),
@@ -408,6 +416,43 @@ function assertNoAuthorityFields(value: unknown, path: string): void {
     }
     assertNoAuthorityFields(entry, `${path}.${key}`);
   }
+}
+
+function validateStepReferences(calls: readonly NoteToolCall[]): void {
+  const completed = new Set<string>();
+  calls.forEach((call, index) => {
+    visitStepReferences(call.input, `decision.steps[${index}].input`, completed);
+    completed.add(call.stepId);
+  });
+}
+
+function visitStepReferences(
+  value: unknown,
+  path: string,
+  completed: ReadonlySet<string>,
+): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => visitStepReferences(entry, `${path}[${index}]`, completed));
+    return;
+  }
+  const record = readRecord(value, path);
+  if ("fromStep" in record) {
+    assertOnlyKeys(record, ["fromStep", "path"], path);
+    const fromStep = readNonEmptyString(record.fromStep, `${path}.fromStep`);
+    if (!completed.has(fromStep)) {
+      fail(`${path}.fromStep`, "step output references must point to an earlier step");
+    }
+    if (record.path !== undefined) {
+      const segments = readArray(record.path, `${path}.path`);
+      if (segments.length > 8) fail(`${path}.path`, "expected at most 8 path segments");
+      segments.forEach((segment, index) =>
+        readNonEmptyString(segment, `${path}.path[${index}]`));
+    }
+    return;
+  }
+  Object.entries(record).forEach(([key, entry]) =>
+    visitStepReferences(entry, `${path}.${key}`, completed));
 }
 
 function readPageRegion(value: unknown, path: string): NotePageRegion {

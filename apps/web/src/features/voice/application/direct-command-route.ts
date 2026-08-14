@@ -18,7 +18,12 @@ import { calculateDirectCommandLatencyMetrics } from "./direct-command-diagnosti
 import { DirectCommandExecutionRegistry } from "./direct-command-execution-registry";
 import { DirectCommandHistoryContext } from "./direct-command-history-context";
 import type { DirectCommandPlanningOptions } from "./direct-command-planning-pipeline";
-import type { SpatialPlacementExecutionResolution } from "./spatial-placement-execution";
+import type {
+  PreparedSpatialPlacement,
+  SpatialPlacementExecutionResolution,
+  SpatialPlacementPreparationInput,
+  SpatialPlacementPreparationResolution,
+} from "./spatial-placement-execution";
 
 export interface DirectCommandPlanningPort {
   plan(
@@ -40,6 +45,14 @@ export interface DirectCommandExecutionPort {
 export interface SpatialCommandExecutionPort {
   execute(
     ready: ReadyForDirectCommandExecution,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<SpatialPlacementExecutionResolution>;
+  preparePlacement?(
+    input: SpatialPlacementPreparationInput,
+  ): Promise<SpatialPlacementPreparationResolution>;
+  executePrepared?(
+    ready: ReadyForDirectCommandExecution,
+    prepared: PreparedSpatialPlacement,
     options?: { readonly signal?: AbortSignal },
   ): Promise<SpatialPlacementExecutionResolution>;
 }

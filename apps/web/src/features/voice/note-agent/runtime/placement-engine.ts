@@ -2,6 +2,9 @@ import type { Rect } from "@ggulnote/editor-core";
 import {
   generatePlacementCandidates,
   resolveDeterministically,
+  type PreparedSpatialPlacement,
+  type SpatialPlacementPreparationInput,
+  type SpatialPlacementPreparationResolution,
 } from "../../application";
 import type {
   MeasuredDraft,
@@ -29,10 +32,15 @@ import type {
 } from "../world";
 
 export type NotePlacementResult =
-  | { readonly status: "RESOLVED"; readonly placement: ResolvedPlacement }
+  | {
+      readonly status: "RESOLVED";
+      readonly placement: ResolvedPlacement;
+      readonly preparedSpatial?: PreparedSpatialPlacement;
+    }
   | { readonly status: "AMBIGUOUS"; readonly candidates: readonly PlacementCandidate[] }
   | { readonly status: "NO_FEASIBLE_PLACEMENT" }
-  | { readonly status: "STALE_SCENE" };
+  | { readonly status: "STALE_SCENE" }
+  | { readonly status: "FAILED"; readonly reasonCode: string };
 
 export interface NotePlacementInput {
   readonly destination?: Destination;
@@ -42,12 +50,21 @@ export interface NotePlacementInput {
   readonly worldContext: FrozenWorldContext;
   readonly anchorRef?: EntityRef;
   readonly candidateAlias?: `${"C" | "S"}${number}`;
+  readonly instruction?: string;
+  readonly requirePreviewValidation?: boolean;
+}
+
+export interface SpatialPlacementPreparationPort {
+  preparePlacement(
+    input: SpatialPlacementPreparationInput,
+  ): Promise<SpatialPlacementPreparationResolution>;
 }
 
 export interface ExistingPlacementEngineOptions {
   readonly world: UnifiedObjectWorld;
   readonly resolver: ExistingWorldResolver;
   readonly defaultDestination?: Destination;
+  readonly preparation?: SpatialPlacementPreparationPort;
 }
 
 /**
@@ -93,13 +110,16 @@ export class ExistingPlacementEngine {
     if (anchor === undefined) return { status: "NO_FEASIBLE_PLACEMENT" };
 
     if (destination.relation === "BESIDE") {
+      const unvalidatedInput = input.requirePreviewValidation === true
+        ? { ...input, requirePreviewValidation: false }
+        : input;
       const left = await this.resolveQuery(
-        input,
+        unvalidatedInput,
         relativeQuery("LEFT_OF", destination.alignment, destination.distance),
         anchor,
       );
       const right = await this.resolveQuery(
-        input,
+        unvalidatedInput,
         relativeQuery("RIGHT_OF", destination.alignment, destination.distance),
         anchor,
       );
@@ -119,6 +139,42 @@ export class ExistingPlacementEngine {
     query: SpatialPlacementQuery,
     anchor?: ResolvedSpatialAnchor,
   ): Promise<NotePlacementResult> {
+    if (input.requirePreviewValidation === true) {
+      const preparation = this.options.preparation;
+      if (preparation === undefined) {
+        return { status: "FAILED", reasonCode: "PREVIEW_UNAVAILABLE" };
+      }
+      const prepared = await preparation.preparePlacement({
+        snapshot: input.snapshot,
+        query,
+        draft: input.draft,
+        profile: input.profile,
+        instruction: input.instruction ?? "",
+        ...(anchor === undefined ? {} : { anchor }),
+      });
+      if (prepared.status === "ERROR") {
+        if (prepared.errorCode === "STALE_SCENE") return { status: "STALE_SCENE" };
+        if (prepared.errorCode === "NO_FEASIBLE_PLACEMENT") {
+          return { status: "NO_FEASIBLE_PLACEMENT" };
+        }
+        return { status: "FAILED", reasonCode: prepared.errorCode };
+      }
+      const candidate = prepared.prepared.placement.candidate;
+      return {
+        status: "RESOLVED",
+        placement: {
+          snapshotId: input.snapshot.snapshotId,
+          pageId: input.snapshot.pageId,
+          sceneRevision: input.snapshot.sceneRevision,
+          bounds: { ...prepared.prepared.placement.requestedBounds },
+          relation: query.relation,
+          alignment: candidate.alignment,
+          candidate,
+          ...(anchor === undefined ? {} : { anchor }),
+        },
+        preparedSpatial: prepared.prepared,
+      };
+    }
     const generated = generatePlacementCandidates({
       snapshot: input.snapshot,
       query,

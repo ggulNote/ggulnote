@@ -56,6 +56,30 @@ export interface SpatialPlacementExecutionResolution {
   readonly diagnostics: SpatialCommandExecutionDiagnostics;
 }
 
+export interface SpatialPlacementPreparationInput {
+  readonly snapshot: SpatialSceneSnapshot;
+  readonly query: import("../domain").SpatialPlacementQuery;
+  readonly draft: import("../domain").MeasuredDraft;
+  readonly profile: import("../domain").PlacementProfile;
+  readonly instruction: string;
+  readonly anchor?: import("../domain").ResolvedSpatialAnchor;
+  readonly choicePolicy?: import("../domain").TextPlacementChoicePolicy;
+  readonly signal?: AbortSignal;
+}
+
+export interface PreparedSpatialPlacement {
+  readonly placement: ValidatedSpatialPlacement;
+  readonly diagnostics: SpatialCommandExecutionDiagnostics;
+}
+
+export type SpatialPlacementPreparationResolution =
+  | { readonly status: "READY"; readonly prepared: PreparedSpatialPlacement }
+  | {
+      readonly status: "ERROR";
+      readonly errorCode: DirectCommandRouteErrorCode;
+      readonly diagnostics: SpatialCommandExecutionDiagnostics;
+    };
+
 interface MutableDiagnostics {
   anchorResolution: SpatialCommandExecutionDiagnostics["anchorResolution"];
   rawCandidateCount: number;
@@ -172,53 +196,143 @@ export class SpatialPlacementExecutionPipeline {
       return this.failure(ready, diagnostics, startedAt, "ABORTED");
     }
 
-    const candidateStartedAt = this.now();
-    const generated = generatePlacementCandidates({
+    const prepared = await this.prepareCore({
       snapshot,
       query,
       profile,
       draft: measured.draft,
+      instruction: ready.spatialDecisionInstruction ?? ready.context.turn.rawTranscript,
       anchor,
+      choicePolicy: ready.textPlacement?.choicePolicy,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    }, diagnostics);
+    if (prepared.status === "ERROR") {
+      return this.failure(ready, diagnostics, startedAt, prepared.errorCode);
+    }
+    return this.commitPreparedCore(
+      ready,
+      prepared.placement,
+      diagnostics,
+      snapshot,
+      startedAt,
+      options,
+    );
+  }
+
+  /** Runs candidate choice and Ghost Preview without persistent mutation. */
+  public async preparePlacement(
+    input: SpatialPlacementPreparationInput,
+  ): Promise<SpatialPlacementPreparationResolution> {
+    const startedAt = this.now();
+    const diagnostics = initialDiagnostics();
+    diagnostics.anchorResolution = input.query.reference.kind === "PAGE"
+      || input.anchor !== undefined ? "RESOLVED" : "ANCHOR_NOT_FOUND";
+    if (diagnostics.anchorResolution !== "RESOLVED") {
+      diagnostics.failureReason = "TARGET_NOT_FOUND";
+      return {
+        status: "ERROR",
+        errorCode: "TARGET_NOT_FOUND",
+        diagnostics: finishDiagnostics(diagnostics, input.snapshot, startedAt, this.now()),
+      };
+    }
+    const prepared = await this.prepareCore(input, diagnostics);
+    if (prepared.status === "ERROR") {
+      diagnostics.failureReason = prepared.errorCode;
+      return {
+        status: "ERROR",
+        errorCode: prepared.errorCode,
+        diagnostics: finishDiagnostics(diagnostics, input.snapshot, startedAt, this.now()),
+      };
+    }
+    return {
+      status: "READY",
+      prepared: {
+        placement: prepared.placement,
+        diagnostics: finishDiagnostics(diagnostics, input.snapshot, startedAt, this.now()),
+      },
+    };
+  }
+
+  /** Commits a previously preview-validated placement through the existing final guard. */
+  public executePrepared(
+    ready: ReadyForDirectCommandExecution,
+    prepared: PreparedSpatialPlacement,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<SpatialPlacementExecutionResolution> {
+    const now = this.now();
+    const startedAt = Math.max(0, now - prepared.diagnostics.totalSpatialMs);
+    const diagnostics = mutableDiagnostics(prepared.diagnostics);
+    const frozen = ready.context.frozenContext;
+    if (
+      ready.plan.placementQuery === undefined
+      || prepared.placement.pageId !== frozen.pageId
+      || prepared.placement.sceneRevision !== frozen.sceneRevision
+    ) {
+      return Promise.resolve(this.failure(ready, diagnostics, startedAt, "STALE_SCENE"));
+    }
+    return this.commitPreparedCore(
+      ready,
+      prepared.placement,
+      diagnostics,
+      {
+        pageId: prepared.placement.pageId,
+        sceneRevision: prepared.placement.sceneRevision,
+      },
+      startedAt,
+      options,
+    );
+  }
+
+  private async prepareCore(
+    input: SpatialPlacementPreparationInput,
+    diagnostics: MutableDiagnostics,
+  ): Promise<
+    | { readonly status: "READY"; readonly placement: ValidatedSpatialPlacement }
+    | { readonly status: "ERROR"; readonly errorCode: DirectCommandRouteErrorCode }
+  > {
+    if (input.signal?.aborted) return { status: "ERROR", errorCode: "ABORTED" };
+    const candidateStartedAt = this.now();
+    const generated = generatePlacementCandidates({
+      snapshot: input.snapshot,
+      query: input.query,
+      profile: input.profile,
+      draft: input.draft,
+      ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
     });
     diagnostics.candidateGenerationMs = elapsed(candidateStartedAt, this.now());
     diagnostics.rawCandidateCount = generated.diagnostics.rawCandidateCount;
     diagnostics.filteredCandidateCount = generated.diagnostics.filteredCandidateCount;
     diagnostics.shortlistCandidateCount = generated.candidates.length;
     const gate = resolveDeterministically({
-      snapshot,
-      query,
+      snapshot: input.snapshot,
+      query: input.query,
       candidates: generated.candidates,
-      anchor,
+      ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
     });
     diagnostics.deterministicGate = gateStatus(gate.status);
-    if (gate.status === "NO_FEASIBLE_PLACEMENT") {
-      return this.failure(ready, diagnostics, startedAt, "NO_FEASIBLE_PLACEMENT");
-    }
-    if (gate.status === "STALE_SCENE") {
-      return this.failure(ready, diagnostics, startedAt, "STALE_SCENE");
+    if (gate.status === "NO_FEASIBLE_PLACEMENT" || gate.status === "STALE_SCENE") {
+      return { status: "ERROR", errorCode: gate.status };
     }
 
-    const choicePolicy = ready.textPlacement?.choicePolicy
-      ?? "SEMANTIC_CONSTRAINT_REQUIRED";
+    const choicePolicy = input.choicePolicy ?? "SEMANTIC_CONSTRAINT_REQUIRED";
     diagnostics.placementChoicePolicy = choicePolicy;
     const policyResolution = applyPlacementChoicePolicy({
       result: gate,
       policy: choicePolicy,
-      snapshot,
-      query,
-      anchor,
+      snapshot: input.snapshot,
+      query: input.query,
+      ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
     });
-
     const multimodalStartedAt = this.now();
     const placement = await this.options.multimodal.resolve({
       phaseBResult: policyResolution.result,
-      snapshot,
-      query,
-      draft: measured.draft,
-      profile,
-      instruction: ready.context.turn.rawTranscript,
-      anchor,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      snapshot: input.snapshot,
+      query: input.query,
+      draft: input.draft,
+      profile: input.profile,
+      instruction: input.instruction,
+      ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
     diagnostics.multimodalMs = elapsed(multimodalStartedAt, this.now());
     diagnostics.multimodalUsed = placement.diagnostics.multimodalRequired;
@@ -233,63 +347,58 @@ export class SpatialPlacementExecutionPipeline {
     ) {
       placementResult = resolveDelegatedLayoutFallback({
         result: gate,
-        snapshot,
-        query,
-        anchor,
+        snapshot: input.snapshot,
+        query: input.query,
+        ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
       });
       diagnostics.stableFallbackUsed = placementResult.status === "RESOLVED";
     }
     if (placementResult.status === "AMBIGUOUS") {
-      return this.failure(ready, diagnostics, startedAt, "MULTIMODAL_UNRESOLVED");
+      return { status: "ERROR", errorCode: "MULTIMODAL_UNRESOLVED" };
     }
     if (placementResult.status !== "RESOLVED") {
-      return this.failure(
-        ready,
-        diagnostics,
-        startedAt,
-        placementFailure(placementResult.status),
-      );
+      return { status: "ERROR", errorCode: placementFailure(placementResult.status) };
     }
     const selected = selectedSpatialPlacementFromResult(placementResult);
     if (selected === undefined) {
-      return this.failure(ready, diagnostics, startedAt, "MULTIMODAL_UNRESOLVED");
+      return { status: "ERROR", errorCode: "MULTIMODAL_UNRESOLVED" };
     }
     diagnostics.selectionSource = selected.source;
-
     const previewStartedAt = this.now();
     const validated = await this.options.preview.validate({
       selected,
       candidates: generated.candidates,
-      snapshot,
-      query,
-      profile,
-      draft: measured.draft,
-      anchor,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      snapshot: input.snapshot,
+      query: input.query,
+      profile: input.profile,
+      draft: input.draft,
+      ...(input.anchor === undefined ? {} : { anchor: input.anchor }),
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
     diagnostics.previewValidationMs = elapsed(previewStartedAt, this.now());
     diagnostics.previewAttemptCount = validated.diagnostics.previewAttemptCount;
     diagnostics.validationResult = validated.status;
     if (validated.status !== "VALIDATED") {
       diagnostics.previewFailureReason = validated.reason;
-      return this.failure(
-        ready,
-        diagnostics,
-        startedAt,
-        previewFailure(validated.status),
-      );
+      return { status: "ERROR", errorCode: previewFailure(validated.status) };
     }
     diagnostics.selectionSource = validated.placement.selectionSource;
+    return { status: "READY", placement: validated.placement };
+  }
+
+  private async commitPreparedCore(
+    ready: ReadyForDirectCommandExecution,
+    placement: ValidatedSpatialPlacement,
+    diagnostics: MutableDiagnostics,
+    scene: Pick<SpatialSceneSnapshot, "pageId" | "sceneRevision">,
+    startedAt: number,
+    options: { readonly signal?: AbortSignal },
+  ): Promise<SpatialPlacementExecutionResolution> {
     if (options.signal?.aborted) {
       return this.failure(ready, diagnostics, startedAt, "ABORTED");
     }
-
     const commitStartedAt = this.now();
-    const result = await this.options.executor.executeSpatial(
-      ready,
-      validated.placement,
-      options,
-    );
+    const result = await this.options.executor.executeSpatial(ready, placement, options);
     diagnostics.commitMs = elapsed(commitStartedAt, this.now());
     diagnostics.runtimeExecuted = result.status === "COMMITTED";
     diagnostics.operationRecorded = result.status === "COMMITTED";
@@ -301,7 +410,7 @@ export class SpatialPlacementExecutionPipeline {
     if (result.status === "ERROR") diagnostics.failureReason = result.errorCode;
     return {
       result,
-      diagnostics: finishDiagnostics(diagnostics, snapshot, startedAt, this.now()),
+      diagnostics: finishDiagnostics(diagnostics, scene, startedAt, this.now()),
     };
   }
 
@@ -349,6 +458,41 @@ function initialDiagnostics(): MutableDiagnostics {
     multimodalMs: 0,
     previewValidationMs: 0,
     commitMs: 0,
+  };
+}
+
+function mutableDiagnostics(
+  source: SpatialCommandExecutionDiagnostics,
+): MutableDiagnostics {
+  return {
+    anchorResolution: source.anchorResolution,
+    rawCandidateCount: source.rawCandidateCount,
+    filteredCandidateCount: source.filteredCandidateCount,
+    shortlistCandidateCount: source.shortlistCandidateCount,
+    deterministicGate: source.deterministicGate,
+    multimodalUsed: source.multimodalUsed,
+    multimodalCallCount: source.multimodalCallCount,
+    multimodalProviderResult: source.multimodalProviderResult,
+    screenshotCallCount: source.screenshotCallCount,
+    ...(source.selectionSource === undefined ? {} : { selectionSource: source.selectionSource }),
+    previewAttemptCount: source.previewAttemptCount,
+    validationResult: source.validationResult,
+    ...(source.previewFailureReason === undefined
+      ? {}
+      : { previewFailureReason: source.previewFailureReason }),
+    commitGuard: source.commitGuard,
+    runtimeExecuted: source.runtimeExecuted,
+    operationRecorded: source.operationRecorded,
+    ...(source.placementChoicePolicy === undefined
+      ? {}
+      : { placementChoicePolicy: source.placementChoicePolicy }),
+    stableFallbackUsed: source.stableFallbackUsed,
+    ...(source.failureReason === undefined ? {} : { failureReason: source.failureReason }),
+    anchorResolutionMs: source.anchorResolutionMs,
+    candidateGenerationMs: source.candidateGenerationMs,
+    multimodalMs: source.multimodalMs,
+    previewValidationMs: source.previewValidationMs,
+    commitMs: source.commitMs,
   };
 }
 

@@ -11,12 +11,17 @@ import type {
 } from "../../application";
 import type { CompletedVoiceTurnRoute } from "../../integration/direct-command-voice-turn-bridge";
 import type { NoteDecisionProvider } from "../decision";
+import { NoteContextAssembler } from "../context";
 import type { NoteDecision, NoteDecisionInput, NoteToolId } from "../domain";
 import type {
   FrozenWorldContext,
   UnifiedObjectWorld,
 } from "../world";
-import type { NoteToolContext, NoteToolRegistry } from "../tools";
+import {
+  AllEnabledActionsLoader,
+  type NoteRuntimeContext,
+  type NoteToolRegistry,
+} from "../tools";
 import { NoteRuntime, type NoteRuntimeResult } from "./note-runtime";
 import {
   NoteAgentShadowTraceStore,
@@ -29,11 +34,12 @@ export interface NoteAgentShadowRouteOptions {
   readonly world: UnifiedObjectWorld;
   readonly registry: NoteToolRegistry;
   readonly runtime?: NoteRuntime;
+  readonly contextAssembler?: NoteContextAssembler;
   readonly provider: NoteDecisionProvider;
   readonly createToolContext: (
     frozenWorld: FrozenWorldContext,
     turnId: string,
-  ) => NoteToolContext;
+  ) => NoteRuntimeContext;
   readonly traces?: NoteAgentShadowTraceStore;
   readonly now?: () => number;
 }
@@ -45,10 +51,14 @@ interface ShadowEvaluation {
 export class NoteAgentShadowRoute {
   public readonly traces: NoteAgentShadowTraceStore;
   private readonly runtime: NoteRuntime;
+  private readonly contextAssembler: NoteContextAssembler;
   private readonly now: () => number;
 
   public constructor(private readonly options: NoteAgentShadowRouteOptions) {
     this.runtime = options.runtime ?? new NoteRuntime({ registry: options.registry });
+    this.contextAssembler = options.contextAssembler ?? new NoteContextAssembler({
+      actionLoader: new AllEnabledActionsLoader(options.registry),
+    });
     this.traces = options.traces ?? new NoteAgentShadowTraceStore();
     this.now = options.now ?? Date.now;
   }
@@ -126,11 +136,13 @@ export class NoteAgentShadowRoute {
     }
     const frozenWorld = buildFrozenWorldContext(documentId, directContext);
     const toolContext = this.options.createToolContext(frozenWorld, turn.id);
-    const decisionInput = buildDecisionInput(
+    const decisionInput = (await this.contextAssembler.assemble({
+      turn,
       documentId,
-      directContext,
-      this.options.registry.compactSchemas(toolContext),
-    );
+      frozenWorld,
+      world: this.options.world,
+      toolContext,
+    })).decisionInput;
 
     const decisionStartedAt = this.now();
     let decision;

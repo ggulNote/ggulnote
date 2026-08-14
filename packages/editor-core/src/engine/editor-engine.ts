@@ -11,6 +11,8 @@ import { DeleteAnnotationCommand } from "../commands/delete-annotation-command";
 import { UpdateAnnotationCommand } from "../commands/update-annotation-command";
 import { MoveAnnotationCommand } from "../commands/move-annotation-command";
 import { CreateAnnotationCommand } from "../commands/create-annotation-command";
+import type { EditorCommand } from "../commands/editor-command";
+import { CompositeEditorCommand } from "../commands/composite-editor-command";
 import type { EditorCommandContext } from "../commands/editor-command";
 import { deserializeAnnotation, serializeAnnotation } from "../serialization/annotation-serializer";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
@@ -264,6 +266,22 @@ export class EditorEngine {
     this.publishOperation(this.lastOperation, "execute");
 
     return annotation.id;
+  }
+
+  /** Commits fully prepared commands as one operation event and one Undo entry. */
+  public executeCommandBatch(commands: readonly EditorCommand[]): {
+    readonly operation: EditorOperation;
+    readonly childOperations: readonly EditorOperation[];
+  } {
+    this.assertActiveSession();
+    const command = new CompositeEditorCommand(commands);
+    this.commandManager.execute(command);
+    this.lastOperation = command.toOperation();
+    this.publishOperation(this.lastOperation, "execute");
+    return {
+      operation: this.lastOperation,
+      childOperations: command.toChildOperations(),
+    };
   }
 
   public selectAt(point: NormalizedPoint): AnnotationId | null {

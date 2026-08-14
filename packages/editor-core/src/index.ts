@@ -38,6 +38,7 @@ export { serializeAnnotation, deserializeAnnotation } from "./serialization/anno
 export type { SerializedAnnotation } from "./serialization/serialized-annotation";
 
 export { CreateAnnotationCommand } from "./commands/create-annotation-command";
+export { CompositeEditorCommand } from "./commands/composite-editor-command";
 export { DeleteAnnotationCommand } from "./commands/delete-annotation-command";
 export { MoveAnnotationCommand } from "./commands/move-annotation-command";
 export { UpdateAnnotationCommand } from "./commands/update-annotation-command";

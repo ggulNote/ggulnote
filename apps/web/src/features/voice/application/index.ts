@@ -295,6 +295,9 @@ export type {
 } from "./spatial-command-capability";
 export { SpatialPlacementExecutionPipeline } from "./spatial-placement-execution";
 export type {
+  PreparedSpatialPlacement,
+  SpatialPlacementPreparationInput,
+  SpatialPlacementPreparationResolution,
   SpatialPlacementExecutionPipelineOptions,
   SpatialPlacementExecutionResolution,
   ValidatedSpatialPlacementExecutionPort,

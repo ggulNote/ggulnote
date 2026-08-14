@@ -52,7 +52,7 @@ import {
   type NoteDecisionProvider,
   type NoteDecisionCompositionProvider,
   type FrozenWorldContext,
-  type NoteToolContext,
+  type NoteRuntimeContext,
   type NoteRuntimeMetricsRecorder,
 } from "../note-agent";
 import { EditorNoteAgentTransaction } from "./editor-note-agent-transaction";
@@ -287,7 +287,18 @@ function createNoteAgentEnvironment(
     operationLedger: ledger,
   });
   const resolver = new ExistingWorldResolver({ world });
-  const placement = new ExistingPlacementEngine({ world, resolver });
+  const spatialPreparation = input.spatial?.preparePlacement?.bind(input.spatial);
+  const placement = new ExistingPlacementEngine({
+    world,
+    resolver,
+    ...(spatialPreparation === undefined
+      ? {}
+      : {
+          preparation: {
+            preparePlacement: spatialPreparation,
+          },
+        }),
+  });
   const registry = createExistingNoteToolRegistry();
   const spatialSceneSource = new ExistingSceneSpatialSceneSource({
     sceneSource: {
@@ -299,6 +310,7 @@ function createNoteAgentEnvironment(
   });
 
   const transaction = new EditorNoteAgentTransaction({
+    editorEngine: input.options.editorEngine,
     executor: input.executor,
     ...(input.spatial === undefined ? {} : { spatial: input.spatial }),
     history: input.history,
@@ -321,7 +333,7 @@ function createNoteAgentEnvironment(
           readonly alias: `${"C" | "S"}${number}`;
         };
       } = {},
-    ): NoteToolContext => ({
+    ): NoteRuntimeContext => ({
       mode,
       turnId,
       frozenWorld,
