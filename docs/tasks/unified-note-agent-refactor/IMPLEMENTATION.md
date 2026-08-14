@@ -2233,3 +2233,53 @@ visual ambiguity handoff, stable mutation compiler parity, production rollback �
 
 이 결정은 `One Decision`, `SceneObject` canonical source of truth, deterministic Grounding/Placement,
 failure side effect 0이라는 핵심 불변식을 변경하지 않는다.
+
+---
+
+# 30. Phase 4 Parts / Actions / Atomic Prepare 결정
+
+2026-08-14 Phase 4는 Phase 3를 대체하지 않고 다음 경계로 consolidation한다.
+
+```text
+CompletedVoiceTurn
+→ NoteContextAssembler
+→ One Note Decision
+→ registered NoteTool.prepare (transaction authority 없음)
+→ PreparedNoteOperation batch validation
+→ EditorNoteAgentTransaction.commit 한 번
+→ EditorEngine / CommandManager / operation event / Undo
+```
+
+`NoteContextAssembler`는 user turn, frozen context, selection/focus, recent operation을 기본 Part로,
+object detail, ambiguity candidate, screenshot crop descriptor를 조건부 Part로 취급한다. Part는
+priority/ID 순으로 deterministic하게 조립하며 enabled action schema와 함께 bounded token estimate를
+적용한다. `ObjectHandle`/`ObjectSummary`/`ObjectDetail`은 기존 `SceneObject`,
+`UnifiedObjectWorld`, `ObjectIndex`의 request-local read projection이다. persistent object/part ID는
+handle map 내부에만 보존한다.
+
+보안 경계상 새 object detail이나 screenshot 본문을 일반 Decision transport/trace에 추가하지 않는다.
+기존 Decision provider가 이미 받던 compact selection/focus/recent summary만 Part에서 생성한다.
+candidate-only second pass는 기존 strict alias schema를, image crop은 기존 Stage 4 observation/VLM
+boundary를 그대로 사용한다.
+
+`NoteTool`은 저장소 naming을 유지하되 `execute` 대신 `prepare`를 제공한다. runtime은 production
+transaction을 제거한 `NoteToolContext`만 Action에 넘기고, strict input/output과 kind별 operation
+불변식을 검증한다. BATCH는 최대 4 step이고 backward output binding만 허용한다. 모든 step이
+READY가 된 뒤에만 central transaction을 한 번 호출한다.
+
+direct editor mutation은 기존 capability compiler로 child `EditorCommand`를 만든 뒤
+`CompositeEditorCommand`로 실행한다. 같은 page의 direct batch는 operation event와 undo가 각각
+하나다. child execute/toOperation 실패는 완료된 child를 역순 rollback한다. control 또는 spatial과
+다른 mutation을 섞은 batch는 현재 Editor transaction primitive가 없으므로 commit 전에 명시적으로
+거부한다.
+
+Stage 4는 algorithm을 복사하지 않고 기존 `SpatialPlacementExecutionPipeline` coordinator에
+side-effect-free `preparePlacement`와 guarded `executePrepared` 경계를 추가했다. candidate generation,
+deterministic gate, bounded VLM 0/1회, Ghost Preview/validation은 prepare에서 끝나고, validated
+placement만 final guard/Editor commit으로 전달한다. 새 Note path의 visual instruction은 raw transcript가
+아니라 Decision의 structured `Destination | null`이다. unspecified `BESIDE` 방향은 임의 보정하지 않는다.
+
+Phase 3의 explicit production flag와 legacy rollback default는 유지한다. live model parity와 운영
+latency가 없으므로 default cutover, legacy route/normalizer 삭제, mixed control/spatial atomic batch,
+object move/delete/style, math.create, Graph/Table production mutation은 Phase 4 범위에서 완료했다고
+표시하지 않는다. 상세 mapping, verification, deprecated ledger는 `PHASE4_PARTS_ACTIONS.md`에 기록한다.

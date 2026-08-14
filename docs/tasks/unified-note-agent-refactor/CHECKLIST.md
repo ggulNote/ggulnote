@@ -3,8 +3,8 @@
 ## Current Milestone
 
 ```text
-Phase 3 — Production Cutover / Cleanup / Extensibility Proof
-Status: IN PROGRESS / DEFAULT CUTOVER GATE BLOCKED
+Phase 4 — Prompt Parts / Registered Actions / Atomic Prepare-Commit
+Status: IMPLEMENTED / PRODUCTION-DEFAULT CUTOVER GATE REMAINS
 ```
 
 ## Phase 1 / Phase 2 Foundation
@@ -28,7 +28,7 @@ Status: IN PROGRESS / DEFAULT CUTOVER GATE BLOCKED
 - [x] strict input/output / pre/post scene revision guard
 - [x] one mutation one transaction / actual Editor operation one undo test
 - [x] failure, stale, ambiguity side effect 0
-- [x] multi-mutation batch를 commit 전 명시적으로 거부
+- [x] Phase 3에서는 multi-mutation batch를 commit 전 명시적으로 거부
 - [ ] representative parity 승인 후 production을 기본값으로 전환
 - [ ] 여러 mutation을 위한 실제 atomic rollback transaction
 
@@ -82,3 +82,62 @@ Status: IN PROGRESS / DEFAULT CUTOVER GATE BLOCKED
 - [x] targeted Web/Editor lint
 - [x] `git diff --check`
 - [ ] production-default cutover 후 최종 full E2E 재검증
+
+## Phase 4 Prompt Parts
+
+- [x] `NoteContextAssembler`가 enabled Action schema와 Part를 한 번 조립
+- [x] deterministic priority/ID order와 bounded token estimate
+- [x] user/frozen/selection-focus/recent-operation Part
+- [x] object-detail/candidate/screenshot descriptor conditional Part
+- [x] recent output 최대 3, ambiguity candidate 최대 6
+- [x] full Scene/PDF/history/screenshot bytes를 일반 Decision/trace에서 제외
+- [x] `ObjectHandle` → actual `EntityRef` request-local map
+- [x] persistent object/part ID가 projection/Decision input에 노출되지 않음
+- [x] appearance/semantic/lifecycle/capability는 실제 SceneObject metadata만 사용
+
+## Phase 4 Registered Actions / Prepare
+
+- [x] 기존 `NoteToolRegistry`와 naming 유지
+- [x] 모든 enabled Action에 description/examples/strict input/output schema
+- [x] Action `execute`를 side-effect-free `prepare` 경계로 전환
+- [x] Action prepare context에서 transaction authority 제거
+- [x] QUERY/COMPUTE operation 0, MUTATION prepared operation 1+ guard
+- [x] `AllEnabledActionsLoader` 단일 구현
+- [x] BATCH 최대 4, backward step-output reference만 허용
+- [x] forward/circular/malformed reference strict reject
+- [x] later-step prepare failure commit 0
+
+## Phase 4 Atomic Commit
+
+- [x] 모든 direct mutation prepare 뒤 `NoteTransactionPort.commit` 한 번
+- [x] 같은 page direct mutation batch를 `CompositeEditorCommand` 하나로 실행
+- [x] operation event 1, logical undo 1
+- [x] child execute/toOperation 실패 시 completed child rollback
+- [x] stale/not-found/ambiguity/invalid prepare side effect 0
+- [x] commit 후 기존 history/operation/persistence observer 경계 유지
+- [x] mixed control/spatial batch는 부분 commit 대신 pre-commit explicit unsupported
+
+## Phase 4 Ambiguity / Visual
+
+- [x] World candidate-only Decision second pass 최대 1회
+- [x] Stage 4 candidate/VLM/preview를 `preparePlacement`에서 side effect 없이 실행
+- [x] `executePrepared`가 final guard와 Editor commit만 실행
+- [x] deterministic placement는 VLM 0, actual visual ambiguity는 VLM 최대 1
+- [x] VLM output은 current `S* | NONE` alias만 허용
+- [x] 새 Note path는 raw transcript 대신 structured `Destination | null` 사용
+- [x] unspecified `BESIDE` 방향을 heuristic으로 선택하지 않음
+
+## Phase 4 Verification
+
+- [x] Context Parts / handle privacy / conditional omission tests
+- [x] Action prepare no-transaction and later-step failure no-commit tests
+- [x] direct atomic batch one event/undo and rollback tests
+- [x] Stage 4 prepare no-mutation / prepared commit no-rerun tests
+- [x] Web full 137 files / 964 tests
+- [x] Editor Core full 7 files / 54 tests
+- [x] Web/Editor strict typecheck
+- [x] targeted Web/Editor lint
+- [x] `git diff --check`
+- [ ] live model/network representative parity
+- [ ] manual microphone/browser smoke
+- [ ] production default cutover and rollback observation

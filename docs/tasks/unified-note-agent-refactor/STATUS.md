@@ -3,155 +3,175 @@
 ## Current State
 
 ```text
-Phase: 3 — Production Cutover / Cleanup / Extensibility Proof
-Status: IMPLEMENTED / DEFAULT CUTOVER BLOCKED
-Current Milestone: close the production-default cutover gate
-Date: 2026-08-13
+Phase: 4 — Prompt Parts / Registered Actions / Atomic Prepare-Commit
+Status: IMPLEMENTED / PRODUCTION-DEFAULT CUTOVER STILL GATED
+Current Milestone: Phase 4 consolidation complete; collect live parity before default cutover
+Date: 2026-08-14
 ```
 
-Phase 3의 guarded production runtime과 확장성 증명은 구현했다. 그러나 Phase 2에
-real model/network parity sample이 없고 Stage 4의 visual-only placement ambiguity를
-새 runtime이 안전하게 이어받는 경계가 아직 없으므로 production 기본값 전환과 legacy
-의미 계층 삭제는 완료로 표시하지 않는다.
+Phase 4는 Phase 1~3 production-capable path를 폐기하지 않고 Context Parts,
+registered Action prepare, central commit 책임으로 정리했다. explicit
+`NEXT_PUBLIC_NOTE_AGENT_ROUTE=production` path에는 적용됐지만 live model parity가 없으므로
+flag가 없을 때의 legacy default는 유지한다.
 
 ## Branch / Base
 
 ```text
-branch: refactor/unified-note-agent
-Phase 3 start HEAD: 12a3d80e872201cba9ba9300d8a81930a05618c0
-base: feat/stage-4.5-accuracy-improvements @ fc61be5
+source branch: refactor/unified-note-agent
+Phase 3 completed/source HEAD: d1c6d2e1ade0ba0118cd6716f317c7fa0901f5bc
+Phase 4 branch: refactor/note-agent-parts-actions
 working tree at start: untracked next, pnpm
 preserved unrelated files: next, pnpm
 ```
 
-## Production Routing
+## Production Flow
 
-- `CompletedVoiceTurn → One Note Decision → NoteRuntime → Existing Editor Runtime` 경로를
-  `NoteAgentProductionRoute`로 구성했다.
-- `NEXT_PUBLIC_NOTE_AGENT_ROUTE=production`을 명시할 때만 새 경로가 commit owner다.
-  `shadow`는 Phase 2 no-commit 비교 경로이고, flag가 없으면 기존 route가 rollback 기본값이다.
-- 한 production route는 기존 execution registry를 이용해 같은 `turnId`를 exactly once로
-  처리한다. 동시에 들어온 duplicate turn도 같은 결과를 공유하며 decision/transaction은
-  각각 한 번만 실행한다.
-- `NoteRuntime`은 validation/resolve/placement/guard를 먼저 완료한 뒤 단일
-  `NoteTransactionPort`로 commit한다. tool handler는 Editor port를 직접 갖지 않는다.
-- 하나의 mutation은 기존 `EditorDirectCommandExecutor` 또는
-  `SpatialPlacementExecutionPipeline`으로 compile된다. stale/failure/ambiguity는 commit 0이다.
-- 여러 mutation step의 진짜 atomic transaction은 기존 Editor 경계가 제공하지 않아
-  commit 전에 `MULTI_MUTATION_BATCH_UNSUPPORTED`로 거부한다. pure compute batch는 최대 4다.
+```text
+CompletedVoiceTurn
+→ NoteContextAssembler
+→ One Note Decision
+→ NoteToolRegistry lookup + strict input
+→ NoteTool.prepare (transaction authority 없음)
+→ prepared batch validation
+→ EditorNoteAgentTransaction.commit once
+→ EditorEngine / CommandManager / operation event / Undo
+```
 
-## Ambiguity / Visual Boundary
+- `NoteContextAssembler`는 enabled action schema를 한 번 load하고 Prompt Part를 deterministic
+  priority 순으로 조립한다.
+- `ObjectHandle`의 실제 ID/EntityRef는 request-local map에만 있고 Decision projection에는 없다.
+- `NoteRuntime`은 최대 4 step을 순차 prepare하며 earlier-step output만 bind한다. 모든 mutation은
+  준비가 끝난 뒤 transaction port를 한 번 호출한다.
+- 같은 page의 direct text/annotation batch는 `CompositeEditorCommand` 하나, operation event 하나,
+  undo 하나다. child failure는 앞선 child를 rollback한다.
+- Stage 4 candidate/VLM/preview는 `preparePlacement`에서 side effect 없이 완료하고,
+  `executePrepared`가 final guard와 Editor commit만 수행한다.
 
-- WorldResolver의 실제 후보만 `C1`–`C6` compact alias로 같은 Decision provider에 최대
-  한 번 전달한다. 응답은 candidate alias 또는 `NONE`만 허용하며 ID/좌표 생성은 거부한다.
-- Stage 4 placement 후보(`S*`)는 text-only disambiguation으로 성공 처리하지 않는다.
-  deterministic dominance가 없으면 no-commit 상태로 남는다.
-- 기존 Stage 4 VLM은 legacy compatibility route에 그대로 유지했다. 새 runtime에서
-  candidate crop/preview/final guard까지 안전하게 연결하는 작업이 default cutover blocker다.
+## Prompt Parts / Projection
 
-## Unified Objects / Parts
+Always-on:
 
-- Phase 1 `SceneObject`/UnifiedObjectWorld/ObjectIndex/OperationLedger를 그대로 사용한다.
-- math/graph/table의 optional part metadata 경계를 추가했다. graph curve와 table
-  row/column/cell은 parent를 resolve한 뒤 `DeterministicPartResolver`가 실제 part ID를 찾는다.
-- LLM 계약은 declarative part kind/attributes만 허용하며 실제 `partId`는 계속 금지한다.
-- math object는 canonical expression metadata와 deterministic root expression boundary를 갖는다.
+- `user-turn`
+- `frozen-context`
+- selection/focus가 있을 때 compact `selection-focus`
+- output이 있을 때 최근 3개의 `recent-operations`
 
-## Tool Registry / Extensibility Proof
+Conditional:
 
-- production-capable registry: `text.create`, `text.replace`, `annotation.apply`,
-  `navigation.next_page`, `navigation.previous_page`, `history.undo`, `math.add`,
-  `math.matrix_multiply`.
-- `math.add`와 `math.matrix_multiply`는 React/Editor와 독립된 pure compute tool이다.
-  finite-number, rectangular matrix, shape/dimension을 strict하게 검증한다.
-- incompatible dimensions는 `FAILED / INCOMPATIBLE_MATRIX_DIMENSIONS`이고 side effect는 0이다.
-- 두 math tool은 중앙 command union/switch를 수정하지 않고 registry 등록만으로 compact
-  Decision schema에 노출된다.
-- `math.create`는 Formula renderer/create operation이 없어 노출하지 않았다.
-- `graph.add_tangent`, `table.update_cell`은 strict contract와 unavailable boundary만 등록했으며
-  Decision schema에는 노출되지 않는다.
-- generic `object.move/delete/style`은 안전한 production compiler가 없으므로 노출하지 않았다.
+- `object-detail`: selection/focus의 part/property가 실제로 필요할 때
+- `candidates`: 실제 ambiguity 후보 최대 6개
+- `screenshot-crop`: visual fallback descriptor; 실제 image payload는 Stage 4 observation이 소유
+
+Projection은 기존 `SceneObject`/UnifiedObjectWorld/ObjectIndex에서 파생한다. appearance,
+semantic, lifecycle, capability는 실제 metadata만 사용하며 screenshot/LLM으로 backfill하지 않는다.
+full Scene/PDF/history, screenshot bytes, persistent object/part ID는 일반 Decision trace에 없다.
+
+## Registered Actions
+
+Enabled production-capable actions:
+
+```text
+text.create
+text.replace
+annotation.apply
+navigation.next_page
+navigation.previous_page
+history.undo
+math.add
+math.matrix_multiply
+```
+
+- 모든 enabled Action은 description, examples, strict input/output schema, `prepare`를 갖는다.
+- math actions는 pure COMPUTE이고 operation이 없다.
+- `graph.add_tangent`, `table.update_cell`은 strict unavailable contract다.
+- `math.create`, generic object move/delete/style은 stable renderer/compiler가 없어 등록하지 않았다.
+
+## Ambiguity / Visual
+
+- World ambiguity는 실제 `C1..C6` 후보만 같은 Decision provider의 candidate-only schema에 최대
+  한 번 전달한다.
+- Stage 4는 deterministic gate 후 실제 visual ambiguity에서만 screenshot crop/VLM을 최대
+  한 번 사용하며 출력은 `S* | NONE`이다.
+- 새 Note path는 VLM에 raw transcript를 다시 전달하지 않고 structured `Destination | null`을
+  전달한다.
+- unspecified `BESIDE`의 좌/우 동률은 한쪽으로 silent fallback하지 않고 ambiguity/no-commit이다.
+
+## Atomicity / Safety
+
+- prepare context에는 transaction port가 없다.
+- invalid input/output, not-found, ambiguity, stale, unavailable, later-step prepare failure는 commit 0이다.
+- direct mutation batch success는 transaction/event/undo 각각 1개다.
+- spatial prepare는 VLM/preview 후에도 persistent mutation 0이며 prepared result commit만 1회다.
+- control + mutation 또는 spatial + 다른 mutation batch는 현재 commit 전에 explicit unsupported다.
+- PDF/Blank는 같은 Decision/Action/Runtime path를 사용하고 mutation 차이는 SceneObject capability다.
+- Stage 3.5 exact/fuzzy/semantic resolver와 Stage 4 geometry/preview/final guard를 그대로 재사용한다.
 
 ## Diagnostics / Latency
 
-Trace가 다음 값을 기록한다.
+Trace fields:
 
 ```text
-decisionMs, llmCallCount, resolverMs, computeMs, placementMs,
-disambiguationMs, visualMs, guardMs, commitMs, endToVisibleMs
+contextAssemblyMs, decisionMs, decisionCallCount,
+prepareMs, worldResolveMs/resolverMs, placementMs, computeMs,
+disambiguationMs, visualFallbackMs/visualMs, visualCallCount,
+guardMs, commitMs, renderMs, endToVisibleMs,
+usedAmbiguityPass, usedVisualFallback
 ```
 
-tool별 nearest-rank p50/p90/p95 aggregator와 deterministic fixture를 추가했다. 실제
-model/network 운영 표본은 없으므로 synthetic percentile 외의 latency 수치는 보고하지 않는다.
-일반 성공 경로의 계약은 Decision LLM 1회, disambiguation 0회, visual 0회다.
-
-## E2E / Safety Matrix
-
-- 기본/page-region/relative create, user-created text/annotation anchor, PDF fuzzy range,
-  ordinal/document scope, explicit target priority/not-found, PDF immutable capability는 Phase 2
-  fixture와 Stage 3.5/4 회귀를 계속 통과한다.
-- World ambiguity는 candidate-only second pass 한 번으로 제한된다.
-- actual Editor annotation transaction에서 operation 1개와 undo 1개를 검증했다.
-- stale scene, duplicate turn, unavailable tool, invalid matrix, multi-mutation batch는 persistent
-  side effect 0을 검증했다.
-- placement ambiguity의 Stage 4 visual handoff와 live model representative parity는 미완료다.
+tool별 aggregator는 context/decision/prepare/commit/end-to-visible p50/p90/p95를 계산한다.
+deterministic fixture로 percentile 계산만 검증했으며 실제 OpenAI/network 표본은 없다.
+`renderMs=0`은 Editor subscriber 뒤 paint completion이 별도 관측되지 않는다는 뜻이고
+`endToVisibleMs`도 현재 route completion proxy다.
 
 ## Verification
 
 ```text
-Phase 1–3 Note Agent targeted: 15 files / 75 tests PASS
-Web full (Stage 2/3/3.5/4 포함): 136 files / 954 tests PASS
-Editor Core full: 7 files / 53 tests PASS
-Web typecheck: PASS
-Editor Core typecheck: PASS
+Context/Decision/Runtime/transaction targeted: PASS
+Stage 4 prepare/VLM/preview/prepared-commit targeted: PASS
+production/shadow/latency/action targeted: PASS
+Web full (Stage 2/3/3.5/4 + persistence): 137 files / 964 tests PASS
+Editor Core full: 7 files / 54 tests PASS
+Web strict typecheck: PASS
+Editor Core strict typecheck: PASS
 Web targeted lint: PASS
 Editor Core targeted lint: PASS (existing config warnings only)
 git diff --check: PASS
 ```
 
-Environment:
+Environment/known output:
 
-- repository requirement: Node `>=22`
+- repository Node requirement: `>=22`
 - validation runtime: Node `20.19.4`, pnpm `10.9.0`
-- engine mismatch, Editor Core React/pages-directory lint warning, Web validation stderr와 jsdom
-  canvas stderr는 기존 environment/known output이며 테스트 결과는 PASS다.
+- engine mismatch warning, expected invalid-provider stderr, jsdom canvas stderr,
+  Editor Core React/pages-directory lint warnings은 기존 known output이다.
+- 실제 OpenAI/network, microphone, manual browser smoke는 실행하지 않았다.
 
 ## Deprecated Ledger
 
-- `normalizeTextPlacementIntent`, regex placement interpretation, `DirectCommandPlanningPipeline`,
-  legacy Direct/Spatial route, `DIRECT_COMMAND_NAMES`, `DirectEditorCommand`는 삭제하지 않았다.
-- 새 production core는 이 자연어 normalizer와 fixed command-name 목록을 사용하지 않는다.
-  `DirectEditorCommand`는 기존 Editor compiler/history compatibility adapter 안에서만 남는다.
-- 제거 조건은 (1) real model representative parity 승인, (2) Stage 4 visual ambiguity의 guarded
-  handoff, (3) 현재 stable mutation 전체의 unified compiler, (4) production 기본값 전환 후
-  rollback 관찰 기간 완료다.
-- Stage 3.5 fuzzy/semantic grounding과 Stage 4 candidate/preview/validation/final guard는 deprecated가
-  아니며 facade 뒤에서 유지한다.
+- legacy Direct/Spatial route와 `normalizeTextPlacementIntent`는 default rollback owner 때문에 남는다.
+  새 Note path는 해당 natural-language normalizer를 호출하지 않는다.
+- `DirectEditorCommand`는 `EditorNoteAgentTransaction`의 existing-editor compile adapter 안에만 남는다.
+- `buildDecisionInput`은 Phase 2 compatibility fixture 때문에 남으며 production assembler는 사용하지 않는다.
+- `SpatialPlacementExecutionPipeline.execute`는 legacy caller를 위해 남고 새 Note path는
+  `preparePlacement/executePrepared`를 사용한다.
+- 제거 조건은 live representative parity, operating latency, production-default 전환,
+  rollback 관찰, remaining mutation compiler parity다.
 
-## Known Limitations / Cutover Gate
+## Known Limitations / Next Milestone
 
-1. real model/network representative parity와 real p50/p90/p95 표본이 없다.
-2. 새 runtime의 ambiguous Stage 4 candidate → bounded VLM → preview/final guard 연결이 없다.
-3. production은 명시적 opt-in이고 기본값은 legacy다.
-4. multi-mutation atomic batch는 안전하게 preflight reject하며 rollback transaction은 미지원이다.
-5. object move/delete/style, math.create, graph/table production mutation은 미지원이다.
+1. live model/network representative parity와 운영 p50/p90/p95가 없다.
+2. production default는 아직 legacy이며 새 path는 explicit opt-in이다.
+3. mixed control/spatial mutation 및 cross-page batch는 atomic commit 전에 거부한다.
+4. object move/delete/style, math.create, Graph/Table production mutation은 미지원이다.
+5. glyph-level PDF subrange offset과 Editor render completion timestamp는 없다.
+
+Next milestone은 새 기능 Agent가 아니라 live parity/cutover gate다. parity 승인 전에는 legacy
+route나 normalizer를 삭제하지 않는다.
 
 ## Commits
 
 ```text
-phase 1 implementation: 4ab6d3a feat(scene): add unified object world foundation
-phase 1 status: 46eed4e docs(note-agent): record phase 1 status
-phase 2 implementation + tests: 7f1ed19 feat(note-agent): add shadow decision runtime
-phase 2 status: 12a3d80 docs(note-agent): record phase 2 status
-phase 3 implementation + tests: b8ff0e2 feat(note-agent): add guarded production runtime
-phase 3 status: this document commit
-```
-
-## Next Milestone
-
-```text
-Production-default cutover gate
-1. collect and approve real shadow/model parity and latency
-2. connect Stage 4 ambiguous visual selection without bypassing preview/final guard
-3. rerun full E2E, then explicitly switch the default and observe rollback window
+Phase 4 implementation: def3a1b refactor(note-agent): prepare registered actions before atomic commit
+Phase 4 tests: ef725a3 test(note-agent): cover parts actions and bounded visual prepare
+Phase 4 docs: this document commit
 ```
