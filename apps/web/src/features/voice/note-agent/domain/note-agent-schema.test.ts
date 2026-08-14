@@ -179,6 +179,42 @@ describe("One Note Decision strict schema", () => {
     })).toThrowError(NoteAgentValidationError);
   });
 
+  it("allows only backward step-output references in an atomic batch", () => {
+    const decision = {
+      status: "BATCH",
+      atomic: true,
+      steps: [
+        { stepId: "s1", toolId: "math.add", input: { values: [1, 2] } },
+        {
+          stepId: "s2",
+          toolId: "text.create",
+          input: { text: { fromStep: "s1", path: ["sum"] } },
+        },
+      ],
+    };
+    expect(parseNoteDecision(decision)).toEqual(decision);
+    expect(() => parseNoteDecision({
+      status: "BATCH",
+      atomic: true,
+      steps: [
+        {
+          stepId: "s1",
+          toolId: "text.create",
+          input: { text: { fromStep: "s2" } },
+        },
+        { stepId: "s2", toolId: "math.add", input: { values: [1, 2] } },
+      ],
+    })).toThrowError(/earlier step/u);
+    expect(() => parseNoteDecision({
+      status: "CALL",
+      call: {
+        stepId: "s1",
+        toolId: "text.create",
+        input: { text: { fromStep: "s1" } },
+      },
+    })).toThrowError(/earlier step/u);
+  });
+
   it("strictly parses compact decision input", () => {
     const input = {
       turn: { turnId: "turn-1", language: "ko-KR", rawFinalTranscript: "써 줘" },

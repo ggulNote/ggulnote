@@ -36,7 +36,7 @@ describe("registry-based math compute tools", () => {
       right: [[1], [2]],
     })).toThrowError(/rectangular/u);
     const parsed = matrix.inputSchema.parse({ left: [[1, 2]], right: [[1, 2]] });
-    await expect(matrix.execute(parsed, context)).resolves.toEqual({
+    await expect(matrix.prepare(parsed, context)).resolves.toEqual({
       status: "FAILED",
       reasonCode: "INCOMPATIBLE_MATRIX_DIMENSIONS",
     });

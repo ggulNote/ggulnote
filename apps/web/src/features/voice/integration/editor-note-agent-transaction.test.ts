@@ -1,7 +1,11 @@
 import { EditorEngine, type EditorPersistenceEvent } from "@ggulnote/editor-core";
 import { toSessionTimeMs } from "@ggulnote/interaction-core";
-import { describe, expect, it } from "vitest";
-import { DirectCommandHistoryContext } from "../application";
+import { describe, expect, it, vi } from "vitest";
+import {
+  DirectCommandHistoryContext,
+  type PreparedSpatialPlacement,
+  type SpatialCommandExecutionPort,
+} from "../application";
 import type { CompletedVoiceTurn, DirectCommandContext } from "../domain";
 import type { FrozenWorldContext } from "../note-agent";
 import { EditorDirectCommandExecutor } from "./editor-direct-command-executor";
@@ -40,14 +44,14 @@ describe("EditorNoteAgentTransaction", () => {
       steps: [{
         stepId: "s1",
         toolId: "annotation.apply",
-        data: {
+        operation: { kind: "EXISTING_EDITOR_OPERATION", data: {
           existingCommand: { capability: "annotation", operation: "underline", payload: {} },
           target: {
             kind: "TEXT_RANGE", rangeId: "candidate-pdf",
             objectIds: ["pdf-line-1"],
             rects: [{ x: 100, y: 200, width: 300, height: 20 }],
           },
-        },
+        } },
       }],
     });
     expect(result).toMatchObject({ status: "SUCCESS", commitAttempted: true });
@@ -67,7 +71,7 @@ describe("EditorNoteAgentTransaction", () => {
     unsubscribe();
   });
 
-  it("rejects stale scene and multi-step transaction before editor mutation", async () => {
+  it("rejects stale scene and invalid prepared steps before editor mutation", async () => {
     const editor = createEditor();
     const events: EditorPersistenceEvent[] = [];
     editor.subscribeToOperations((event) => events.push(event));
@@ -75,34 +79,132 @@ describe("EditorNoteAgentTransaction", () => {
     await expect(stale.commit({
       turnId: TURN.id,
       frozenWorld: frozenWorld(),
-      steps: [{ stepId: "s1", toolId: "annotation.apply", data: {} }],
+      steps: [{
+        stepId: "s1", toolId: "annotation.apply",
+        operation: { kind: "EXISTING_EDITOR_OPERATION", data: {} },
+      }],
     })).resolves.toEqual({ status: "STALE_SCENE", commitAttempted: false });
     const current = createTransaction(editor, 7);
     await expect(current.commit({
       turnId: TURN.id,
       frozenWorld: frozenWorld(),
-      steps: [
-        { stepId: "s1", toolId: "annotation.apply", data: {} },
-        { stepId: "s2", toolId: "annotation.apply", data: {} },
-      ],
+      steps: [{
+        stepId: "s1", toolId: "annotation.apply",
+        operation: { kind: "EXISTING_EDITOR_OPERATION", data: {} },
+      }],
     })).resolves.toMatchObject({
-      status: "NOT_ALLOWED",
-      reasonCode: "ONE_MUTATION_PER_TRANSACTION_REQUIRED",
+      status: "FAILED",
+      reasonCode: "INVALID_COMPILED_TOOL_OUTPUT",
       commitAttempted: false,
     });
     expect(events).toHaveLength(0);
     expect(editor.getUndoStackSize()).toBe(0);
   });
+
+  it("commits two prepared annotations as one operation event and one undo", async () => {
+    const editor = createEditor();
+    const events: EditorPersistenceEvent[] = [];
+    editor.subscribeToOperations((event) => events.push(event));
+    const transaction = createTransaction(editor, 7);
+    const operation = (step: string, type: "underline" | "highlight") => ({
+      stepId: step,
+      toolId: "annotation.apply" as const,
+      operation: {
+        kind: "EXISTING_EDITOR_OPERATION" as const,
+        data: {
+          existingCommand: { capability: "annotation", operation: type, payload: {} },
+          target: {
+            kind: "TEXT_RANGE" as const,
+            rangeId: "candidate-pdf",
+            objectIds: ["pdf-line-1"],
+            rects: [{ x: 100, y: 200, width: 300, height: 20 }],
+          },
+        },
+      },
+    });
+    await expect(transaction.commit({
+      turnId: TURN.id,
+      frozenWorld: frozenWorld(),
+      steps: [operation("s1", "underline"), operation("s2", "highlight")],
+    })).resolves.toMatchObject({
+      status: "SUCCESS",
+      commitAttempted: true,
+      receipt: { kind: "COMMITTED" },
+    });
+    expect(editor.exportPageSnapshot(PAGE_ID).annotations).toHaveLength(2);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.operation.type).toBe("BATCH");
+    expect(editor.getUndoStackSize()).toBe(1);
+    editor.undo();
+    expect(editor.exportPageSnapshot(PAGE_ID).annotations).toHaveLength(0);
+  });
+
+  it("commits a preview-validated spatial preparation without rerunning placement", async () => {
+    const editor = createEditor();
+    const execute = vi.fn<SpatialCommandExecutionPort["execute"]>();
+    const executePrepared = vi.fn(async (ready) => ({
+      result: {
+        status: "COMMITTED" as const,
+        turnId: ready.turnId,
+        planId: ready.plan.planId,
+        operationId: "operation-spatial",
+        annotationId: "annotation-spatial",
+      },
+      diagnostics: {
+        multimodalCallCount: 1,
+        previewValidationMs: 2,
+        commitMs: 3,
+        multimodalMs: 4,
+        runtimeExecuted: true,
+      } as never,
+    }));
+    const transaction = createTransaction(editor, 7, { execute, executePrepared });
+    const preparedSpatial = {} as PreparedSpatialPlacement;
+
+    const result = await transaction.commit({
+      turnId: TURN.id,
+      frozenWorld: frozenWorld(),
+      steps: [{
+        stepId: "s1",
+        toolId: "text.create",
+        operation: {
+          kind: "EXISTING_EDITOR_OPERATION",
+          data: {
+            existingCommand: {
+              capability: "text",
+              operation: "create",
+              payload: { text: "메모" },
+            },
+            placement: { relation: "FREE_SPACE" },
+            destination: { kind: "PAGE_REGION", region: "TOP_LEFT" },
+            preparedSpatial,
+          },
+        },
+      }],
+    });
+
+    expect(result).toMatchObject({
+      status: "SUCCESS",
+      receipt: { visualCallCount: 1, visualMs: 4, commitMs: 3 },
+    });
+    expect(executePrepared).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+  });
 });
 
 function createEditor(): EditorEngine {
-  const editor = new EditorEngine({ idGenerator: () => "annotation-1" });
+  let id = 0;
+  const editor = new EditorEngine({ idGenerator: () => `annotation-${id += 1}` });
   editor.setDocument("doc-1");
   editor.setActivePage(PAGE_ID, { width: 1_000, height: 1_000 });
   return editor;
 }
 
-function createTransaction(editor: EditorEngine, revision: number) {
+function createTransaction(
+  editor: EditorEngine,
+  revision: number,
+  spatial?: SpatialCommandExecutionPort,
+) {
   const executor = new EditorDirectCommandExecutor({
     editorEngine: editor,
     navigation: { getCurrentPage: () => 1, goToPage: () => undefined },
@@ -110,7 +212,9 @@ function createTransaction(editor: EditorEngine, revision: number) {
     clock: { now: () => toSessionTimeMs(100) },
   });
   return new EditorNoteAgentTransaction({
+    editorEngine: editor,
     executor,
+    ...(spatial === undefined ? {} : { spatial }),
     history: new DirectCommandHistoryContext(),
     clock: { now: () => toSessionTimeMs(100) },
     getCurrentSceneRevision: () => revision,

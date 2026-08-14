@@ -128,13 +128,13 @@ describe("existing NoteTool adapters", () => {
       target: { source: "USER_CREATED", content: { text: "안녕하세요" } },
       text: "수정됨",
     });
-    await expect(tool.execute(userInput, toolContext)).resolves
-      .toMatchObject({ status: "SUCCESS" });
+    await expect(tool.prepare(userInput, toolContext)).resolves
+      .toMatchObject({ status: "READY", operations: [{ kind: "EXISTING_EDITOR_OPERATION" }] });
     const pdfInput = tool.inputSchema.parse({
       target: { source: "PDF_BASE", content: { text: "PDF immutable text" } },
       text: "수정 시도",
     });
-    await expect(tool.execute(pdfInput, toolContext)).resolves.toEqual({
+    await expect(tool.prepare(pdfInput, toolContext)).resolves.toEqual({
       status: "NOT_ALLOWED",
       reasonCode: "TARGET_NOT_EDITABLE",
     });

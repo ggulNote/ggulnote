@@ -243,6 +243,9 @@ function harness(options: {
   return {
     pipeline,
     ready: ready(options.alignment),
+    scene,
+    draft,
+    profile: options.profile ?? PROFILE,
     provider,
     executeSpatial,
     screenshotCalls: () => screenshotCalls,
@@ -292,6 +295,50 @@ describe("SpatialPlacementExecutionPipeline", () => {
     });
     expect(test.screenshotCalls()).toBe(1);
     expect(test.imageCalls()).toBe(1);
+    expect(test.provider.callCount).toBe(1);
+    expect(test.previewCalls()).toBe(1);
+    expect(test.executeSpatial).toHaveBeenCalledTimes(1);
+  });
+
+  it("prepares VLM choice and preview without mutation, then commits the prepared result once", async () => {
+    const test = harness({ alignment: "AUTO", providerChoice: "S2" });
+    const query = test.ready.plan.placementQuery;
+    if (query === undefined) throw new Error("Expected placement query.");
+    const structuredInstruction = JSON.stringify({
+      destination: { kind: "RELATIVE", relation: "BELOW" },
+    });
+    const preparation = await test.pipeline.preparePlacement({
+      snapshot: test.scene,
+      query,
+      draft: test.draft,
+      profile: test.profile,
+      instruction: structuredInstruction,
+      anchor: {
+        kind: "OBJECT",
+        objectId: "anchor-1",
+        bounds: { x: 100, y: 100, width: 100, height: 50 },
+      },
+    });
+
+    expect(preparation.status).toBe("READY");
+    expect(test.provider.callCount).toBe(1);
+    expect(test.provider.requests[0]?.instruction).toBe(structuredInstruction);
+    expect(test.previewCalls()).toBe(1);
+    expect(test.executeSpatial).not.toHaveBeenCalled();
+    if (preparation.status !== "READY") throw new Error("Expected prepared placement.");
+
+    const committed = await test.pipeline.executePrepared(
+      test.ready,
+      preparation.prepared,
+    );
+    expect(committed.result.status).toBe("COMMITTED");
+    expect(committed.diagnostics).toMatchObject({
+      multimodalCallCount: 1,
+      screenshotCallCount: 1,
+      previewAttemptCount: 1,
+      commitGuard: "PASSED",
+      runtimeExecuted: true,
+    });
     expect(test.provider.callCount).toBe(1);
     expect(test.previewCalls()).toBe(1);
     expect(test.executeSpatial).toHaveBeenCalledTimes(1);

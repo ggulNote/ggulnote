@@ -62,6 +62,13 @@ describe("NoteAgentProductionRoute", () => {
     expect(route.traces.getAll()[0]).toMatchObject({
       shadowMode: false,
       llmCallCount: 1,
+      decisionCallCount: 1,
+      contextAssemblyMs: expect.any(Number),
+      prepareMs: expect.any(Number),
+      worldResolveMs: expect.any(Number),
+      visualCallCount: 0,
+      usedAmbiguityPass: false,
+      usedVisualFallback: false,
       commitAttempted: true,
     });
   });
@@ -72,10 +79,11 @@ describe("NoteAgentProductionRoute", () => {
       id: "test.choose",
       kind: "COMPUTE",
       description: "test bounded ambiguity",
+      examples: ["choose one"],
       inputSchema: { compact: {}, parse: () => ({}) },
       outputSchema: unknownOutputSchema,
       isAvailable: () => true,
-      execute: async (_input, context) => context.candidateSelection === undefined
+      prepare: async (_input, context) => context.candidateSelection === undefined
         ? {
             status: "AMBIGUOUS" as const,
             candidates: [
@@ -84,8 +92,9 @@ describe("NoteAgentProductionRoute", () => {
             ],
           }
         : {
-            status: "SUCCESS" as const,
-            data: { selectedAlias: context.candidateSelection.alias },
+            status: "READY" as const,
+            value: { selectedAlias: context.candidateSelection.alias },
+            operations: [],
           },
     });
     const provider = new FakeNoteDecisionCompositionProvider({
@@ -101,6 +110,8 @@ describe("NoteAgentProductionRoute", () => {
     expect(provider.disambiguationCallCount).toBe(1);
     expect(route.traces.getAll()[0]).toMatchObject({
       llmCallCount: 2,
+      decisionCallCount: 2,
+      usedAmbiguityPass: true,
       commitAttempted: false,
     });
   });
