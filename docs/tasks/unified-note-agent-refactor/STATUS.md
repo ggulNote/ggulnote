@@ -4,8 +4,8 @@
 
 ```text
 Phase: 5 — tldraw Object Catalog / One Decision
-Status: IMPLEMENTED LOCALLY / EXTERNAL CATALOG HANDOFF AND DEFAULT CUTOVER GATED
-Current Milestone: approve bounded catalog egress, connect it to the live provider, then collect live parity
+Status: IMPLEMENTED / LIVE MODEL PARITY AND DEFAULT CUTOVER GATED
+Current Milestone: collect live strict-schema parity and operating latency before default cutover
 Date: 2026-08-18
 ```
 
@@ -67,7 +67,7 @@ CompletedVoiceTurn
   tldraw snapshot. Legacy records import into TLStore; no new database or dual
   mutable SceneObject state was added.
 
-## Object Catalog / Provider Gate
+## Object Catalog / Provider
 
 Every request gets a new O-handle map. All current-page user-created objects
 are included with bounded summaries, normalized bounds, capabilities, and
@@ -77,10 +77,11 @@ Persistent IDs, full PDF/page text, and screenshot bytes are excluded.
 
 Responses strict JSON Schema is generated from enabled registry actions and is
 connected as `text.format=json_schema`. The external provider prompt was
-shortened and document/page IDs were removed. The catalog is assembled and
-sent only to the same-origin route today. Adding bounded object summaries to
-the external OpenAI request is pending explicit approval after disclosure; live
-handle selection is therefore not claimed.
+shortened and document/page IDs were removed. After explicit user approval on
+2026-08-18, the external request now includes the bounded `OBJECT_CATALOG`
+message. It contains request-local handles, source/kind, normalized bounds,
+capabilities, flags, and bounded summaries/parts only. Live handle selection is
+still unverified because no live OpenAI call was run.
 
 ## Atomicity / Undo
 
@@ -129,24 +130,22 @@ voice browser scenario were not run.
 
 ## Known Limitations / Next Milestone
 
-1. Explicit approval is required before Object Catalog summaries enter the
-   external OpenAI request.
-2. Live model/network/microphone parity and operating latency are absent;
+1. Live model/network/microphone parity and operating latency are absent;
    production-default cutover remains gated.
-3. Top-level `NEEDS_VISUAL` second pass is fail-closed; the connected
+2. Top-level `NEEDS_VISUAL` second pass is fail-closed; the connected
    one-pass path is existing Stage 4 placement ambiguity.
-4. The canonical SceneObject model has no standalone sentence kind, so the new
+3. The canonical SceneObject model has no standalone sentence kind, so the new
    PDF catalog currently uses paragraphs and semantic regions.
-5. Graph/table/equation/diagram and generic move/delete/style production
+4. Graph/table/equation/diagram and generic move/delete/style production
    mutations remain unavailable.
 
-The next milestone is to obtain the bounded catalog egress approval, connect
-that one provider message, run live strict-schema parity, and only then review
-the default cutover.
+The next milestone is to run live strict-schema/model parity, collect operating
+latency, and only then review the default cutover.
 
 ## Commits
 
 ```text
 d05b02c refactor(note-agent): add tldraw catalog decision runtime
 test/docs: the commit containing Phase 5 verification and status
+approved catalog handoff: the final Phase 5 commit
 ```

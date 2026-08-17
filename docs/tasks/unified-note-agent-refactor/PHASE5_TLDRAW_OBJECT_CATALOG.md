@@ -8,6 +8,7 @@ requested base HEAD: fecabbab59016d3a2afe87836990e307a7ef26ff
 new branch: refactor/tldraw-object-catalog-one-decision
 implementation commit: d05b02c refactor(note-agent): add tldraw catalog decision runtime
 documentation commit: the commit containing this document
+approved catalog handoff: the final commit containing the external payload connection
 ```
 
 The original worktree was on the requested source branch at
@@ -104,13 +105,13 @@ intent, typo/recent/object/part/destination selection to the model while
 assigning existence, capability, stale revision, geometry, math, and execution
 to deterministic code.
 
-Security gate: the compact Object Catalog is assembled and sent to the
-same-origin decision route, but adding those bounded object summaries to the
-external OpenAI request is intentionally pending explicit user approval after
-the outbound data was disclosed. Existing external request data was reduced by
-removing documentId/pageId. Until that approval and a live model check, the
-actual external provider cannot perform catalog-handle selection; fake/local
-Decision Providers exercise the complete handle runtime.
+The user explicitly approved the disclosed bounded Object Catalog egress on
+2026-08-18. The external OpenAI request now includes one `OBJECT_CATALOG`
+message containing the request-local handle, source/kind, normalized bounds,
+capabilities, selected/focused/recent flags, and bounded summary/parts. It does
+not add persistent object IDs, documentId/pageId, full PDF/page text, or
+screenshot bytes. Fake/local Decision Providers still cover the complete
+handle runtime; a live model check remains outstanding.
 
 ## Decision responsibility versus deterministic runtime
 
@@ -220,16 +221,14 @@ fake Decision Provider integration tests.
 
 ## Remaining limitations and cutover gate
 
-1. Explicit approval is still required before compact catalog summaries are
-   added to the external OpenAI request.
-2. Live model/network and microphone parity are unverified; production default
+1. Live model/network and microphone parity are unverified; production default
    cutover is not complete.
-3. Top-level `NEEDS_VISUAL` second-pass orchestration remains fail-closed;
+2. Top-level `NEEDS_VISUAL` second-pass orchestration remains fail-closed;
    only the existing Stage 4 placement visual pass is connected.
-4. Standalone PDF sentence entries are not in the canonical SceneObject
+3. Standalone PDF sentence entries are not in the canonical SceneObject
    projection; paragraph/semantic-region objects are present and raw words are
    excluded.
-5. Graph/table/equation/diagram mutations and generic move/delete/style remain
+4. Graph/table/equation/diagram mutations and generic move/delete/style remain
    unavailable.
-6. Browser smoke did not execute voice-created text, PDF underline, or a live
+5. Browser smoke did not execute voice-created text, PDF underline, or a live
    model decision.

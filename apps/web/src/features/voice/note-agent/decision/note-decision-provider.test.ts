@@ -30,7 +30,20 @@ const INPUT: NoteDecisionInput = {
     description: "create text",
     input: { text: "string", destination: "optional Destination" },
   }],
-  objectCatalog: { objects: [], truncated: false },
+  objectCatalog: {
+    objects: [{
+      handle: "O1",
+      source: "tldraw",
+      kind: "text",
+      summary: "안녕하세요",
+      bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+      capabilities: ["editable"],
+      selected: false,
+      focused: false,
+      recent: true,
+    }],
+    truncated: false,
+  },
 };
 
 class StubTransport implements DirectTextModelTransport {
@@ -90,7 +103,7 @@ describe("One Note Decision provider", () => {
     expect(transport.calls).toHaveLength(1);
     const request = transport.calls[0];
     expect(request.maxOutputTokens).toBeLessThanOrEqual(700);
-    expect(request.input).toHaveLength(4);
+    expect(request.input).toHaveLength(5);
     expect(request.responseFormat).toMatchObject({
       type: "json_schema",
       name: "note_decision",
@@ -100,7 +113,13 @@ describe("One Note Decision provider", () => {
       type: "object",
       additionalProperties: false,
     });
-    expect(JSON.stringify(request)).not.toContain("fullScene");
+    const messageContent = request.input.map((message) => message.content).join("\n");
+    const serialized = JSON.stringify(request);
+    expect(messageContent).toContain('"section":"OBJECT_CATALOG"');
+    expect(messageContent).toContain('"handle":"O1"');
+    expect(messageContent).toContain("안녕하세요");
+    expect(serialized).not.toContain("fullScene");
+    expect(serialized).not.toContain("shape:persistent");
   });
 
   it("rejects unavailable tools and model-invented runtime authority", async () => {

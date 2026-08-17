@@ -50,6 +50,7 @@ export function buildNoteDecisionModelRequest(
                 : { summary: bound(input.frozenContext.lastOperation.summary, MAX_PREVIEW_CHARS) }),
             },
       }),
+      message("OBJECT_CATALOG", input.objectCatalog),
       message("AVAILABLE_ACTIONS", input.availableTools),
     ],
     maxOutputTokens: 700,

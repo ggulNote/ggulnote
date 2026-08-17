@@ -4,7 +4,7 @@
 
 ```text
 Phase 5 — tldraw Object Catalog / One Decision
-Status: IMPLEMENTED LOCALLY / EXTERNAL CATALOG HANDOFF AND CUTOVER GATED
+Status: IMPLEMENTED / LIVE MODEL PARITY AND CUTOVER GATED
 ```
 
 ## Phase 1 / Phase 2 Foundation
@@ -166,7 +166,7 @@ Status: IMPLEMENTED LOCALLY / EXTERNAL CATALOG HANDOFF AND CUTOVER GATED
 - [x] 짧은 One Decision system contract와 대표 사례
 - [x] invalid O99는 commit 0
 - [x] duplicate same-content object는 모델 handle 선택 또는 clarification/commit 0
-- [ ] compact Object Catalog를 외부 OpenAI request에 포함하기 위한 명시적 승인
+- [x] 승인된 compact Object Catalog를 외부 OpenAI request에 포함
 - [ ] standalone PDF sentence catalog projection
 
 ## Phase 5 No Fast Path / Resolver boundary
