@@ -8,12 +8,17 @@ import {
   NOTE_SPATIAL_RELATIONS,
   type CompactToolSchema,
   type Destination,
+  type DecisionDestination,
+  type DecisionObjectPartRef,
+  type DecisionObjectRef,
+  type DecisionStep,
   type EntitySelector,
   type EntitySelectorContext,
   type JsonValue,
   type NoteAlignment,
   type NoteDecision,
   type NoteDecisionInput,
+  type NoteCatalogObject,
   type NoteDisambiguationChoice,
   type NoteDisambiguationInput,
   type NotePageRegion,
@@ -86,6 +91,62 @@ export function parseNoteDecision(value: unknown): NoteDecision {
   const decision = readRecord(value, "decision");
   const status = readString(decision.status, "decision.status");
   switch (status) {
+    case "READY": {
+      assertDecisionVariantKeys(decision, ["steps"]);
+      const steps = readArray(decision.steps, "decision.steps");
+      if (steps.length < 1 || steps.length > NOTE_DECISION_MAX_BATCH_STEPS) {
+        fail("decision.steps", `expected between 1 and ${NOTE_DECISION_MAX_BATCH_STEPS} steps`);
+      }
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        steps: steps.map((step, index) => readDecisionStep(step, `decision.steps[${index}]`)),
+      };
+    }
+    case "NEEDS_VISUAL": {
+      assertDecisionVariantKeys(decision, ["candidateHandles", "cropRegion"]);
+      const candidateHandles = readArray(
+        decision.candidateHandles,
+        "decision.candidateHandles",
+      ).map((handle, index) => readObjectHandle(
+        handle,
+        `decision.candidateHandles[${index}]`,
+      ));
+      if (candidateHandles.length < 2 || candidateHandles.length > 6) {
+        fail("decision.candidateHandles", "expected between 2 and 6 handles");
+      }
+      const crop = readRecord(decision.cropRegion, "decision.cropRegion");
+      assertOnlyKeys(crop, ["mode", "padding"], "decision.cropRegion");
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        candidateHandles,
+        cropRegion: {
+          mode: readUnion(crop.mode, "decision.cropRegion.mode", ["CANDIDATE_UNION"] as const),
+          padding: readNonNegativeNumber(crop.padding, "decision.cropRegion.padding"),
+        },
+      };
+    }
+    case "NEEDS_CLARIFICATION":
+      assertDecisionVariantKeys(decision, ["reason"]);
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        reason: readUnion(decision.reason, "decision.reason", [
+          "AMBIGUOUS_OBJECT",
+          "MISSING_TARGET",
+          "MISSING_DESTINATION",
+          "VISUAL_UNRESOLVED",
+          "CONTEXT_LIMIT",
+        ] as const),
+      };
+    case "NOT_ALLOWED":
+      assertDecisionVariantKeys(decision, ["reason"]);
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        reason: readNonEmptyString(decision.reason, "decision.reason"),
+      };
     case "CALL":
       assertOnlyKeys(decision, ["status", "call"], "decision");
       {
@@ -125,9 +186,31 @@ export function parseNoteDecision(value: unknown): NoteDecision {
   }
 }
 
+const STRICT_DECISION_KEYS = [
+  "status",
+  "sceneRevision",
+  "steps",
+  "candidateHandles",
+  "cropRegion",
+  "reason",
+] as const;
+
+function assertDecisionVariantKeys(
+  decision: UnknownRecord,
+  active: readonly (typeof STRICT_DECISION_KEYS)[number][],
+): void {
+  assertOnlyKeys(decision, STRICT_DECISION_KEYS, "decision");
+  const activeKeys = new Set(["status", "sceneRevision", ...active]);
+  for (const key of STRICT_DECISION_KEYS) {
+    if (!activeKeys.has(key) && decision[key] !== undefined && decision[key] !== null) {
+      fail(`decision.${key}`, "expected null for this status");
+    }
+  }
+}
+
 export function parseNoteDecisionInput(value: unknown): NoteDecisionInput {
   const input = readRecord(value, "input");
-  assertOnlyKeys(input, ["turn", "frozenContext", "availableTools"], "input");
+  assertOnlyKeys(input, ["turn", "frozenContext", "availableTools", "objectCatalog"], "input");
   const turn = readRecord(input.turn, "input.turn");
   assertOnlyKeys(turn, ["turnId", "language", "rawFinalTranscript"], "input.turn");
   const frozen = readRecord(input.frozenContext, "input.frozenContext");
@@ -139,6 +222,13 @@ export function parseNoteDecisionInput(value: unknown): NoteDecisionInput {
     .map((tool, index) => readCompactToolSchema(tool, `input.availableTools[${index}]`));
   if (new Set(availableTools.map((tool) => tool.id)).size !== availableTools.length) {
     fail("input.availableTools", "tool ids must be unique");
+  }
+  const catalog = readRecord(input.objectCatalog, "input.objectCatalog");
+  assertOnlyKeys(catalog, ["objects", "truncated"], "input.objectCatalog");
+  const objects = readArray(catalog.objects, "input.objectCatalog.objects")
+    .map((object, index) => readCatalogObject(object, `input.objectCatalog.objects[${index}]`));
+  if (new Set(objects.map((object) => object.handle)).size !== objects.length) {
+    fail("input.objectCatalog.objects", "handles must be unique");
   }
   return {
     turn: {
@@ -162,6 +252,112 @@ export function parseNoteDecisionInput(value: unknown): NoteDecisionInput {
         : { lastOperation: readLastOperation(frozen.lastOperation) }),
     },
     availableTools,
+    objectCatalog: {
+      objects,
+      truncated: readBoolean(catalog.truncated, "input.objectCatalog.truncated"),
+    },
+  };
+}
+
+function readDecisionStep(value: unknown, path: string): DecisionStep {
+  const step = readRecord(value, path);
+  assertOnlyKeys(step, ["action", "target", "args", "destination"], path);
+  const args = readRecord(step.args, `${path}.args`);
+  return {
+    action: readToolId(step.action, `${path}.action`),
+    target: step.target === null ? null : readDecisionObjectRef(step.target, `${path}.target`),
+    args: readJsonRecord(args, `${path}.args`),
+    destination: step.destination === null
+      ? null
+      : readDecisionDestination(step.destination, `${path}.destination`),
+  };
+}
+
+function readDecisionObjectRef(value: unknown, path: string): DecisionObjectRef {
+  const ref = readRecord(value, path);
+  assertOnlyKeys(ref, ["object", "part"], path);
+  return {
+    object: readObjectHandle(ref.object, `${path}.object`),
+    part: ref.part === null ? null : readDecisionPart(ref.part, `${path}.part`),
+  };
+}
+
+function readDecisionPart(value: unknown, path: string): DecisionObjectPartRef {
+  const part = readRecord(value, path);
+  assertOnlyKeys(
+    part,
+    ["kind", "index", "row", "column", "text", "startText", "endText"],
+    path,
+  );
+  return {
+    kind: readUnion(part.kind, `${path}.kind`, NOTE_OBJECT_PART_KINDS),
+    index: readNullablePositiveInteger(part.index, `${path}.index`),
+    row: readNullablePositiveInteger(part.row, `${path}.row`),
+    column: readNullablePositiveInteger(part.column, `${path}.column`),
+    text: readNullableString(part.text, `${path}.text`),
+    startText: readNullableString(part.startText, `${path}.startText`),
+    endText: readNullableString(part.endText, `${path}.endText`),
+  };
+}
+
+function readDecisionDestination(value: unknown, path: string): DecisionDestination {
+  const destination = readRecord(value, path);
+  assertOnlyKeys(destination, ["relation", "anchor", "region"], path);
+  return {
+    relation: readUnion(destination.relation, `${path}.relation`, [
+      "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "INSIDE", "BETWEEN", "CANVAS_REGION",
+    ] as const),
+    anchor: destination.anchor === null
+      ? null
+      : readDecisionObjectRef(destination.anchor, `${path}.anchor`),
+    region: destination.region === null
+      ? null
+      : readPageRegion(destination.region, `${path}.region`),
+  };
+}
+
+function readCatalogObject(value: unknown, path: string): NoteCatalogObject {
+  const object = readRecord(value, path);
+  assertOnlyKeys(object, [
+    "handle", "source", "kind", "summary", "bounds", "capabilities",
+    "selected", "focused", "recent", "parts",
+  ], path);
+  const bounds = readRecord(object.bounds, `${path}.bounds`);
+  assertOnlyKeys(bounds, ["x", "y", "width", "height"], `${path}.bounds`);
+  return {
+    handle: readObjectHandle(object.handle, `${path}.handle`),
+    source: readUnion(object.source, `${path}.source`, ["pdf", "tldraw"] as const),
+    kind: readSceneObjectKind(object.kind, `${path}.kind`),
+    ...(object.summary === undefined
+      ? {}
+      : { summary: readString(object.summary, `${path}.summary`) }),
+    bounds: {
+      x: readUnitNumber(bounds.x, `${path}.bounds.x`),
+      y: readUnitNumber(bounds.y, `${path}.bounds.y`),
+      width: readUnitNumber(bounds.width, `${path}.bounds.width`),
+      height: readUnitNumber(bounds.height, `${path}.bounds.height`),
+    },
+    capabilities: readArray(object.capabilities, `${path}.capabilities`)
+      .map((capability, index) => readNonEmptyString(
+        capability,
+        `${path}.capabilities[${index}]`,
+      )),
+    selected: readBoolean(object.selected, `${path}.selected`),
+    focused: readBoolean(object.focused, `${path}.focused`),
+    recent: readBoolean(object.recent, `${path}.recent`),
+    ...(object.parts === undefined ? {} : {
+      parts: readArray(object.parts, `${path}.parts`).map((part, index) => {
+        const partPath = `${path}.parts[${index}]`;
+        const record = readRecord(part, partPath);
+        assertOnlyKeys(record, ["kind", "summary"], partPath);
+        return {
+          kind: readNonEmptyString(record.kind, `${partPath}.kind`),
+          ...(record.summary === undefined
+            ? {}
+            : { summary: readString(record.summary, `${partPath}.summary`) }),
+        };
+      }),
+    }),
   };
 }
 
@@ -328,7 +524,7 @@ function readToolCall(value: unknown, path: string): NoteToolCall {
 
 function readCompactToolSchema(value: unknown, path: string): CompactToolSchema {
   const tool = readRecord(value, path);
-  assertOnlyKeys(tool, ["id", "kind", "description", "examples", "input"], path);
+  assertOnlyKeys(tool, ["id", "kind", "description", "examples", "input", "strictArgs"], path);
   const fields = readRecord(tool.input, `${path}.input`);
   return {
     id: readToolId(tool.id, `${path}.id`),
@@ -341,6 +537,9 @@ function readCompactToolSchema(value: unknown, path: string): CompactToolSchema 
       key,
       readNonEmptyString(entry, `${path}.input.${key}`),
     ])),
+    ...(tool.strictArgs === undefined
+      ? {}
+      : { strictArgs: readJsonRecord(readRecord(tool.strictArgs, `${path}.strictArgs`), `${path}.strictArgs`) }),
   };
 }
 
@@ -373,6 +572,50 @@ function readKinds(value: unknown, path: string): readonly SceneObjectKind[] {
     }
     return fail(`${path}[${index}]`, `unsupported object kind: ${kind}`);
   });
+}
+
+function readSceneObjectKind(value: unknown, path: string): SceneObjectKind {
+  const kind = readNonEmptyString(value, path);
+  return (DIRECT_TARGET_OBJECT_TYPES as readonly string[]).includes(kind)
+    ? kind as SceneObjectKind
+    : fail(path, `unsupported object kind: ${kind}`);
+}
+
+function readObjectHandle(value: unknown, path: string): `O${number}` {
+  const handle = readNonEmptyString(value, path);
+  return /^O[1-9][0-9]*$/u.test(handle)
+    ? handle as `O${number}`
+    : fail(path, `invalid request-local object handle: ${handle}`);
+}
+
+function readNullablePositiveInteger(value: unknown, path: string): number | null {
+  return value === null || value === undefined ? null : readPositiveInteger(value, path);
+}
+
+function readNullableString(value: unknown, path: string): string | null {
+  return value === null || value === undefined ? null : readString(value, path);
+}
+
+function readNonNegativeNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return fail(path, "expected a finite non-negative number");
+  }
+  return value;
+}
+
+function readUnitNumber(value: unknown, path: string): number {
+  const number = readNonNegativeNumber(value, path);
+  return number <= 1 ? number : fail(path, "expected a normalized number between 0 and 1");
+}
+
+function readJsonRecord(
+  value: Record<string, unknown>,
+  path: string,
+): Readonly<Record<string, JsonValue>> {
+  return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    cloneJsonValue(entry, `${path}.${key}`, 0),
+  ])));
 }
 
 function readAttributes(value: unknown, path: string): Readonly<Record<string, JsonValue>> {

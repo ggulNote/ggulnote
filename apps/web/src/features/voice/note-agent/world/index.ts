@@ -15,12 +15,17 @@ export type {
   ObjectIndexSnapshotState,
   ObjectIndexSort,
 } from "./object-index";
-export { DirectCommandOperationLedgerAdapter } from "./operation-ledger";
+export {
+  CompositeNoteOperationLedger,
+  DirectCommandOperationLedgerAdapter,
+  InMemoryNoteOperationLedger,
+} from "./operation-ledger";
 export type {
   DirectCommandOperationLedgerAdapterOptions,
   DirectOperationRecordSource,
   OperationLedgerQuery,
   OperationLedgerRecord,
+  NoteOperationLedger,
 } from "./operation-ledger";
 export {
   ExistingSceneUnifiedObjectWorldSource,

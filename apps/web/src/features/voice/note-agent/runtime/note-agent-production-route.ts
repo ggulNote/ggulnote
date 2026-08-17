@@ -14,7 +14,6 @@ import type { NoteDecisionCompositionProvider } from "../decision";
 import { NoteContextAssembler } from "../context";
 import type {
   NoteDecisionInput,
-  NoteDisambiguationCandidate,
   NoteToolId,
 } from "../domain";
 import type { FrozenWorldContext, UnifiedObjectWorld } from "../world";
@@ -50,6 +49,7 @@ export interface NoteAgentProductionRouteOptions {
   ) => NoteRuntimeContext;
   readonly traces?: NoteAgentShadowTraceStore;
   readonly now?: () => number;
+  readonly getTldrawProjectionMs?: () => number;
 }
 
 /** Production owner for one CompletedVoiceTurn. No old route is executed. */
@@ -110,15 +110,24 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       metrics,
     });
     let decisionInput: NoteDecisionInput;
+    let handles: import("../context").NoteObjectHandleMap;
+    let objectCatalogBuildMs = 0;
+    let objectCatalogObjectCount = 0;
+    let objectCatalogSerializedChars = 0;
     const contextAssemblyStartedAt = this.now();
     try {
-      decisionInput = (await this.contextAssembler.assemble({
+      const assembly = await this.contextAssembler.assemble({
         turn,
         documentId,
         frozenWorld,
         world: this.options.world,
         toolContext: baseContext,
-      })).decisionInput;
+      });
+      decisionInput = assembly.decisionInput;
+      handles = assembly.handles;
+      objectCatalogBuildMs = assembly.objectCatalogBuildMs;
+      objectCatalogObjectCount = assembly.objectCatalogObjectCount;
+      objectCatalogSerializedChars = assembly.objectCatalogSerializedChars;
     } catch {
       return this.recordFailure(
         turn,
@@ -132,9 +141,16 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     }
     const contextAssemblyMs = elapsed(contextAssemblyStartedAt, this.now());
     const decisionStartedAt = this.now();
+    let decisionTelemetry: Parameters<NonNullable<import("../decision").NoteDecisionProviderOptions["onTelemetry"]>>[0]
+      | undefined;
     let decision;
     try {
-      decision = await this.options.provider.decide(decisionInput, { signal });
+      decision = await this.options.provider.decide(decisionInput, {
+        ...(signal === undefined ? {} : { signal }),
+        onTelemetry: (telemetry) => {
+          decisionTelemetry = telemetry;
+        },
+      });
     } catch (error) {
       return this.recordFailure(
         turn,
@@ -148,50 +164,9 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     }
 
     const runtimeStartedAt = this.now();
-    let result = await this.runtime.execute(decision, baseContext);
-    let disambiguationMs = 0;
-    let llmCallCount: 1 | 2 = 1;
-    if (result.status === "AMBIGUOUS") {
-      const candidates = compactCandidates(result.candidates);
-      if (candidates.length >= 2) {
-        const disambiguationStartedAt = this.now();
-        try {
-          const choice = await this.options.provider.disambiguate({
-            turnId: turn.id,
-            language: turn.language,
-            rawFinalTranscript: turn.rawTranscript,
-            stepId: result.stepId,
-            toolId: result.toolId,
-            candidates,
-          }, { signal });
-          disambiguationMs = elapsed(disambiguationStartedAt, this.now());
-          llmCallCount = 2;
-          if (choice.status === "SELECTED") {
-            result = await this.runtime.execute(
-              decision,
-              this.options.createToolContext(frozenWorld, turn.id, {
-                ...(signal === undefined ? {} : { signal }),
-                metrics,
-                candidateSelection: {
-                  stepId: result.stepId,
-                  alias: choice.alias,
-                },
-              }),
-            );
-          }
-        } catch (error) {
-          return this.recordFailure(
-            turn,
-            startedAt,
-            providerErrorCode(error),
-            2,
-            elapsed(decisionStartedAt, runtimeStartedAt),
-            disambiguationMs,
-            contextAssemblyMs,
-          );
-        }
-      }
-    }
+    const result = await this.runtime.execute(decision, { ...baseContext, handles });
+    const disambiguationMs = 0;
+    const llmCallCount = 1 as const;
     const completedAt = this.now();
     const routeResult = routeResultFor(turn.id, result);
     const runtimeMetrics = metrics.snapshot();
@@ -209,11 +184,30 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       resultStatus: result.status,
       llmCallCount,
       decisionCallCount: llmCallCount,
-      toolCallCount: decision.status === "CALL"
+      toolCallCount: decision.status === "READY"
+        ? decision.steps.length
+        : decision.status === "CALL"
         ? 1
         : decision.status === "BATCH" ? decision.steps.length : 0,
       contextAssemblyMs,
+      tldrawProjectionMs: this.options.getTldrawProjectionMs?.() ?? 0,
+      objectCatalogBuildMs,
+      objectCatalogObjectCount,
+      objectCatalogSerializedChars,
       decisionMs: elapsed(decisionStartedAt, runtimeStartedAt),
+      decisionTotalMs: elapsed(decisionStartedAt, runtimeStartedAt),
+      openaiTtfbMs: decisionTelemetry?.openaiTtfbMs ?? 0,
+      openaiBodyReadMs: decisionTelemetry?.openaiBodyReadMs ?? 0,
+      decisionJsonParseMs: decisionTelemetry?.decisionJsonParseMs ?? 0,
+      ...(decisionTelemetry?.inputTokens === undefined
+        ? {}
+        : { inputTokens: decisionTelemetry.inputTokens }),
+      ...(decisionTelemetry?.cachedInputTokens === undefined
+        ? {}
+        : { cachedInputTokens: decisionTelemetry.cachedInputTokens }),
+      ...(decisionTelemetry?.outputTokens === undefined
+        ? {}
+        : { outputTokens: decisionTelemetry.outputTokens }),
       runtimeMs: elapsed(runtimeStartedAt, completedAt),
       prepareMs: runtimeMetrics.prepareMs,
       worldResolveMs: runtimeMetrics.resolverMs,
@@ -230,7 +224,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       endToVisibleMs: elapsed(turn.completedAt ?? turn.startedAt, completedAt),
       // Rendering is owned by the Editor subscriber and is not separately observable here.
       renderMs: 0,
-      usedAmbiguityPass: llmCallCount === 2,
+      usedAmbiguityPass: false,
       usedVisualFallback: visualCallCount > 0,
       commitAttempted: result.commitAttempted,
       recordedAt: completedAt,
@@ -267,7 +261,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       visualFallbackMs: 0,
       visualCallCount: 0,
       renderMs: 0,
-      usedAmbiguityPass: llmCallCount === 2,
+      usedAmbiguityPass: false,
       usedVisualFallback: false,
       totalMs: elapsed(startedAt, completedAt),
       endToVisibleMs: elapsed(turn.completedAt ?? turn.startedAt, completedAt),
@@ -276,28 +270,6 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     });
     return { status: "ERROR", turnId: turn.id, errorCode: directErrorCode(errorCode) };
   }
-}
-
-function compactCandidates(candidates: readonly unknown[]): readonly NoteDisambiguationCandidate[] {
-  return candidates.slice(0, 6).flatMap((value) => {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
-    const candidate = value as Record<string, unknown>;
-    const alias = typeof candidate.alias === "string"
-      ? candidate.alias
-      : typeof candidate.label === "string" ? candidate.label : undefined;
-    // S aliases are Stage 4 placement candidates and remain owned by its
-    // bounded multimodal/preview path; this text-only fallback selects only
-    // WorldResolver C aliases.
-    if (alias === undefined || !/^C[1-9][0-9]*$/u.test(alias)) return [];
-    return [{
-      alias: alias as `${"C" | "S"}${number}`,
-      ...(typeof candidate.kind === "string" ? { kind: candidate.kind } : {}),
-      ...(typeof candidate.source === "string" ? { source: candidate.source } : {}),
-      ...(typeof candidate.textPreview === "string"
-        ? { textPreview: candidate.textPreview.slice(0, 160) }
-        : {}),
-    }];
-  });
 }
 
 function routeResultFor(turnId: string, result: NoteRuntimeResult): DirectCommandRouteResult {
@@ -353,7 +325,8 @@ function primaryTool(
 ): { readonly toolId?: NoteToolId } {
   const toolId = decision.status === "CALL"
     ? decision.call.toolId
-    : decision.status === "BATCH" ? decision.steps[0]?.toolId : undefined;
+    : decision.status === "BATCH" ? decision.steps[0]?.toolId
+      : decision.status === "READY" ? decision.steps[0]?.action : undefined;
   return toolId === undefined ? {} : { toolId };
 }
 

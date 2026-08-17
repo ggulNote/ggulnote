@@ -150,6 +150,9 @@ export class ExistingPlacementEngine {
         draft: input.draft,
         profile: input.profile,
         instruction: input.instruction ?? "",
+        choicePolicy: input.destination?.kind === "PAGE_REGION"
+          ? "EXPLICIT_REGION"
+          : "SEMANTIC_CONSTRAINT_REQUIRED",
         ...(anchor === undefined ? {} : { anchor }),
       });
       if (prepared.status === "ERROR") {

@@ -31,8 +31,16 @@ implements NoteDecisionProvider, NoteDisambiguationProvider {
   ): Promise<NoteDecision> {
     throwIfAborted(options.signal);
     let raw: string;
+    let transportTelemetry:
+      | import("../../providers/direct-text-model-transport").DirectTextModelTelemetry
+      | undefined;
     try {
-      raw = await this.transport.generate(buildNoteDecisionModelRequest(input), options);
+      raw = await this.transport.generate(buildNoteDecisionModelRequest(input), {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        onTelemetry: (telemetry) => {
+          transportTelemetry = telemetry;
+        },
+      });
       throwIfAborted(options.signal);
     } catch (error) {
       if (error instanceof DirectAiProviderError) throw error;
@@ -42,7 +50,22 @@ implements NoteDecisionProvider, NoteDisambiguationProvider {
       throw new DirectAiProviderError("PLANNER_UNAVAILABLE", "NETWORK_FAILURE", { cause: error });
     }
     try {
+      const parseStartedAt = monotonicNow();
       const decision = parseNoteDecision(parseDirectModelJsonObject(raw));
+      options.onTelemetry?.({
+        openaiTtfbMs: transportTelemetry?.openaiTtfbMs ?? 0,
+        openaiBodyReadMs: transportTelemetry?.openaiBodyReadMs ?? 0,
+        decisionJsonParseMs: Math.max(0, monotonicNow() - parseStartedAt),
+        ...(transportTelemetry?.inputTokens === undefined
+          ? {}
+          : { inputTokens: transportTelemetry.inputTokens }),
+        ...(transportTelemetry?.cachedInputTokens === undefined
+          ? {}
+          : { cachedInputTokens: transportTelemetry.cachedInputTokens }),
+        ...(transportTelemetry?.outputTokens === undefined
+          ? {}
+          : { outputTokens: transportTelemetry.outputTokens }),
+      });
       assertToolAuthority(decision, input);
       return decision;
     } catch (error) {
@@ -62,7 +85,7 @@ implements NoteDecisionProvider, NoteDisambiguationProvider {
     try {
       const raw = await this.transport.generate(
         buildNoteDisambiguationModelRequest(input),
-        options,
+        options.signal === undefined ? {} : { signal: options.signal },
       );
       throwIfAborted(options.signal);
       const choice = parseNoteDisambiguationChoice(parseDirectModelJsonObject(raw));
@@ -80,12 +103,18 @@ implements NoteDecisionProvider, NoteDisambiguationProvider {
     }
   }
 }
+
+function monotonicNow(): number {
+  return globalThis.performance?.now() ?? Date.now();
+}
 function assertToolAuthority(decision: NoteDecision, input: NoteDecisionInput): void {
   const available = new Set(input.availableTools.map((tool) => tool.id));
   const calls = decision.status === "CALL"
     ? [decision.call]
     : decision.status === "BATCH"
       ? decision.steps
+      : decision.status === "READY"
+        ? decision.steps.map((step) => ({ toolId: step.action }))
       : [];
   if (calls.some((call) => !available.has(call.toolId))) {
     throw new Error("Decision selected a tool outside the supplied registry.");

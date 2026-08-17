@@ -2,10 +2,16 @@ import {
   buildSceneSnapshot,
   describeSceneObject,
   type ParagraphSceneObject,
+  type PdfSceneObject,
   type TextSceneObject,
+  type WordSceneObject,
 } from "@ggulnote/editor-core";
-import { describe, expect, it } from "vitest";
+import { PageSemanticModel, type PageSemanticModelData } from "@ggulnote/document-core";
+import { describe, expect, it, vi } from "vitest";
 import type { FrozenVoiceTurnContext, PageTargetCatalog } from "../../domain";
+import {
+  NoteObjectHandleMap,
+} from "../context";
 import {
   ExistingWorldResolver,
   RebuildableObjectIndex,
@@ -51,12 +57,15 @@ const USER_TEXT: TextSceneObject = {
   creationOrder: 1,
 };
 
-function context(): NoteToolContext {
+function context(options: {
+  readonly pdfObjects?: readonly PdfSceneObject[];
+  readonly semanticModel?: PageSemanticModel;
+} = {}): NoteToolContext {
   const scene = buildSceneSnapshot({
     mode: "pdf",
     page: { id: "page-1", index: 0, width: 600, height: 800 },
     sceneRevision: 7,
-    pdfObjects: [PDF],
+    pdfObjects: options.pdfObjects ?? [PDF],
     canvasObjects: [USER_TEXT],
   });
   const index = new RebuildableObjectIndex();
@@ -86,6 +95,7 @@ function context(): NoteToolContext {
     pageId: "page-1",
     sceneRevision: 7,
     candidates: [],
+    ...(options.semanticModel === undefined ? {} : { semanticModel: options.semanticModel }),
   };
   const frozenWorld: FrozenWorldContext = {
     documentId: "doc-1",
@@ -139,4 +149,276 @@ describe("existing NoteTool adapters", () => {
       reasonCode: "TARGET_NOT_EDITABLE",
     });
   });
+
+  it("resolves a model-selected user object handle without primary/fuzzy resolution", async () => {
+    const registry = createExistingNoteToolRegistry();
+    const tool = registry.get("text.replace");
+    if (tool === undefined) throw new Error("Expected text.replace adapter.");
+    const base = context();
+    const primaryResolve = vi.spyOn(base.resolver, "resolve");
+    const handles = new NoteObjectHandleMap();
+    handles.register("O1", { kind: "OBJECT", objectId: USER_TEXT.id });
+    const input = tool.inputSchema.parse({
+      target: { object: "O1", part: null },
+      text: "수정됨",
+    });
+
+    await expect(tool.prepare(input, { ...base, handles })).resolves.toMatchObject({
+      status: "READY",
+      operations: [{
+        kind: "EXISTING_EDITOR_OPERATION",
+        data: {
+          tldrawOperation: {
+            kind: "REPLACE_TEXT",
+            objectId: USER_TEXT.sourceObjectId,
+            text: "수정됨",
+          },
+        },
+      }],
+    });
+    expect(primaryResolve).not.toHaveBeenCalled();
+  });
+
+  it("returns INVALID_HANDLE and zero prepared operations for an unknown handle", async () => {
+    const registry = createExistingNoteToolRegistry();
+    const tool = registry.get("text.replace");
+    if (tool === undefined) throw new Error("Expected text.replace adapter.");
+    const base = context();
+    const primaryResolve = vi.spyOn(base.resolver, "resolve");
+    const input = tool.inputSchema.parse({
+      target: { object: "O99", part: null },
+      text: "수정 시도",
+    });
+
+    await expect(tool.prepare(input, {
+      ...base,
+      handles: new NoteObjectHandleMap(),
+    })).resolves.toEqual({ status: "FAILED", reasonCode: "INVALID_HANDLE" });
+    expect(primaryResolve).not.toHaveBeenCalled();
+  });
+
+  it("aligns a selected PDF text range inside that paragraph only", async () => {
+    const otherParagraph: ParagraphSceneObject = {
+      ...PDF,
+      id: "pdf-paragraph-2",
+      sourceObjectId: "paragraph-2",
+      bounds: { x: 20, y: 420, width: 300, height: 80 },
+      renderBounds: { x: 19, y: 419, width: 302, height: 82 },
+      readingOrder: 2,
+    };
+    const base = context({
+      pdfObjects: [PDF, ...duplicatePdfSceneWords(), otherParagraph],
+      semanticModel: duplicatePdfRangeModel(),
+    });
+    const primaryResolve = vi.spyOn(base.resolver, "resolve");
+    const handles = new NoteObjectHandleMap();
+    handles.register("O21", { kind: "OBJECT", objectId: PDF.id });
+    const tool = createExistingNoteToolRegistry().get("annotation.apply");
+    if (tool === undefined) throw new Error("Expected annotation.apply adapter.");
+    const input = tool.inputSchema.parse({
+      target: {
+        object: "O21",
+        part: {
+          kind: "text_range",
+          index: null,
+          row: null,
+          column: null,
+          text: null,
+          startText: "Vision capability",
+          endText: "browsers",
+        },
+      },
+      annotationType: "UNDERLINE",
+    });
+
+    const result = await tool.prepare(input, { ...base, handles });
+    expect(result).toMatchObject({
+      status: "READY",
+      operations: [{
+        data: {
+          tldrawOperation: {
+            kind: "CREATE_ANNOTATION",
+            annotationType: "underline",
+            targetObjectIds: [PDF.id],
+          },
+        },
+      }],
+    });
+    if (result.status !== "READY") throw new Error("Expected prepared PDF annotation.");
+    const operation = result.operations[0]?.data as {
+      readonly tldrawOperation?: { readonly rects?: readonly { readonly y: number }[] };
+    };
+    expect(operation.tldrawOperation?.rects).not.toHaveLength(0);
+    expect(operation.tldrawOperation?.rects?.every((rect) => rect.y < 200)).toBe(true);
+    expect(primaryResolve).not.toHaveBeenCalled();
+  });
 });
+
+function duplicatePdfRangeModel(): PageSemanticModel {
+  const firstWords = [
+    semanticWord("word-1", "Vision", "line-1", 1, 0.04, 0.04),
+    semanticWord("word-2", "capability", "line-1", 2, 0.14, 0.04),
+    semanticWord("word-3", "browsers", "line-1", 3, 0.31, 0.04),
+  ];
+  const secondWords = [
+    semanticWord("word-4", "Vision", "line-2", 4, 0.04, 0.54),
+    semanticWord("word-5", "capability", "line-2", 5, 0.14, 0.54),
+    semanticWord("word-6", "browsers", "line-2", 6, 0.31, 0.54),
+  ];
+  const words = [...firstWords, ...secondWords];
+  return new PageSemanticModel({
+    schemaVersion: 1,
+    extractorVersion: "selected-pdf-range-test",
+    documentId: "doc-1",
+    pageId: "page-1",
+    pageNumber: 1,
+    sourceSignature: "selected-pdf-range-test",
+    semanticSource: "legacy-semantic-fallback",
+    readingOrder: words.map((word) => word.id),
+    words,
+    unassignedWords: [],
+    lines: [
+      semanticLine("line-1", "paragraph-1", firstWords.map((word) => word.id), 1, 0.04),
+      semanticLine("line-2", "paragraph-2", secondWords.map((word) => word.id), 2, 0.54),
+    ],
+    layoutRegions: [],
+    layoutBlocks: [],
+    columns: [],
+    sentences: [],
+    paragraphs: [
+      semanticParagraph("paragraph-1", "line-1", 1, 0.04),
+      semanticParagraph("paragraph-2", "line-2", 2, 0.54),
+    ],
+    createdAt: 1,
+    sourceItemCount: 6,
+    processingDurationMs: 0,
+  });
+}
+
+function duplicatePdfSceneWords(): readonly WordSceneObject[] {
+  return [
+    pdfWord("word-1", "Vision", "line-1", 1, 24, 32),
+    pdfWord("word-2", "capability", "line-1", 2, 84, 32),
+    pdfWord("word-3", "browsers", "line-1", 3, 186, 32),
+    pdfWord("word-4", "Vision", "line-2", 4, 24, 432),
+    pdfWord("word-5", "capability", "line-2", 5, 84, 432),
+    pdfWord("word-6", "browsers", "line-2", 6, 186, 432),
+  ];
+}
+
+function pdfWord(
+  sourceObjectId: string,
+  text: string,
+  lineId: string,
+  readingOrder: number,
+  x: number,
+  y: number,
+): WordSceneObject {
+  return {
+    id: `pdf-${sourceObjectId}`,
+    pageId: "page-1",
+    source: "pdf",
+    kind: "word",
+    bounds: { x, y, width: 54, height: 24 },
+    zIndex: readingOrder,
+    visible: true,
+    locked: true,
+    objectRevision: 1,
+    sourceObjectId,
+    text,
+    readingOrder,
+    lineId,
+    charOffsetStart: 0,
+    charOffsetEnd: text.length,
+  };
+}
+
+function semanticWord(
+  id: string,
+  text: string,
+  lineId: string,
+  readingOrder: number,
+  x: number,
+  y: number,
+): PageSemanticModelData["words"][number] {
+  return {
+    id,
+    type: "WORD",
+    pageId: "page-1",
+    text,
+    normalizedText: text.toLocaleLowerCase("en-US"),
+    bounds: { x, y, width: 0.09, height: 0.03 },
+    readingOrder,
+    confidence: 1,
+    orientation: { angle: 0, writingMode: "horizontal" },
+    regionId: "region-1",
+    blockId: "block-1",
+    columnId: "column-1",
+    sourceItemIds: [`source-${id}`],
+    sourceRanges: [{ sourceTextItemId: `source-${id}`, startOffset: 0, endOffset: text.length }],
+    lineId,
+    direction: "ltr",
+    startsWithPunctuation: false,
+    endsWithPunctuation: false,
+    hasEOL: text === "browsers",
+    axis: { advanceX: 8, advanceY: 0, normalX: 0, normalY: 1 },
+    quad: { points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }] },
+  };
+}
+
+function semanticLine(
+  id: string,
+  paragraphId: string,
+  wordIds: readonly string[],
+  readingOrder: number,
+  y: number,
+): PageSemanticModelData["lines"][number] {
+  return {
+    id,
+    type: "LINE",
+    pageId: "page-1",
+    text: "Vision capability browsers",
+    normalizedText: "vision capability browsers",
+    bounds: { x: 0.04, y, width: 0.38, height: 0.03 },
+    readingOrder,
+    confidence: 1,
+    orientation: { angle: 0, writingMode: "horizontal" },
+    regionId: "region-1",
+    blockId: "block-1",
+    columnId: "column-1",
+    wordIds: [...wordIds],
+    paragraphId,
+    baseline: y + 0.03,
+    direction: "ltr",
+    columnIndex: 0,
+    axis: { advanceX: 8, advanceY: 0, normalX: 0, normalY: 1 },
+    horizontalGaps: [],
+  };
+}
+
+function semanticParagraph(
+  id: string,
+  lineId: string,
+  readingOrder: number,
+  y: number,
+): PageSemanticModelData["paragraphs"][number] {
+  return {
+    id,
+    type: "PARAGRAPH",
+    pageId: "page-1",
+    text: "Vision capability browsers",
+    normalizedText: "vision capability browsers",
+    bounds: { x: 0.03, y: y - 0.01, width: 0.4, height: 0.05 },
+    readingOrder,
+    confidence: 1,
+    orientation: { angle: 0, writingMode: "horizontal" },
+    regionId: "region-1",
+    blockId: "block-1",
+    columnId: "column-1",
+    lineIds: [lineId],
+    sentenceIds: [],
+    columnIndex: 0,
+    averageFontSize: 12,
+    fragments: [{ x: 0.03, y: y - 0.01, width: 0.4, height: 0.05 }],
+  };
+}

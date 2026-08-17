@@ -3,6 +3,7 @@ import type { CompletedVoiceTurn } from "../../domain";
 import type {
   DecisionContextFragment,
   JsonValue,
+  NoteCatalogObject,
   NoteContextPartId,
   NoteDecisionInput,
 } from "../domain";
@@ -18,17 +19,19 @@ import type {
 import {
   NoteObjectHandleMap,
   projectObjectDetail,
+  projectCatalogObject,
   projectObjectSummary,
   type ObjectDetail,
   type ObjectSummary,
 } from "./object-projection";
 
-const DEFAULT_CONTEXT_TOKEN_BUDGET = 2_400;
+const DEFAULT_CONTEXT_TOKEN_BUDGET = 16_000;
 const MAX_TRANSCRIPT_CHARS = 4_000;
 const MAX_RECENT_OPERATIONS = 3;
 const REQUIRED_PART_IDS = new Set<NoteContextPartId>([
   "user-turn",
   "frozen-context",
+  "object-catalog",
 ]);
 
 export interface NoteContextCollectionContext {
@@ -76,6 +79,9 @@ export interface NoteContextAssembly {
   readonly parts: readonly DecisionContextFragment[];
   readonly handles: NoteObjectHandleMap;
   readonly estimatedTokens: number;
+  readonly objectCatalogBuildMs: number;
+  readonly objectCatalogObjectCount: number;
+  readonly objectCatalogSerializedChars: number;
 }
 
 export interface NoteContextAssemblerOptions {
@@ -127,8 +133,11 @@ export class NoteContextAssembler {
     const availableTools = await this.options.actionLoader.loadActions({
       toolContext: input.toolContext,
     });
+    const providerDurations = new Map<NoteContextPartId, number>();
     const collected = await Promise.all(this.providers.map(async (provider) => {
+      const providerStartedAt = monotonicNow();
       const part = await provider.collect(collection);
+      providerDurations.set(provider.id, Math.max(0, monotonicNow() - providerStartedAt));
       return part === null ? undefined : {
         id: provider.id,
         priority: provider.priority,
@@ -164,6 +173,7 @@ export class NoteContextAssembler {
     const focus = summaryFromPart(parts, "selection-focus", "focus");
     const selection = summaryFromPart(parts, "selection-focus", "selection");
     const lastOperation = lastOperationFromPart(parts);
+    const objectCatalog = objectCatalogFromPart(parts);
     const decisionInput: NoteDecisionInput = {
       turn: {
         turnId: input.turn.id,
@@ -180,12 +190,19 @@ export class NoteContextAssembler {
         ...(lastOperation === undefined ? {} : { lastOperation }),
       },
       availableTools,
+      objectCatalog: {
+        objects: objectCatalog,
+        truncated: false,
+      },
     };
     return Object.freeze({
       decisionInput,
       parts: Object.freeze(parts),
       handles,
       estimatedTokens,
+      objectCatalogBuildMs: providerDurations.get("object-catalog") ?? 0,
+      objectCatalogObjectCount: objectCatalog.length,
+      objectCatalogSerializedChars: JSON.stringify(objectCatalog).length,
     });
   }
 }
@@ -194,6 +211,7 @@ function defaultPartProviders(): readonly NoteContextPartProvider<unknown>[] {
   return Object.freeze([
     userTurnProvider,
     frozenContextProvider,
+    objectCatalogProvider,
     selectionFocusProvider,
     recentOperationProvider,
     objectDetailProvider,
@@ -214,6 +232,45 @@ const userTurnProvider: NoteContextPartProvider<{
     language: context.turn.language,
     rawFinalTranscript: sanitizeTranscript(context.turn.rawTranscript),
   }),
+  toDecisionContent: toJson,
+};
+
+const objectCatalogProvider: NoteContextPartProvider<readonly NoteCatalogObject[]> = {
+  id: "object-catalog",
+  priority: 85,
+  collect: (context) => {
+    const scene = context.world.getSnapshot(
+      context.frozenWorld.pageId,
+      context.frozenWorld.sceneRevision,
+    );
+    if (scene === undefined) return [];
+    const selectionId = objectIdFor(context.frozenWorld.selection);
+    const focusId = objectIdFor(context.frozenWorld.focus);
+    const objects = context.world.listPageObjects(context.frozenWorld.pageId)
+      .filter(isCatalogObject)
+      .sort((left, right) => {
+        if (left.source !== right.source) return left.source === "canvas" ? -1 : 1;
+        return left.zIndex - right.zIndex || left.id.localeCompare(right.id);
+      });
+    const recentIds = new Set(objects
+      .filter((object) => object.source === "canvas")
+      .sort((left, right) => (right.updatedAt ?? right.createdAt ?? 0)
+        - (left.updatedAt ?? left.createdAt ?? 0))
+      .slice(0, MAX_RECENT_OPERATIONS)
+      .map((object) => object.id));
+    return objects.flatMap((object, index) => {
+      const handle = `O${index + 1}` as const;
+      const ref: EntityRef = { kind: "OBJECT", objectId: object.id };
+      const projected = projectCatalogObject(handle, ref, context.world, scene.page, {
+        selected: object.id === selectionId,
+        focused: object.id === focusId,
+        recent: recentIds.has(object.id),
+      });
+      if (projected === undefined) return [];
+      context.handles.register(handle, ref);
+      return [projected];
+    });
+  },
   toDecisionContent: toJson,
 };
 
@@ -402,12 +459,38 @@ function lastOperationFromPart(
       };
 }
 
+function objectCatalogFromPart(
+  parts: readonly DecisionContextFragment[],
+): readonly NoteCatalogObject[] {
+  const content = parts.find((entry) => entry.id === "object-catalog")?.content;
+  if (!Array.isArray(content)) return [];
+  return content as unknown as readonly NoteCatalogObject[];
+}
+
+function objectIdFor(ref: EntityRef | undefined): string | undefined {
+  if (ref?.kind === "OBJECT" || ref?.kind === "OBJECT_PART") return ref.objectId;
+  return ref?.kind === "TEXT_RANGE" ? ref.objectIds[0] : undefined;
+}
+
+function isCatalogObject(object: ReturnType<UnifiedObjectWorld["listPageObjects"]>[number]): boolean {
+  if (object.source === "canvas") return true;
+  return object.kind === "paragraph"
+    || object.kind === "image"
+    || object.kind === "table"
+    || (object.kind === "pdf-region"
+      && /figure|table|equation|image/iu.test(object.regionType));
+}
+
 export function sanitizeTranscript(value: string): string {
   return value.normalize("NFC").trim().slice(0, MAX_TRANSCRIPT_CHARS);
 }
 
 function estimateTokens(value: unknown): number {
   return Math.ceil(JSON.stringify(value).length / 4);
+}
+
+function monotonicNow(): number {
+  return globalThis.performance?.now() ?? Date.now();
 }
 
 function toJson(value: unknown): JsonValue {

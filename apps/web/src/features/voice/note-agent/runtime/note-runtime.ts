@@ -66,6 +66,15 @@ export class NoteRuntime {
     decision: NoteDecision,
     context: NoteRuntimeContext,
   ): Promise<NoteRuntimeResult> {
+    if (decision.status === "NEEDS_CLARIFICATION") {
+      return { status: "NEEDS_INPUT", missing: [decision.reason], commitAttempted: false };
+    }
+    if (decision.status === "NOT_ALLOWED") {
+      return { status: "NOT_ALLOWED", reasonCode: decision.reason, commitAttempted: false };
+    }
+    if (decision.status === "NEEDS_VISUAL") {
+      return { status: "NEEDS_INPUT", missing: ["visual"], commitAttempted: false };
+    }
     if (decision.status === "NEEDS_INPUT") {
       return { status: "NEEDS_INPUT", missing: decision.missing, commitAttempted: false };
     }
@@ -74,7 +83,21 @@ export class NoteRuntime {
     }
     if (decision.status === "NO_OP") return { status: "NO_OP", commitAttempted: false };
 
-    const calls = decision.status === "CALL" ? [decision.call] : decision.steps;
+    if (
+      decision.status === "READY"
+      && decision.sceneRevision !== context.frozenWorld.sceneRevision
+    ) return { status: "STALE_SCENE", commitAttempted: false };
+    const calls = decision.status === "READY"
+      ? decision.steps.map((step, index) => ({
+          stepId: `step-${index + 1}`,
+          toolId: step.action,
+          input: {
+            ...step.args,
+            ...(step.target === null ? {} : { target: step.target }),
+            ...(step.destination === null ? {} : { destination: step.destination }),
+          },
+        }))
+      : decision.status === "CALL" ? [decision.call] : decision.steps;
     const callsToPrepare: PreparedCall[] = [];
     for (const call of calls) {
       const tool = this.options.registry.get(call.toolId);
@@ -173,6 +196,7 @@ function prepareContext(
     frozenWorld: context.frozenWorld,
     world: context.world,
     resolver: context.resolver,
+    ...(context.handles === undefined ? {} : { handles: context.handles }),
     getCurrentSceneRevision: context.getCurrentSceneRevision,
     stepId,
     ...(context.placement === undefined ? {} : { placement: context.placement }),

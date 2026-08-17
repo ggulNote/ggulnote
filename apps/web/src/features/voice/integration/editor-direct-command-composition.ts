@@ -1,5 +1,6 @@
 import type { EditorEngine } from "@ggulnote/editor-core";
 import type { InteractionClock } from "@ggulnote/interaction-core";
+import type { TldrawEditorAdapter } from "../../editor/adapters/tldraw";
 import {
   CurrentRevisionSceneSnapshotSource,
   ExistingSceneSpatialSceneSource,
@@ -54,8 +55,10 @@ import {
   type FrozenWorldContext,
   type NoteRuntimeContext,
   type NoteRuntimeMetricsRecorder,
+  CompositeNoteOperationLedger,
+  InMemoryNoteOperationLedger,
 } from "../note-agent";
-import { EditorNoteAgentTransaction } from "./editor-note-agent-transaction";
+import { TldrawNoteAgentTransaction } from "./tldraw-note-agent-transaction";
 
 export interface EditorSpatialPlacementCompositionOptions {
   getBaseCanvas(): HTMLCanvasElement | null;
@@ -71,6 +74,7 @@ export interface EditorDirectCommandCompositionOptions {
   getCurrentSceneRevision(): number;
   getCurrentPage(): number;
   goToPage(page: number): void;
+  getTldrawAdapter?(): TldrawEditorAdapter | undefined;
   planner?: DirectCommandPlannerProvider;
   disambiguator?: DirectTargetDisambiguatorProvider;
   recovery?: GroundedTargetRecoveryProvider;
@@ -254,6 +258,7 @@ function createNoteAgentProductionRoute(
     registry: environment.registry,
     provider: input.provider,
     now: () => Number(input.options.clock.now()),
+    getTldrawProjectionMs: () => input.options.getTldrawAdapter?.()?.getLastProjectionMs() ?? 0,
     createToolContext: (frozenWorld, turnId, runtimeOptions) =>
       environment.createToolContext(
         "PRODUCTION",
@@ -269,7 +274,7 @@ function createNoteAgentEnvironment(
 ) {
   const readSnapshot = input.options.readCurrentGroundingSnapshot;
   const frozenSource = new CurrentRevisionSceneSnapshotSource(readSnapshot);
-  const ledger = new DirectCommandOperationLedgerAdapter({
+  const directLedger = new DirectCommandOperationLedgerAdapter({
     records: input.history,
     resolveOutputObject: (record) => {
       const annotationId = record.editorAnnotationId;
@@ -282,6 +287,8 @@ function createNoteAgentEnvironment(
         : { objectId: object.id, pageId: object.pageId };
     },
   });
+  const noteLedger = new InMemoryNoteOperationLedger();
+  const ledger = new CompositeNoteOperationLedger([noteLedger, directLedger]);
   const world = new ExistingUnifiedObjectWorld({
     snapshotSource: new ExistingSceneUnifiedObjectWorldSource(frozenSource),
     operationLedger: ledger,
@@ -309,13 +316,13 @@ function createNoteAgentEnvironment(
     },
   });
 
-  const transaction = new EditorNoteAgentTransaction({
-    editorEngine: input.options.editorEngine,
-    executor: input.executor,
-    ...(input.spatial === undefined ? {} : { spatial: input.spatial }),
-    history: input.history,
+  const transaction = new TldrawNoteAgentTransaction({
+    getAdapter: () => input.options.getTldrawAdapter?.(),
+    operationLedger: noteLedger,
     clock: input.options.clock,
     getCurrentSceneRevision: input.options.getCurrentSceneRevision,
+    getCurrentPage: input.options.getCurrentPage,
+    goToPage: input.options.goToPage,
   });
 
   return {

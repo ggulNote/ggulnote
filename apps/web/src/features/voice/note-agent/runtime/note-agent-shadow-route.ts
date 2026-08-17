@@ -267,6 +267,7 @@ export function buildDecisionInput(
           }),
     },
     availableTools,
+    objectCatalog: { objects: [], truncated: false },
   };
 }
 

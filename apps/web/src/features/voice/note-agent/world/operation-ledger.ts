@@ -10,6 +10,7 @@ export interface OperationLedgerRecord {
   readonly outputRefs: readonly EntityRef[];
   readonly createdAt: number;
   readonly undoGroupId: string;
+  readonly pageId?: string;
 }
 
 export interface OperationLedgerQuery {
@@ -23,6 +24,11 @@ export interface DirectOperationRecordSource {
   getRecords(): readonly DirectOperationRecord[];
 }
 
+export interface NoteOperationLedger {
+  list(query?: OperationLedgerQuery): readonly OperationLedgerRecord[];
+  getRecentOutputs(query?: OperationLedgerQuery): readonly EntityRef[];
+}
+
 export interface DirectCommandOperationLedgerAdapterOptions {
   readonly records: DirectOperationRecordSource;
   readonly resolveOutputObject: (
@@ -30,7 +36,7 @@ export interface DirectCommandOperationLedgerAdapterOptions {
   ) => { readonly objectId: string; readonly pageId: string } | undefined;
 }
 
-export class DirectCommandOperationLedgerAdapter {
+export class DirectCommandOperationLedgerAdapter implements NoteOperationLedger {
   public constructor(
     private readonly options: DirectCommandOperationLedgerAdapterOptions,
   ) {}
@@ -88,6 +94,71 @@ export class DirectCommandOperationLedgerAdapter {
       // Editor Core currently records one command per undo unit.
       undoGroupId: operationId,
     });
+  }
+}
+
+export class InMemoryNoteOperationLedger implements NoteOperationLedger {
+  private records: OperationLedgerRecord[] = [];
+
+  public record(input: {
+    readonly operationId: string;
+    readonly sourceTurnId: string;
+    readonly pageId: string;
+    readonly toolId: string;
+    readonly operation: string;
+    readonly inputRefs?: readonly EntityRef[];
+    readonly outputRefs?: readonly EntityRef[];
+    readonly createdAt: number;
+    readonly undoGroupId: string;
+  }): void {
+    this.records.push(Object.freeze({
+      operationId: input.operationId,
+      sourceTurnId: input.sourceTurnId,
+      toolId: input.toolId,
+      operation: input.operation,
+      inputRefs: Object.freeze((input.inputRefs ?? []).map(cloneEntityRef)),
+      outputRefs: Object.freeze((input.outputRefs ?? []).map(cloneEntityRef)),
+      createdAt: input.createdAt,
+      undoGroupId: input.undoGroupId,
+      pageId: input.pageId,
+    }));
+  }
+
+  public list(query: OperationLedgerQuery = {}): readonly OperationLedgerRecord[] {
+    return Object.freeze(this.records
+      .filter((record) => {
+        return (query.pageId === undefined || query.pageId === record.pageId)
+          && (query.sourceTurnId === undefined || query.sourceTurnId === record.sourceTurnId)
+          && (query.toolId === undefined || query.toolId === record.toolId);
+      })
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, normalizeLimit(query.limit)));
+  }
+
+  public getRecentOutputs(query: OperationLedgerQuery = {}): readonly EntityRef[] {
+    return Object.freeze(this.list(query).flatMap((record) => record.outputRefs.map(cloneEntityRef)));
+  }
+}
+
+export class CompositeNoteOperationLedger implements NoteOperationLedger {
+  public constructor(private readonly ledgers: readonly NoteOperationLedger[]) {}
+
+  public list(query: OperationLedgerQuery = {}): readonly OperationLedgerRecord[] {
+    return Object.freeze(this.ledgers.flatMap((ledger) => ledger.list(query))
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, normalizeLimit(query.limit)));
+  }
+
+  public getRecentOutputs(query: OperationLedgerQuery = {}): readonly EntityRef[] {
+    const seen = new Set<string>();
+    return Object.freeze(this.list(query).flatMap((record) => record.outputRefs)
+      .filter((ref) => {
+        const key = entityRefKey(ref);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(cloneEntityRef));
   }
 }
 

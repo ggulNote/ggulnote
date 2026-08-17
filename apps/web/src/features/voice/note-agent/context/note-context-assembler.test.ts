@@ -2,6 +2,10 @@ import {
   buildSceneSnapshot,
   describeSceneObject,
   type GraphSceneObject,
+  type ParagraphSceneObject,
+  type SceneObject,
+  type TextSceneObject,
+  type WordSceneObject,
 } from "@ggulnote/editor-core";
 import { describe, expect, it, vi } from "vitest";
 import type { CompletedVoiceTurn } from "../../domain";
@@ -160,12 +164,42 @@ describe("NoteContextAssembler", () => {
     expect(result.parts.map((part) => part.id)).toEqual([
       "user-turn",
       "frozen-context",
+      "object-catalog",
       "selection-focus",
       "recent-operations",
     ]);
     expect(loadActions).toHaveBeenCalledOnce();
     expect(result.decisionInput.turn.rawFinalTranscript).toBe("그래프를 선택해 줘");
     expect(result.decisionInput.availableTools).toHaveLength(1);
+    expect(result.decisionInput.objectCatalog).toEqual({
+      objects: [{
+        handle: "O1",
+        source: "tldraw",
+        kind: "graph",
+        summary: "x^2",
+        bounds: {
+          x: 10 / 600,
+          y: 20 / 800,
+          width: 200 / 600,
+          height: 120 / 800,
+        },
+        capabilities: [
+          "anchorable",
+          "deletable",
+          "editable",
+          "movable",
+          "partAddressable",
+          "resizable",
+        ],
+        selected: true,
+        focused: false,
+        recent: true,
+        parts: [{ kind: "curve", summary: "x^2" }],
+      }],
+      truncated: false,
+    });
+    expect(JSON.stringify(result.decisionInput)).not.toContain(OBJECT_ID);
+    expect(JSON.stringify(result.decisionInput)).not.toContain(PART_ID);
     const recent = result.parts.find((part) => part.id === "recent-operations")?.content;
     expect(recent).toHaveLength(3);
     expect(result.parts.some((part) => part.id === "candidates")).toBe(false);
@@ -202,6 +236,7 @@ describe("NoteContextAssembler", () => {
     expect(result.parts.map((part) => part.id)).toEqual([
       "user-turn",
       "frozen-context",
+      "object-catalog",
       "selection-focus",
       "recent-operations",
       "object-detail",
@@ -224,6 +259,146 @@ describe("NoteContextAssembler", () => {
       kind: "OBJECT",
       objectId: OBJECT_ID,
     });
+  });
+
+  it("creates a fresh request-local catalog handle map for every request", async () => {
+    const { assembler, objectWorld, toolContext } = harness();
+    const first = await assembler.assemble({
+      turn: turn(), documentId: "doc-1", frozenWorld: frozenWorld(),
+      world: objectWorld, toolContext,
+    });
+    const second = await assembler.assemble({
+      turn: turn(), documentId: "doc-1", frozenWorld: frozenWorld(),
+      world: objectWorld, toolContext,
+    });
+
+    expect(first.handles).not.toBe(second.handles);
+    expect(first.handles.resolve("O1")).toEqual({ kind: "OBJECT", objectId: OBJECT_ID });
+    expect(second.handles.resolve("O1")).toEqual({ kind: "OBJECT", objectId: OBJECT_ID });
+  });
+
+  it("includes every current-page user object but omits raw PDF words", async () => {
+    const canvasObjects: TextSceneObject[] = Array.from({ length: 9 }, (_, index) => ({
+      id: `canvas-secret-${index + 1}`,
+      pageId: "page-mixed",
+      source: "canvas",
+      sourceObjectId: `shape-secret-${index + 1}`,
+      kind: "text",
+      bounds: { x: index * 20, y: 40, width: 100, height: 30 },
+      zIndex: index,
+      visible: true,
+      locked: false,
+      objectRevision: 1,
+      text: `user text ${index + 1}`,
+      style: { fontSize: 18 },
+      createdAt: index + 1,
+      updatedAt: index + 1,
+    }));
+    const paragraph: ParagraphSceneObject = {
+      id: "pdf-paragraph-secret",
+      pageId: "page-mixed",
+      source: "pdf",
+      sourceObjectId: "paragraph-internal-secret",
+      kind: "paragraph",
+      bounds: { x: 20, y: 200, width: 400, height: 80 },
+      zIndex: 20,
+      visible: true,
+      locked: true,
+      objectRevision: 1,
+      text: "bounded paragraph",
+      readingOrder: 1,
+      childLineIds: ["line-secret"],
+      regionId: "region-secret",
+    };
+    const word: WordSceneObject = {
+      id: "pdf-word-secret",
+      pageId: "page-mixed",
+      source: "pdf",
+      sourceObjectId: "word-internal-secret",
+      kind: "word",
+      bounds: { x: 20, y: 200, width: 60, height: 20 },
+      zIndex: 21,
+      visible: true,
+      locked: true,
+      objectRevision: 1,
+      text: "raw-word-must-not-appear",
+      readingOrder: 1,
+      lineId: "line-secret",
+      charOffsetStart: 0,
+      charOffsetEnd: 7,
+    };
+    const objects: readonly SceneObject[] = [...canvasObjects, paragraph, word];
+    const mixedScene = buildSceneSnapshot({
+      mode: "pdf",
+      page: { id: "page-mixed", index: 0, width: 600, height: 800 },
+      sceneRevision: 11,
+      pdfObjects: [paragraph, word],
+      canvasObjects,
+    });
+    const mixedWorld: UnifiedObjectWorld = {
+      getSnapshot: (pageId, revision) =>
+        pageId === "page-mixed" && revision === 11 ? mixedScene : undefined,
+      getObject: (objectId) => objects.find((object) => object.id === objectId),
+      getObjectMetadata: (objectId) => {
+        const object = objects.find((candidate) => candidate.id === objectId);
+        return object === undefined ? undefined : describeSceneObject(object, { documentId: "doc-mixed" });
+      },
+      listPageObjects: () => objects,
+      searchIndex: () => [],
+      getRecentOperations: () => [],
+      getRecentOperationOutputs: () => [],
+    };
+    const mixedFrozen: FrozenWorldContext = {
+      documentId: "doc-mixed",
+      pageId: "page-mixed",
+      sceneRevision: 11,
+      frozenVoiceContext: {
+        pageId: "page-mixed",
+        sceneMode: "pdf",
+        sceneRevision: 11,
+        focusSource: "none",
+        focusStale: false,
+        capturedAt: 2,
+      },
+      catalog: {
+        documentId: "doc-mixed",
+        pageId: "page-mixed",
+        sceneRevision: 11,
+        candidates: [],
+      },
+      recentOperations: [],
+    };
+    const mixedToolContext: NoteToolContext = {
+      mode: "SHADOW",
+      turnId: "turn-voice",
+      frozenWorld: mixedFrozen,
+      world: mixedWorld,
+      resolver: new ExistingWorldResolver({ world: mixedWorld }),
+      getCurrentSceneRevision: () => 11,
+    };
+    const assembler = new NoteContextAssembler({
+      actionLoader: { loadActions: async () => [] },
+    });
+    const result = await assembler.assemble({
+      turn: turn(),
+      documentId: "doc-mixed",
+      frozenWorld: mixedFrozen,
+      world: mixedWorld,
+      toolContext: mixedToolContext,
+    });
+
+    expect(result.decisionInput.objectCatalog.objects).toHaveLength(10);
+    expect(result.decisionInput.objectCatalog.objects.filter((object) => object.source === "tldraw"))
+      .toHaveLength(9);
+    expect(result.decisionInput.objectCatalog.objects.at(-1)).toMatchObject({
+      handle: "O10",
+      source: "pdf",
+      kind: "paragraph",
+      summary: "bounded paragraph",
+    });
+    expect(JSON.stringify(result.decisionInput.objectCatalog)).not.toContain("raw-word-must-not-appear");
+    expect(JSON.stringify(result.decisionInput.objectCatalog)).not.toContain("secret");
+    expect(result.decisionInput.objectCatalog.truncated).toBe(false);
   });
 
   it("rejects action schemas that consume the configured context budget", async () => {

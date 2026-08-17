@@ -82,6 +82,7 @@ describe("One Note Decision parity fixtures", () => {
       turn: { turnId: "turn-1", language: "ko-KR", rawFinalTranscript: fixture.transcript },
       frozenContext: { documentId: "doc-1", pageId: "page-1", sceneRevision: 7, sceneMode: "pdf" },
       availableTools: [],
+      objectCatalog: { objects: [], truncated: false },
     });
     expect(provider.callCount).toBe(1);
   });

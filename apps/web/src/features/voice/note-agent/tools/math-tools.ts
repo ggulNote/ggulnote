@@ -47,6 +47,14 @@ function mathAddTool(): NoteTool<{ values: readonly number[] }, { value: number 
     examples: ["1, 2, 3을 더해 줘"],
     inputSchema: finiteNumberArraySchema,
     outputSchema: finiteNumberOutputSchema,
+    decisionArgsSchema: {
+      type: "object",
+      properties: {
+        values: { type: "array", items: { type: "number" }, minItems: 1 },
+      },
+      required: ["values"],
+      additionalProperties: false,
+    },
     isAvailable: () => true,
     prepare: async (input, context) => compute(context, () => ({
       status: "READY" as const,
@@ -67,6 +75,23 @@ function matrixMultiplyTool(): NoteTool<
     examples: ["첫 번째 행렬과 두 번째 행렬을 곱해 줘"],
     inputSchema: matrixMultiplyInputSchema,
     outputSchema: matrixMultiplyOutputSchema,
+    decisionArgsSchema: {
+      type: "object",
+      properties: {
+        left: {
+          type: "array",
+          items: { type: "array", items: { type: "number" }, minItems: 1 },
+          minItems: 1,
+        },
+        right: {
+          type: "array",
+          items: { type: "array", items: { type: "number" }, minItems: 1 },
+          minItems: 1,
+        },
+      },
+      required: ["left", "right"],
+      additionalProperties: false,
+    },
     isAvailable: () => true,
     prepare: async (input, context) => compute(context, () => {
       try {

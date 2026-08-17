@@ -18,7 +18,7 @@ export {
 export type {
   ObjectAppearanceSummary,
   ObjectDetail,
-  ObjectHandle,
+  ProjectedObjectHandle,
   ObjectPartSummary,
   ObjectSemanticSummary,
   ObjectSummary,

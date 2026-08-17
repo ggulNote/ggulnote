@@ -16,7 +16,7 @@ import {
   type ObjectIndexEntry,
 } from "./object-index";
 import {
-  DirectCommandOperationLedgerAdapter,
+  type NoteOperationLedger,
   type OperationLedgerRecord,
   type OperationLedgerQuery,
 } from "./operation-ledger";
@@ -44,7 +44,7 @@ export interface UnifiedObjectWorld {
 
 export interface ExistingUnifiedObjectWorldOptions {
   readonly snapshotSource: UnifiedObjectWorldSnapshotSource;
-  readonly operationLedger: DirectCommandOperationLedgerAdapter;
+  readonly operationLedger: NoteOperationLedger;
   readonly objectIndex?: RebuildableObjectIndex;
 }
 

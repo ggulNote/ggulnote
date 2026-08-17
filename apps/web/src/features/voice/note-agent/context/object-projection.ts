@@ -7,8 +7,12 @@ import type {
   UnifiedSceneObjectSource,
 } from "@ggulnote/editor-core";
 import type { EntityRef, UnifiedObjectWorld } from "../world";
+import type {
+  NoteCatalogObject,
+  ObjectHandle as CatalogObjectHandle,
+} from "../domain";
 
-export interface ObjectHandle {
+export interface ProjectedObjectHandle {
   readonly handle: string;
   readonly kind: SceneObjectKind;
   readonly summary?: string;
@@ -33,7 +37,7 @@ export interface ObjectSemanticSummary {
   readonly columns?: number;
 }
 
-export interface ObjectSummary extends ObjectHandle {
+export interface ObjectSummary extends ProjectedObjectHandle {
   readonly source: UnifiedSceneObjectSource;
   readonly bounds: Rect;
   readonly contentSummary?: string;
@@ -49,7 +53,7 @@ export interface ObjectPartSummary {
   readonly attributes?: Readonly<Record<string, string | number>>;
 }
 
-export interface ObjectDetail extends ObjectHandle {
+export interface ObjectDetail extends ProjectedObjectHandle {
   readonly source: UnifiedSceneObjectSource;
   readonly geometry: {
     readonly bounds: Rect;
@@ -160,6 +164,53 @@ export function projectObjectDetail(
   });
 }
 
+export function projectCatalogObject(
+  handle: CatalogObjectHandle,
+  ref: EntityRef,
+  world: UnifiedObjectWorld,
+  pageSize: { readonly width: number; readonly height: number },
+  context: {
+    readonly selected: boolean;
+    readonly focused: boolean;
+    readonly recent: boolean;
+  },
+): NoteCatalogObject | undefined {
+  const projected = projectionSource(ref, world);
+  if (projected === undefined) return undefined;
+  if (pageSize.width <= 0 || pageSize.height <= 0) return undefined;
+  const metadata = projected.metadata;
+  const summary = bound(metadata.searchableText, 160);
+  const capabilities = Object.entries(metadata.capabilities)
+    .filter(([, enabled]) => enabled === true)
+    .map(([name]) => name)
+    .sort();
+  const parts = metadata.parts?.slice(0, 12).map((part) => ({
+    kind: part.kind,
+    ...(bound(part.searchableText, 80) === undefined
+      ? {}
+      : { summary: bound(part.searchableText, 80) }),
+  }));
+  return Object.freeze({
+    handle,
+    source: metadata.source === "PDF_BASE" ? "pdf" : "tldraw",
+    kind: metadata.kind,
+    ...(summary === undefined ? {} : { summary }),
+    bounds: Object.freeze({
+      x: clampUnit(metadata.bounds.x / pageSize.width),
+      y: clampUnit(metadata.bounds.y / pageSize.height),
+      width: clampUnit(metadata.bounds.width / pageSize.width),
+      height: clampUnit(metadata.bounds.height / pageSize.height),
+    }),
+    capabilities: Object.freeze(capabilities),
+    selected: context.selected,
+    focused: context.focused,
+    recent: context.recent,
+    ...(parts === undefined || parts.length === 0
+      ? {}
+      : { parts: Object.freeze(parts) }),
+  });
+}
+
 function projectionSource(
   ref: EntityRef,
   world: UnifiedObjectWorld,
@@ -241,7 +292,7 @@ function cloneRef(ref: EntityRef): EntityRef {
 }
 
 function isHandle(value: string): boolean {
-  return /^(?:(?:selection|focus)(?::part:[1-9][0-9]*)?|recent:[1-9][0-9]*|candidate:[CS][1-9][0-9]*|viewport:V[1-9][0-9]*)$/u.test(value);
+  return /^(?:O[1-9][0-9]*|(?:(?:selection|focus)(?::part:[1-9][0-9]*)?|recent:[1-9][0-9]*|candidate:[CS][1-9][0-9]*|viewport:V[1-9][0-9]*))$/u.test(value);
 }
 
 function freezeRect(rect: Rect): Rect {
@@ -251,4 +302,8 @@ function freezeRect(rect: Rect): Rect {
 function bound(value: string | undefined, limit: number): string | undefined {
   if (value === undefined) return undefined;
   return value.length <= limit ? value : value.slice(0, limit);
+}
+
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }

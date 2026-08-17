@@ -7,6 +7,14 @@ import type {
 
 export interface NoteDecisionProviderOptions {
   readonly signal?: AbortSignal;
+  readonly onTelemetry?: (telemetry: {
+    readonly openaiTtfbMs: number;
+    readonly openaiBodyReadMs: number;
+    readonly decisionJsonParseMs: number;
+    readonly inputTokens?: number;
+    readonly cachedInputTokens?: number;
+    readonly outputTokens?: number;
+  }) => void;
 }
 export interface NoteDecisionProvider {
   decide(

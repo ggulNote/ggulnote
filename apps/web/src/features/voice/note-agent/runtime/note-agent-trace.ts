@@ -18,7 +18,18 @@ export interface NoteAgentShadowTrace {
   readonly decisionCallCount?: 0 | 1 | 2;
   readonly toolCallCount: number;
   readonly contextAssemblyMs?: number;
+  readonly tldrawProjectionMs?: number;
+  readonly objectCatalogBuildMs?: number;
+  readonly objectCatalogObjectCount?: number;
+  readonly objectCatalogSerializedChars?: number;
   readonly decisionMs: number;
+  readonly decisionTotalMs?: number;
+  readonly openaiTtfbMs?: number;
+  readonly openaiBodyReadMs?: number;
+  readonly decisionJsonParseMs?: number;
+  readonly inputTokens?: number;
+  readonly cachedInputTokens?: number;
+  readonly outputTokens?: number;
   readonly runtimeMs: number;
   readonly prepareMs?: number;
   readonly worldResolveMs?: number;

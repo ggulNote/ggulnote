@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   DirectTextModelRequest,
   DirectTextModelTransport,
@@ -8,6 +8,7 @@ import type { NoteDecisionInput } from "../domain";
 import { buildNoteDecisionModelRequest } from "./note-decision-prompt";
 import { buildNoteDisambiguationModelRequest } from "./note-disambiguation-prompt";
 import { FakeNoteDecisionProvider } from "./note-decision-provider";
+import { HttpNoteDecisionProvider } from "./http-note-decision-provider";
 import { LlmNoteDecisionProvider } from "./llm-note-decision-provider";
 
 const INPUT: NoteDecisionInput = {
@@ -29,6 +30,7 @@ const INPUT: NoteDecisionInput = {
     description: "create text",
     input: { text: "string", destination: "optional Destination" },
   }],
+  objectCatalog: { objects: [], truncated: false },
 };
 
 class StubTransport implements DirectTextModelTransport {
@@ -134,5 +136,35 @@ describe("One Note Decision provider", () => {
     const serialized = JSON.stringify(request.input);
     expect(serialized).not.toContain("a".repeat(241));
     expect(serialized).not.toContain("objectById");
+  });
+
+  it("forwards only validated numeric transport telemetry across same-origin HTTP", async () => {
+    const onTelemetry = vi.fn();
+    const fetch = vi.fn(async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => Response.json({
+      result: { status: "NO_OP" },
+      telemetry: {
+        openaiTtfbMs: 12,
+        openaiBodyReadMs: 3,
+        decisionJsonParseMs: 1,
+        inputTokens: 120,
+        cachedInputTokens: 80,
+        outputTokens: 20,
+      },
+    }));
+    const provider = new HttpNoteDecisionProvider({ fetch });
+
+    await expect(provider.decide(INPUT, { onTelemetry })).resolves.toEqual({ status: "NO_OP" });
+    expect(onTelemetry).toHaveBeenCalledWith({
+      openaiTtfbMs: 12,
+      openaiBodyReadMs: 3,
+      decisionJsonParseMs: 1,
+      inputTokens: 120,
+      cachedInputTokens: 80,
+      outputTokens: 20,
+    });
+    expect(JSON.stringify(fetch.mock.calls[0]?.[1])).not.toContain("Authorization");
   });
 });

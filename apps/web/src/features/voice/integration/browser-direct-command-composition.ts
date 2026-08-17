@@ -1,4 +1,5 @@
 import type { EditorEngine } from "@ggulnote/editor-core";
+import type { TldrawEditorAdapter } from "../../editor/adapters/tldraw";
 import { InteractionClock } from "@ggulnote/interaction-core";
 import type { FrozenTargetResolver, VoiceTurnContextRead } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
@@ -30,6 +31,7 @@ export interface BrowserDirectCommandCompositionOptions {
   getCurrentSceneRevision(): number;
   getCurrentPage(): number;
   goToPage(page: number): void;
+  getTldrawAdapter?(): TldrawEditorAdapter | undefined;
   timeProvider?: () => number;
   createTurnId?: () => string;
   planner?: DirectCommandPlannerProvider;
@@ -68,6 +70,9 @@ export function createBrowserDirectCommandComposition(
     getCurrentSceneRevision: options.getCurrentSceneRevision,
     getCurrentPage: options.getCurrentPage,
     goToPage: options.goToPage,
+    ...(options.getTldrawAdapter === undefined
+      ? {}
+      : { getTldrawAdapter: options.getTldrawAdapter }),
     ...(options.planner === undefined ? {} : { planner: options.planner }),
     ...(options.disambiguator === undefined
       ? {}

@@ -73,7 +73,7 @@ describe("NoteAgentProductionRoute", () => {
     });
   });
 
-  it("uses at most one alias-only disambiguation call and never invents an ID", async () => {
+  it("does not run a separate target-selection agent after One Decision", async () => {
     const registry = new NoteToolRegistry();
     registry.register({
       id: "test.choose",
@@ -97,21 +97,86 @@ describe("NoteAgentProductionRoute", () => {
             operations: [],
           },
     });
+    const prepareCommit = vi.fn();
     const provider = new FakeNoteDecisionCompositionProvider({
       status: "CALL",
       call: { stepId: "s1", toolId: "test.choose", input: {} },
     }, { status: "SELECTED", alias: "C2" });
-    const route = setup(registry, provider, vi.fn());
+    const route = setup(registry, provider, prepareCommit);
     await expect(route.execute(turn())).resolves.toMatchObject({
-      status: "COMPUTED",
-      data: [{ selectedAlias: "C2" }],
+      status: "TARGET_AMBIGUOUS",
     });
     expect(provider.decisionCallCount).toBe(1);
-    expect(provider.disambiguationCallCount).toBe(1);
+    expect(provider.disambiguationCallCount).toBe(0);
+    expect(prepareCommit).not.toHaveBeenCalled();
     expect(route.traces.getAll()[0]).toMatchObject({
-      llmCallCount: 2,
-      decisionCallCount: 2,
-      usedAmbiguityPass: true,
+      llmCallCount: 1,
+      decisionCallCount: 1,
+      usedAmbiguityPass: false,
+      commitAttempted: false,
+    });
+  });
+
+  it.each([
+    ["다음 페이지", "navigation.next_page", "NAVIGATED"],
+    ["이전 페이지", "navigation.previous_page", "NAVIGATED"],
+    ["실행 취소", "history.undo", "UNDONE"],
+  ] as const)(
+    "routes %s through exactly one Decision Provider call",
+    async (transcript, action, expectedStatus) => {
+      const provider = new FakeNoteDecisionCompositionProvider({
+        status: "READY",
+        sceneRevision: 7,
+        steps: [{ action, target: null, args: {}, destination: null }],
+      });
+      const commit = vi.fn(async (input: {
+        steps: readonly { readonly toolId: string }[];
+      }) => ({
+        status: "SUCCESS" as const,
+        receipt: action === "history.undo"
+          ? {
+              kind: "UNDONE" as const,
+              operationId: "operation-undo",
+              guardMs: 0, commitMs: 1, visualMs: 0,
+            }
+          : {
+              kind: "NAVIGATED" as const,
+              direction: action === "navigation.next_page" ? "next_page" as const : "previous_page" as const,
+              guardMs: 0, commitMs: 1, visualMs: 0,
+            },
+        commitAttempted: true as const,
+      }));
+      const route = setup(createExistingNoteToolRegistry(), provider, commit);
+
+      await expect(route.execute(turn(transcript, `turn-${action}`)))
+        .resolves.toMatchObject({ status: expectedStatus });
+      expect(provider.decisionCallCount).toBe(1);
+      expect(provider.disambiguationCallCount).toBe(0);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(commit.mock.calls[0]?.[0].steps).toMatchObject([{ toolId: action }]);
+    },
+  );
+
+  it("rejects a model-invented object handle before commit", async () => {
+    const provider = new FakeNoteDecisionCompositionProvider({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "text.replace",
+        target: { object: "O99", part: null },
+        args: { text: "수정" },
+        destination: null,
+      }],
+    });
+    const commit = vi.fn();
+    const route = setup(createExistingNoteToolRegistry(), provider, commit);
+
+    await expect(route.execute(turn("없는 객체를 수정해", "turn-invalid-handle")))
+      .resolves.toMatchObject({ status: "ERROR" });
+    expect(provider.decisionCallCount).toBe(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(route.traces.getAll()[0]).toMatchObject({
+      resultStatus: "FAILED",
       commitAttempted: false,
     });
   });
@@ -156,12 +221,12 @@ function setup(
   });
 }
 
-function turn(): CompletedVoiceTurn {
+function turn(transcript = "다음 페이지", id = "turn-1"): CompletedVoiceTurn {
   return {
-    id: "turn-1", providerId: "fake", providerSessionId: "session",
+    id, providerId: "fake", providerSessionId: "session",
     language: "ko-KR", requestedAt: 1, startedAt: 2, completedAt: 4,
-    state: "completed", rawTranscript: "다음 페이지",
-    finalSegments: [{ id: "segment-1", index: 0, text: "다음 페이지" }],
+    state: "completed", rawTranscript: transcript,
+    finalSegments: [{ id: "segment-1", index: 0, text: transcript }],
     frozenContext: {
       pageId: "page-1", sceneMode: "pdf", sceneRevision: 7,
       focusSource: "none", focusStale: false, capturedAt: 2,

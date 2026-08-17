@@ -9,8 +9,14 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const input = parseNoteDecisionInput(await readDirectAiRouteInput(request));
     const { noteDecision } = createDirectCommandAiProviders();
-    const result = await noteDecision.decide(input, { signal: request.signal });
-    return Response.json({ result });
+    let telemetry;
+    const result = await noteDecision.decide(input, {
+      signal: request.signal,
+      onTelemetry: (value) => {
+        telemetry = value;
+      },
+    });
+    return Response.json(telemetry === undefined ? { result } : { result, telemetry });
   } catch (error) {
     return directAiRouteErrorResponse(error);
   }

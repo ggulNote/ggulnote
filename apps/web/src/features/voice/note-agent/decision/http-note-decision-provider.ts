@@ -44,6 +44,7 @@ export class HttpNoteDecisionProvider implements NoteDecisionProvider {
       safeInput,
       this.fetchImpl,
       options.signal,
+      (telemetry) => options.onTelemetry?.(parseTelemetry(telemetry)),
     );
     try {
       const result = parseNoteDecision(value);
@@ -89,4 +90,41 @@ export class HttpNoteDecisionProvider implements NoteDecisionProvider {
       throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT", { cause: error });
     }
   }
+}
+
+function parseTelemetry(value: unknown): Parameters<NonNullable<NoteDecisionProviderOptions["onTelemetry"]>>[0] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT");
+  }
+  const record = value as Record<string, unknown>;
+  const allowed = new Set([
+    "openaiTtfbMs", "openaiBodyReadMs", "decisionJsonParseMs",
+    "inputTokens", "cachedInputTokens", "outputTokens",
+  ]);
+  if (Object.keys(record).some((key) => !allowed.has(key))) {
+    throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT");
+  }
+  return {
+    openaiTtfbMs: nonNegativeMetric(record.openaiTtfbMs),
+    openaiBodyReadMs: nonNegativeMetric(record.openaiBodyReadMs),
+    decisionJsonParseMs: nonNegativeMetric(record.decisionJsonParseMs),
+    ...optionalTelemetryMetric("inputTokens", record.inputTokens),
+    ...optionalTelemetryMetric("cachedInputTokens", record.cachedInputTokens),
+    ...optionalTelemetryMetric("outputTokens", record.outputTokens),
+  };
+}
+
+function nonNegativeMetric(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT");
+  }
+  return value;
+}
+
+function optionalTelemetryMetric(
+  key: "inputTokens" | "cachedInputTokens" | "outputTokens",
+  value: unknown,
+): Partial<Record<"inputTokens" | "cachedInputTokens" | "outputTokens", number>> {
+  if (value === undefined) return {};
+  return { [key]: nonNegativeMetric(value) };
 }

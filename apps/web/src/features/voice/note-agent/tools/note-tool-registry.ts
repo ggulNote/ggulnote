@@ -19,6 +19,7 @@ import type { MeasuredDraft, PlacementProfile } from "../../domain";
 import type {
   NoteRuntimeMetricsSink,
 } from "../runtime/note-runtime-metrics";
+import type { NoteObjectHandleMap } from "../context";
 
 export interface NoteSchema<T> {
   parse(value: unknown, path?: string): T;
@@ -37,6 +38,7 @@ export interface NoteToolContext {
   readonly frozenWorld: FrozenWorldContext;
   readonly world: UnifiedObjectWorld;
   readonly resolver: ExistingWorldResolver;
+  readonly handles?: NoteObjectHandleMap;
   readonly placement?: ExistingPlacementEngine;
   readonly getCurrentSceneRevision: () => number;
   readonly signal?: AbortSignal;
@@ -108,6 +110,7 @@ export interface NoteTool<TInput = unknown, TOutput = unknown> {
   readonly examples: readonly string[];
   readonly inputSchema: NoteSchema<TInput>;
   readonly outputSchema: NoteSchema<TOutput>;
+  readonly decisionArgsSchema?: Readonly<Record<string, import("../domain").JsonValue>>;
   isAvailable(context: NoteToolContext): boolean;
   prepare(
     input: TInput,
@@ -140,6 +143,9 @@ export class NoteToolRegistry {
       description: tool.description,
       examples: Object.freeze([...tool.examples]),
       input: tool.inputSchema.compact,
+      ...(tool.decisionArgsSchema === undefined
+        ? {}
+        : { strictArgs: tool.decisionArgsSchema }),
     })));
   }
 }

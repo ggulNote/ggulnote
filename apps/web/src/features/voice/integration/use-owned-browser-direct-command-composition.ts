@@ -1,6 +1,7 @@
 "use client";
 
 import type { EditorEngine } from "@ggulnote/editor-core";
+import type { TldrawEditorAdapter } from "../../editor/adapters/tldraw";
 import { useEffect, useRef, useState } from "react";
 import type { VoiceTurnContextRead } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
@@ -23,6 +24,7 @@ export interface OwnedBrowserDirectCommandCompositionOptions {
   getCurrentSceneRevision(): number;
   getCurrentPage(): number;
   goToPage(page: number): void;
+  getTldrawAdapter?(): TldrawEditorAdapter | undefined;
   spatial?: EditorSpatialPlacementCompositionOptions;
 }
 
@@ -44,6 +46,9 @@ class DirectCommandCompositionReaders {
   public getCurrentPage = (): number => this.options.getCurrentPage();
 
   public goToPage = (page: number): void => this.options.goToPage(page);
+
+  public getTldrawAdapter = (): TldrawEditorAdapter | undefined =>
+    this.options.getTldrawAdapter?.();
 
   public getSpatialBaseCanvas = (): HTMLCanvasElement | null =>
     this.options.spatial?.getBaseCanvas() ?? null;
@@ -74,6 +79,7 @@ export function useOwnedBrowserDirectCommandComposition(
       getCurrentSceneRevision: readers.getCurrentSceneRevision,
       getCurrentPage: readers.getCurrentPage,
       goToPage: readers.goToPage,
+      getTldrawAdapter: readers.getTldrawAdapter,
       recovery: new HttpGroundedTargetRecoveryProvider(),
       speechRefiner: new HttpSpeechRefinerProvider(),
       ...noteAgentRoutingOptions(),

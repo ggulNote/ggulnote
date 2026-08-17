@@ -233,6 +233,20 @@ describe("One Note Decision strict schema", () => {
         description: "create text",
         input: { text: "string" },
       }],
+      objectCatalog: {
+        objects: [{
+          handle: "O1",
+          source: "tldraw",
+          kind: "text",
+          summary: "hello",
+          bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+          capabilities: ["canRead", "canEditText"],
+          selected: true,
+          focused: false,
+          recent: true,
+        }],
+        truncated: false,
+      },
     };
     expect(parseNoteDecisionInput(input)).toEqual(input);
     expect(() => parseNoteDecisionInput({ ...input, fullScene: [] }))

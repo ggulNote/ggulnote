@@ -1,3 +1,4 @@
+@import "tldraw/tldraw.css";
 @import "tailwindcss";
 
 :root {
@@ -44,6 +45,10 @@ button:disabled {
   letter-spacing: normal;
   word-spacing: normal;
   transform-origin: 0 0;
+}
+
+.ggulnote-tldraw-overlay .tl-background {
+  background: transparent !important;
 }
 
 .pdf-text-layer-debug :is(span, br) {

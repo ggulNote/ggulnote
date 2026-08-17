@@ -20,6 +20,7 @@ export type EntitySelectorContext = "FOCUS" | "SELECTION";
 
 export const NOTE_OBJECT_PART_KINDS = [
   "curve", "point", "tangent", "row", "column", "cell", "expression", "subexpression",
+  "text_range",
 ] as const;
 
 export type NoteObjectPartKind = (typeof NOTE_OBJECT_PART_KINDS)[number];
@@ -95,11 +96,13 @@ export interface CompactToolSchema {
   readonly description: string;
   readonly examples?: readonly string[];
   readonly input: Readonly<Record<string, string>>;
+  readonly strictArgs?: Readonly<Record<string, JsonValue>>;
 }
 
 export const NOTE_CONTEXT_PART_IDS = [
   "user-turn",
   "frozen-context",
+  "object-catalog",
   "selection-focus",
   "recent-operations",
   "object-detail",
@@ -136,6 +139,33 @@ export interface NoteDecisionInput {
     };
   };
   readonly availableTools: readonly CompactToolSchema[];
+  readonly objectCatalog: {
+    readonly objects: readonly NoteCatalogObject[];
+    readonly truncated: boolean;
+  };
+}
+
+export type ObjectHandle = `O${number}`;
+
+export interface NoteCatalogObject {
+  readonly handle: ObjectHandle;
+  readonly source: "pdf" | "tldraw";
+  readonly kind: SceneObjectKind;
+  readonly summary?: string;
+  readonly bounds: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly capabilities: readonly string[];
+  readonly selected: boolean;
+  readonly focused: boolean;
+  readonly recent: boolean;
+  readonly parts?: readonly {
+    readonly kind: string;
+    readonly summary?: string;
+  }[];
 }
 
 export interface NoteContextSummary {
@@ -148,6 +178,55 @@ export interface NoteToolCall {
   readonly stepId: string;
   readonly toolId: NoteToolId;
   readonly input: unknown;
+}
+
+export type DecisionDestinationRelation =
+  | "ABOVE"
+  | "BELOW"
+  | "LEFT_OF"
+  | "RIGHT_OF"
+  | "INSIDE"
+  | "BETWEEN"
+  | "CANVAS_REGION";
+
+export interface DecisionObjectPartRef {
+  readonly kind: NoteObjectPartKind;
+  readonly index?: number | null;
+  readonly row?: number | null;
+  readonly column?: number | null;
+  readonly text?: string | null;
+  readonly startText?: string | null;
+  readonly endText?: string | null;
+}
+
+export interface DecisionObjectRef {
+  readonly object: ObjectHandle;
+  readonly part: DecisionObjectPartRef | null;
+}
+
+export interface DecisionDestination {
+  readonly relation: DecisionDestinationRelation;
+  readonly anchor: DecisionObjectRef | null;
+  readonly region: NotePageRegion | null;
+}
+
+export interface DecisionStep {
+  readonly action: NoteToolId;
+  readonly target: DecisionObjectRef | null;
+  readonly args: Readonly<Record<string, JsonValue>>;
+  readonly destination: DecisionDestination | null;
+}
+
+export type ClarificationReason =
+  | "AMBIGUOUS_OBJECT"
+  | "MISSING_TARGET"
+  | "MISSING_DESTINATION"
+  | "VISUAL_UNRESOLVED"
+  | "CONTEXT_LIMIT";
+
+export interface CropRequest {
+  readonly mode: "CANDIDATE_UNION";
+  readonly padding: number;
 }
 
 /** The runtime binds only already-completed step values before schema parsing. */
@@ -177,6 +256,28 @@ export type NoteDisambiguationChoice =
   | { readonly status: "NONE" };
 
 export type NoteDecision =
+  | {
+      readonly status: "READY";
+      readonly sceneRevision: number;
+      readonly steps: readonly DecisionStep[];
+    }
+  | {
+      readonly status: "NEEDS_VISUAL";
+      readonly sceneRevision: number;
+      readonly candidateHandles: readonly ObjectHandle[];
+      readonly cropRegion: CropRequest;
+    }
+  | {
+      readonly status: "NEEDS_CLARIFICATION";
+      readonly sceneRevision: number;
+      readonly reason: ClarificationReason;
+    }
+  | {
+      readonly status: "NOT_ALLOWED";
+      readonly sceneRevision: number;
+      readonly reason: string;
+    }
+  // Phase 4 compatibility variants remain parser-only for shadow fixtures.
   | { readonly status: "CALL"; readonly call: NoteToolCall }
   | { readonly status: "BATCH"; readonly atomic: true; readonly steps: readonly NoteToolCall[] }
   | { readonly status: "NEEDS_INPUT"; readonly missing: readonly string[] }

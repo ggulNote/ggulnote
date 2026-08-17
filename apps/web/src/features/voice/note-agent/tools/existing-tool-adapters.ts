@@ -4,9 +4,17 @@ import {
   parseEntitySelector,
   type Destination,
   type EntitySelector,
+  type DecisionDestination,
+  type DecisionObjectPartRef,
+  type DecisionObjectRef,
   type NoteToolId,
   type NoteToolResult,
 } from "../domain";
+import {
+  buildCanonicalTextStream,
+  resolveTextSpanWithCanonicalStream,
+} from "../../application/canonical-text-stream";
+import { groundTextSpan } from "../../application/text-span-grounder";
 import { capabilitiesForRef, type WorldResolutionResult } from "../world";
 import {
   NoteToolRegistry,
@@ -24,16 +32,16 @@ interface PreparedActionValue {
 
 interface TextCreateInput {
   readonly text: string;
-  readonly destination?: Destination;
+  readonly destination?: Destination | DecisionDestination;
 }
 
 interface TargetedTextInput {
-  readonly target: EntitySelector;
+  readonly target: EntitySelector | DecisionObjectRef;
   readonly text: string;
 }
 
 interface AnnotationApplyInput {
-  readonly target: EntitySelector;
+  readonly target: EntitySelector | DecisionObjectRef;
   readonly annotationType: "UNDERLINE" | "HIGHLIGHT";
   readonly color?: string;
 }
@@ -59,6 +67,9 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
     examples: ["가나다라 써 줘", "안녕하세요 아래에 가나다라 써 줘"],
     inputSchema: textCreateSchema,
     outputSchema: preparedActionValueSchema,
+    decisionArgsSchema: strictObjectSchema({
+      text: { type: "string", minLength: 1 },
+    }, ["text"]),
     isAvailable: (context) =>
       context.placement !== undefined
       && context.preparePlacement !== undefined
@@ -67,12 +78,27 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
       if (context.placement === undefined || context.preparePlacement === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "PLACEMENT_UNAVAILABLE" };
       }
+      if (context.handles !== undefined && input.destination === undefined) {
+        return { status: "NEEDS_INPUT", missing: ["destination"] };
+      }
       const prepared = await context.preparePlacement("text.create", input);
       if (prepared === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "MEASUREMENT_UNAVAILABLE" };
       }
       let anchorRef;
-      if (input.destination?.kind === "RELATIVE") {
+      if (isDecisionDestination(input.destination)) {
+        if (input.destination.relation !== "CANVAS_REGION") {
+          if (input.destination.anchor === null) {
+            return { status: "NEEDS_INPUT", missing: ["destination.anchor"] };
+          }
+          const directAnchor = resolveDecisionObjectRef(input.destination.anchor, context);
+          if ("result" in directAnchor) return directAnchor.result;
+          if (directAnchor.status !== "RESOLVED") {
+            return { status: "FAILED", reasonCode: "ANCHOR_RESOLUTION_FAILED" };
+          }
+          anchorRef = directAnchor.ref;
+        }
+      } else if (input.destination?.kind === "RELATIVE") {
         const selector = "context" in input.destination.anchor
           ? { context: input.destination.anchor.context }
           : input.destination.anchor;
@@ -99,6 +125,12 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
         }
         anchorRef = resolvedAnchor;
       }
+      const runtimeDestination = isDecisionDestination(input.destination)
+        ? placementDestination(input.destination)
+        : input.destination;
+      if (isDecisionDestination(input.destination) && runtimeDestination === undefined) {
+        return { status: "NEEDS_INPUT", missing: ["destination"] };
+      }
       const placementStartedAt = context.metrics?.now();
       const selection = context.candidateSelection;
       const selectedCandidate = selection !== undefined
@@ -109,7 +141,7 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
         destination: input.destination ?? null,
       });
       const placement = await context.placement.resolve({
-        ...(input.destination === undefined ? {} : { destination: input.destination }),
+        ...(runtimeDestination === undefined ? {} : { destination: runtimeDestination }),
         ...prepared,
         worldContext: context.frozenWorld,
         ...(anchorRef === undefined ? {} : { anchorRef }),
@@ -142,8 +174,13 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
               payload: { text: input.text },
             },
             placement: placement.placement,
-            ...(input.destination === undefined ? {} : { destination: input.destination }),
+            ...(runtimeDestination === undefined ? {} : { destination: runtimeDestination }),
             ...(anchorRef === undefined ? {} : { target: anchorRef }),
+            tldrawOperation: {
+              kind: "CREATE_TEXT",
+              text: input.text,
+              bounds: placement.placement.bounds,
+            },
             ...(placement.preparedSpatial === undefined
               ? {}
               : { preparedSpatial: placement.preparedSpatial }),
@@ -163,9 +200,13 @@ function textReplaceTool(): NoteTool<TargetedTextInput, PreparedActionValue> {
     examples: ["이 텍스트를 새 내용으로 바꿔 줘"],
     inputSchema: targetedTextSchema,
     outputSchema: preparedActionValueSchema,
+    decisionArgsSchema: strictObjectSchema({ text: { type: "string" } }, ["text"]),
     isAvailable: () => true,
     prepare: async (input, context) => {
-      const resolved = await resolveEntitySelector(input.target, context);
+      const resolved = isDecisionObjectRef(input.target)
+        ? resolveDecisionObjectRef(input.target, context)
+        : await resolveEntitySelector(input.target, context);
+      if ("result" in resolved) return resolved.result;
       const failure = resolutionFailure(resolved);
       if (failure !== undefined) return failure;
       if (resolved.status !== "RESOLVED") {
@@ -174,6 +215,10 @@ function textReplaceTool(): NoteTool<TargetedTextInput, PreparedActionValue> {
       const capabilities = capabilitiesForRef(resolved.ref, context.world);
       if (capabilities?.editable !== true) {
         return { status: "NOT_ALLOWED", reasonCode: "TARGET_NOT_EDITABLE" };
+      }
+      const tldrawObjectId = tldrawObjectIdForRef(resolved.ref, context);
+      if (isDecisionObjectRef(input.target) && tldrawObjectId === undefined) {
+        return { status: "NOT_ALLOWED", reasonCode: "TARGET_NOT_TLDRAW_TEXT" };
       }
       return {
         status: "READY",
@@ -187,6 +232,13 @@ function textReplaceTool(): NoteTool<TargetedTextInput, PreparedActionValue> {
               payload: { text: input.text },
             },
             target: resolved.ref,
+            ...(tldrawObjectId === undefined ? {} : {
+              tldrawOperation: {
+                kind: "REPLACE_TEXT",
+                objectId: tldrawObjectId,
+                text: input.text,
+              },
+            }),
           },
         }],
       };
@@ -202,9 +254,16 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, PreparedActionVal
     examples: ["Moreover부터 instance까지 밑줄 쳐 줘"],
     inputSchema: annotationApplySchema,
     outputSchema: preparedActionValueSchema,
+    decisionArgsSchema: strictObjectSchema({
+      annotationType: { type: "string", enum: ["UNDERLINE", "HIGHLIGHT"] },
+      color: { type: ["string", "null"] },
+    }, ["annotationType", "color"]),
     isAvailable: () => true,
     prepare: async (input, context) => {
-      const resolved = await resolveEntitySelector(input.target, context);
+      const resolved = isDecisionObjectRef(input.target)
+        ? resolveDecisionObjectRef(input.target, context)
+        : await resolveEntitySelector(input.target, context);
+      if ("result" in resolved) return resolved.result;
       const failure = resolutionFailure(resolved);
       if (failure !== undefined) return failure;
       if (resolved.status !== "RESOLVED") {
@@ -216,6 +275,8 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, PreparedActionVal
       if (!annotatableRange && capabilities?.annotatable !== true) {
         return { status: "NOT_ALLOWED", reasonCode: "TARGET_NOT_ANNOTATABLE" };
       }
+      const annotationRects = rectsForRef(resolved.ref, context);
+      if (annotationRects.length === 0) return { status: "NOT_FOUND" };
       return {
         status: "READY",
         value: { prepared: true },
@@ -228,6 +289,17 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, PreparedActionVal
               payload: input.color === undefined ? {} : { color: input.color },
             },
             target: resolved.ref,
+            tldrawOperation: {
+              kind: "CREATE_ANNOTATION",
+              annotationType: input.annotationType === "UNDERLINE" ? "underline" : "highlight",
+              rects: annotationRects,
+              ...(input.color === undefined ? {} : { color: input.color }),
+              targetObjectIds: resolved.ref.kind === "TEXT_RANGE"
+                ? resolved.ref.objectIds
+                : resolved.ref.kind === "OBJECT" || resolved.ref.kind === "OBJECT_PART"
+                  ? [resolved.ref.objectId]
+                  : [],
+            },
           },
         }],
       };
@@ -249,6 +321,7 @@ function controlTool(
       : operation === "previous_page" ? ["이전 페이지"] : ["방금 거 취소해"],
     inputSchema: emptyObjectSchema,
     outputSchema: preparedActionValueSchema,
+    decisionArgsSchema: strictObjectSchema({}, []),
     isAvailable: () => true,
     prepare: async () => ({
       status: "READY",
@@ -276,6 +349,254 @@ function resolutionFailure(
   return undefined;
 }
 
+function parseToolTarget(
+  value: unknown,
+  path: string,
+): EntitySelector | DecisionObjectRef {
+  const target = strictRecord(value, path, [
+    "object", "part", "scope", "kinds", "source", "content", "attributes",
+    "temporal", "ordinal", "context", "spatial",
+  ]);
+  if (typeof target.object !== "string") return parseEntitySelector(value, path);
+  if (!/^O[1-9][0-9]*$/u.test(target.object)) {
+    throw new NoteAgentValidationError(`${path}.object`, "invalid request-local handle");
+  }
+  return {
+    object: target.object as `O${number}`,
+    part: target.part === null || target.part === undefined
+      ? null
+      : parseDecisionPart(target.part, `${path}.part`),
+  };
+}
+
+function parseDecisionPart(value: unknown, path: string): DecisionObjectPartRef {
+  const part = strictRecord(value, path, [
+    "kind", "index", "row", "column", "text", "startText", "endText",
+  ]);
+  const kind = stringValue(part.kind, `${path}.kind`);
+  if (![
+    "curve", "point", "tangent", "row", "column", "cell", "expression",
+    "subexpression", "text_range",
+  ].includes(kind)) {
+    throw new NoteAgentValidationError(`${path}.kind`, "unsupported object part kind");
+  }
+  return {
+    kind: kind as DecisionObjectPartRef["kind"],
+    index: nullablePositiveInteger(part.index, `${path}.index`),
+    row: nullablePositiveInteger(part.row, `${path}.row`),
+    column: nullablePositiveInteger(part.column, `${path}.column`),
+    text: nullableString(part.text, `${path}.text`),
+    startText: nullableString(part.startText, `${path}.startText`),
+    endText: nullableString(part.endText, `${path}.endText`),
+  };
+}
+
+function parseToolDestination(
+  value: unknown,
+  path: string,
+): Destination | DecisionDestination {
+  const destination = strictRecord(value, path, [
+    "kind", "region", "alignment", "avoidOverlap", "relation", "anchor", "distance",
+  ]);
+  if (destination.kind !== undefined) return parseDestination(value, path);
+  const relation = stringValue(destination.relation, `${path}.relation`);
+  if (![
+    "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "INSIDE", "BETWEEN", "CANVAS_REGION",
+  ].includes(relation)) {
+    throw new NoteAgentValidationError(`${path}.relation`, "unsupported destination relation");
+  }
+  const region = destination.region === null || destination.region === undefined
+    ? null
+    : stringValue(destination.region, `${path}.region`) as DecisionDestination["region"];
+  return {
+    relation: relation as DecisionDestination["relation"],
+    anchor: destination.anchor === null || destination.anchor === undefined
+      ? null
+      : parseToolTarget(destination.anchor, `${path}.anchor`) as DecisionObjectRef,
+    region,
+  };
+}
+
+function isDecisionObjectRef(
+  target: EntitySelector | DecisionObjectRef,
+): target is DecisionObjectRef {
+  return "object" in target;
+}
+
+function isDecisionDestination(
+  destination: Destination | DecisionDestination | undefined,
+): destination is DecisionDestination {
+  return destination !== undefined && !("kind" in destination);
+}
+
+function resolveDecisionObjectRef(
+  target: DecisionObjectRef,
+  context: NoteToolContext,
+): WorldResolutionResult | {
+  readonly result: Exclude<NoteToolResult<never>, { status: "SUCCESS" }>;
+} {
+  const ref = context.handles?.resolve(target.object);
+  if (ref === undefined) {
+    return { result: { status: "FAILED", reasonCode: "INVALID_HANDLE" } };
+  }
+  if (target.part === null) return { status: "RESOLVED", ref };
+  if (target.part.kind === "text_range") {
+    return resolvePdfTextRange(ref, target.part, context);
+  }
+  if (ref.kind !== "OBJECT") return { result: { status: "NOT_FOUND" } };
+  const parts = context.world.getObjectMetadata(ref.objectId)?.parts ?? [];
+  const candidates = parts.filter((part, index) =>
+    part.kind === target.part?.kind
+    && (target.part.index === null || target.part.index === undefined || target.part.index === index + 1)
+    && (target.part.row === null || target.part.row === undefined || part.attributes?.row === target.part.row)
+    && (target.part.column === null || target.part.column === undefined
+      || part.attributes?.column === target.part.column));
+  if (candidates.length !== 1) {
+    return { result: candidates.length === 0
+      ? { status: "NOT_FOUND" }
+      : { status: "NEEDS_INPUT", missing: ["target.part"] } };
+  }
+  const part = candidates[0];
+  if (part === undefined) return { result: { status: "NOT_FOUND" } };
+  return {
+    status: "RESOLVED",
+    ref: {
+      kind: "OBJECT_PART",
+      objectId: ref.objectId,
+      partId: part.partId,
+      ...(part.bounds === undefined ? {} : { bounds: { ...part.bounds } }),
+    },
+  };
+}
+
+function resolvePdfTextRange(
+  ref: import("../world").EntityRef,
+  part: DecisionObjectPartRef,
+  context: NoteToolContext,
+): WorldResolutionResult | {
+  readonly result: Exclude<NoteToolResult<never>, { status: "SUCCESS" }>;
+} {
+  if (ref.kind !== "OBJECT") return { result: { status: "NOT_FOUND" } };
+  const selected = context.world.getObject(ref.objectId);
+  const semanticModel = context.frozenWorld.catalog.semanticModel;
+  if (selected === undefined || selected.source !== "pdf" || semanticModel === undefined) {
+    return { result: { status: "NOT_ALLOWED", reasonCode: "PDF_TEXT_RANGE_REQUIRED" } };
+  }
+  const startAnchor = part.startText ?? part.text;
+  const endAnchor = part.endText ?? part.text;
+  if (startAnchor === null || startAnchor === undefined
+    || endAnchor === null || endAnchor === undefined) {
+    return { result: { status: "NEEDS_INPUT", missing: ["target.part.text_range"] } };
+  }
+  const boundsBySourceObjectId = new Map<string, import("@ggulnote/editor-core").Rect>();
+  for (const object of context.world.listPageObjects(context.frozenWorld.pageId)) {
+    if (object.source === "pdf" && object.sourceObjectId !== undefined) {
+      boundsBySourceObjectId.set(object.sourceObjectId, { ...object.bounds });
+    }
+  }
+  const stream = buildCanonicalTextStream({
+    semanticModel,
+    pageId: context.frozenWorld.pageId,
+    boundsBySourceObjectId,
+  });
+  const sourceObjectId = selected.sourceObjectId;
+  const tokens = stream.tokens.filter((token) => selected.kind === "paragraph"
+    ? token.paragraphId === sourceObjectId
+    : selected.kind === "line"
+      ? token.lineId === sourceObjectId
+      : selected.kind === "word"
+        ? token.sourceObjectId === sourceObjectId
+        : false);
+  if (tokens.length === 0) return { result: { status: "NOT_FOUND" } };
+  const selectedStream = { pageId: stream.pageId, tokens };
+  const query = { kind: "text_span" as const, startAnchor, endAnchor };
+  const exact = resolveTextSpanWithCanonicalStream(selectedStream, query);
+  const aligned = exact.status === "RESOLVED"
+    ? exact
+    : groundTextSpan({
+        stream: selectedStream,
+        query,
+        ...(context.frozenWorld.speechGroundingEvidence === undefined
+          ? {}
+          : { speechEvidence: context.frozenWorld.speechGroundingEvidence }),
+      });
+  const materialized = "pair" in aligned ? aligned.pair.materialized : aligned;
+  if (materialized.status !== "RESOLVED") {
+    return { result: materialized.status === "AMBIGUOUS" || ("pairs" in aligned)
+      ? { status: "NEEDS_INPUT", missing: ["target.part.text_range"] }
+      : { status: "NOT_FOUND" } };
+  }
+  return {
+    status: "RESOLVED",
+    ref: {
+      kind: "TEXT_RANGE",
+      rangeId: `${ref.objectId}:range:${materialized.range.startIndex}-${materialized.range.endIndex}`,
+      objectIds: [ref.objectId],
+      rects: materialized.bounds.map((rect) => ({ ...rect })),
+    },
+  };
+}
+
+function placementDestination(
+  destination: DecisionDestination,
+): Destination | undefined {
+  if (destination.relation === "CANVAS_REGION") {
+    return destination.region === null ? undefined : {
+      kind: "PAGE_REGION",
+      region: destination.region,
+      alignment: "AUTO",
+      avoidOverlap: true,
+    };
+  }
+  if (destination.anchor === null || destination.relation === "BETWEEN") return undefined;
+  return {
+    kind: "RELATIVE",
+    relation: destination.relation,
+    anchor: { context: "FOCUS" },
+    alignment: "START",
+    distance: "NORMAL",
+    avoidOverlap: true,
+  };
+}
+
+function tldrawObjectIdForRef(
+  ref: import("../world").EntityRef,
+  context: NoteToolContext,
+): string | undefined {
+  const objectId = ref.kind === "OBJECT" || ref.kind === "OBJECT_PART"
+    ? ref.objectId
+    : undefined;
+  if (objectId === undefined) return undefined;
+  const object = context.world.getObject(objectId);
+  return object?.source === "canvas" && object.kind === "text"
+    ? object.sourceObjectId
+    : undefined;
+}
+
+function rectsForRef(
+  ref: import("../world").EntityRef,
+  context: NoteToolContext,
+): readonly import("@ggulnote/editor-core").Rect[] {
+  if (ref.kind === "TEXT_RANGE") return ref.rects;
+  if (ref.kind !== "OBJECT" && ref.kind !== "OBJECT_PART") return [];
+  const bounds = ref.kind === "OBJECT_PART"
+    ? ref.bounds ?? context.world.getObjectMetadata(ref.objectId)?.renderBounds
+    : context.world.getObjectMetadata(ref.objectId)?.renderBounds;
+  return bounds === undefined ? [] : [{ ...bounds }];
+}
+
+function nullableString(value: unknown, path: string): string | null {
+  return value === undefined || value === null ? null : stringValue(value, path);
+}
+
+function nullablePositiveInteger(value: unknown, path: string): number | null {
+  if (value === undefined || value === null) return null;
+  if (!Number.isInteger(value) || (value as number) <= 0) {
+    throw new NoteAgentValidationError(path, "expected a positive integer or null");
+  }
+  return value as number;
+}
+
 const textCreateSchema: NoteSchema<TextCreateInput> = {
   compact: Object.freeze({
     text: "non-empty string",
@@ -287,7 +608,7 @@ const textCreateSchema: NoteSchema<TextCreateInput> = {
       text: nonEmptyString(input.text, `${path}.text`),
       ...(input.destination === undefined
         ? {}
-        : { destination: parseDestination(input.destination, `${path}.destination`) }),
+        : { destination: parseToolDestination(input.destination, `${path}.destination`) }),
     };
   },
 };
@@ -297,7 +618,7 @@ const targetedTextSchema: NoteSchema<TargetedTextInput> = {
   parse(value, path = "input") {
     const input = strictRecord(value, path, ["target", "text"]);
     return {
-      target: parseEntitySelector(input.target, `${path}.target`),
+      target: parseToolTarget(input.target, `${path}.target`),
       text: stringValue(input.text, `${path}.text`),
     };
   },
@@ -319,9 +640,11 @@ const annotationApplySchema: NoteSchema<AnnotationApplyInput> = {
       );
     }
     return {
-      target: parseEntitySelector(input.target, `${path}.target`),
+      target: parseToolTarget(input.target, `${path}.target`),
       annotationType,
-      ...(input.color === undefined ? {} : { color: nonEmptyString(input.color, `${path}.color`) }),
+      ...(input.color === undefined || input.color === null
+        ? {}
+        : { color: nonEmptyString(input.color, `${path}.color`) }),
     };
   },
 };
@@ -377,4 +700,16 @@ function nonEmptyString(value: unknown, path: string): string {
     throw new NoteAgentValidationError(path, "expected a non-empty string");
   }
   return result;
+}
+
+function strictObjectSchema(
+  properties: Readonly<Record<string, import("../domain").JsonValue>>,
+  required: readonly string[],
+): Readonly<Record<string, import("../domain").JsonValue>> {
+  return Object.freeze({
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  });
 }

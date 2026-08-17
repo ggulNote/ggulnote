@@ -1,0 +1,498 @@
+import type {
+  PageSceneSnapshot,
+  Rect,
+  SerializedAnnotation,
+  Size,
+} from "@ggulnote/editor-core";
+import {
+  createShapeId,
+  getSnapshot,
+  loadSnapshot,
+  renderPlaintextFromRichText,
+  toRichText,
+  type Editor,
+  type TLShape,
+  type TLShapeId,
+  type TLTextShape,
+} from "tldraw";
+import {
+  NOTE_ANNOTATION_SHAPE_TYPE,
+  type NoteAnnotationSegment,
+  type NoteAnnotationShape,
+} from "./note-annotation-shape";
+
+const CANVAS_STORE_VERSION = 1;
+
+interface GgulnoteShapeMeta {
+  readonly canvasStoreVersion: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly createdByTurnId?: string;
+  readonly targetObjectIds?: readonly string[];
+}
+
+export type PreparedTldrawOperation =
+  | {
+      readonly kind: "CREATE_TEXT";
+      readonly text: string;
+      readonly bounds: Rect;
+    }
+  | {
+      readonly kind: "REPLACE_TEXT";
+      readonly objectId: string;
+      readonly text: string;
+    }
+  | {
+      readonly kind: "CREATE_ANNOTATION";
+      readonly annotationType: "underline" | "highlight";
+      readonly rects: readonly Rect[];
+      readonly color?: string;
+      readonly targetObjectIds?: readonly string[];
+    };
+
+export interface TldrawObjectProjection {
+  readonly objectId: string;
+  readonly kind: "text" | "annotation";
+  readonly bounds: Rect;
+  readonly normalizedBounds: Rect;
+  readonly text?: string;
+  readonly annotationType?: "underline" | "highlight";
+  readonly rects?: readonly Rect[];
+  readonly selected: boolean;
+  readonly focused: boolean;
+  readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly createdByTurnId?: string;
+  readonly targetObjectIds?: readonly string[];
+}
+
+export interface TldrawCommitResult {
+  readonly createdObjectIds: readonly string[];
+  readonly updatedObjectIds: readonly string[];
+  readonly sceneRevision: number;
+}
+
+/**
+ * Canvas infrastructure boundary. Agent/application code sees prepared operations
+ * and projections, never Editor, TLShape, TLStore, or persistent shape ids.
+ */
+export class TldrawEditorAdapter {
+  private sceneRevision = 0;
+  private lastProjectionMs = 0;
+
+  public constructor(
+    private readonly editor: Editor,
+    private readonly documentId: string,
+    private readonly pageId: string,
+    private readonly pageNumber: number,
+    private pageSize: Size,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  public setPageSize(pageSize: Size): void {
+    assertPageSize(pageSize);
+    this.pageSize = { ...pageSize };
+  }
+
+  public getSceneRevision(): number {
+    return this.sceneRevision;
+  }
+
+  public getLastProjectionMs(): number {
+    return this.lastProjectionMs;
+  }
+
+  /** Advances the stale-scene token for direct canvas edits and selection changes. */
+  public markSceneChanged(): number {
+    this.sceneRevision += 1;
+    return this.sceneRevision;
+  }
+
+  public getCurrentPageObjects(): readonly TldrawObjectProjection[] {
+    const startedAt = monotonicNow();
+    const selection = this.editor.getSelectedShapeIds();
+    const focusedId = this.editor.getEditingShapeId();
+    const objects = Object.freeze(this.editor.getCurrentPageShapesSorted().flatMap((shape) => {
+      const projected = this.projectShape(shape, selection.includes(shape.id), focusedId === shape.id);
+      return projected === undefined ? [] : [projected];
+    }));
+    this.lastProjectionMs = Math.max(0, monotonicNow() - startedAt);
+    return objects;
+  }
+
+  public getObject(objectId: string): TldrawObjectProjection | undefined {
+    const shape = this.editor.getShape(objectId as TLShapeId);
+    if (shape === undefined) return undefined;
+    const selection = this.editor.getSelectedShapeIds();
+    return this.projectShape(
+      shape,
+      selection.includes(shape.id),
+      this.editor.getEditingShapeId() === shape.id,
+    );
+  }
+
+  public applyPreparedOperations(input: {
+    readonly turnId: string;
+    readonly operations: readonly PreparedTldrawOperation[];
+  }): TldrawCommitResult {
+    if (input.operations.length === 0) {
+      throw new Error("A tldraw transaction requires at least one operation.");
+    }
+    const markId = this.editor.markHistoryStoppingPoint(`note-agent:${input.turnId}`);
+    const createdObjectIds: string[] = [];
+    const updatedObjectIds: string[] = [];
+    try {
+      this.editor.run(() => {
+        for (const operation of input.operations) {
+          const changed = this.applyOperation(operation, input.turnId);
+          if (changed.created !== undefined) createdObjectIds.push(changed.created);
+          if (changed.updated !== undefined) updatedObjectIds.push(changed.updated);
+        }
+      });
+      this.editor.squashToMark(markId);
+      this.sceneRevision += 1;
+      return Object.freeze({
+        createdObjectIds: Object.freeze(createdObjectIds),
+        updatedObjectIds: Object.freeze(updatedObjectIds),
+        sceneRevision: this.sceneRevision,
+      });
+    } catch (error) {
+      this.editor.bailToMark(markId);
+      throw error;
+    }
+  }
+
+  public undo(): boolean {
+    if (!this.editor.canUndo()) return false;
+    this.editor.undo();
+    this.sceneRevision += 1;
+    return true;
+  }
+
+  public snapshot(): unknown {
+    return {
+      canvasStoreVersion: CANVAS_STORE_VERSION,
+      snapshot: getSnapshot(this.editor.store),
+    };
+  }
+
+  public load(value: unknown): void {
+    const record = strictRecord(value);
+    if (record.canvasStoreVersion !== CANVAS_STORE_VERSION) {
+      throw new Error("Unsupported tldraw canvas snapshot version.");
+    }
+    loadSnapshot(this.editor.store, record.snapshot as Parameters<typeof loadSnapshot>[1]);
+    this.sceneRevision += 1;
+  }
+
+  public importLegacyPageSnapshot(snapshot: PageSceneSnapshot): void {
+    if (this.editor.getCurrentPageShapes().length > 0) return;
+    const operations = snapshot.annotations.flatMap((annotation) =>
+      legacyAnnotationOperation(annotation, this.pageSize));
+    if (operations.length === 0) return;
+    this.applyPreparedOperations({ turnId: "legacy-import", operations });
+    this.editor.clearHistory();
+  }
+
+  public exportPageProjection(): PageSceneSnapshot {
+    const annotations = this.getCurrentPageObjects().map((object, index) =>
+      projectionToSerializedAnnotation(object, this.pageId, this.pageSize, index));
+    return {
+      documentId: this.documentId,
+      pageId: this.pageId,
+      pageNumber: this.pageNumber,
+      revision: this.sceneRevision,
+      annotations,
+    };
+  }
+
+  private applyOperation(
+    operation: PreparedTldrawOperation,
+    turnId: string,
+  ): { readonly created?: string; readonly updated?: string } {
+    const timestamp = this.now();
+    if (operation.kind === "CREATE_TEXT") {
+      const id = createShapeId();
+      this.editor.createShape<TLTextShape>({
+        id,
+        type: "text",
+        x: operation.bounds.x,
+        y: operation.bounds.y,
+        props: {
+          richText: toRichText(operation.text),
+          autoSize: true,
+          w: Math.max(1, operation.bounds.width),
+          scale: 1,
+        },
+        meta: shapeMeta({ timestamp, turnId }),
+      });
+      return { created: id };
+    }
+    if (operation.kind === "REPLACE_TEXT") {
+      const id = operation.objectId as TLShapeId;
+      const shape = this.editor.getShape<TLTextShape>(id);
+      if (shape === undefined || shape.type !== "text") {
+        throw new Error("Tldraw text target does not exist.");
+      }
+      this.editor.updateShape<TLTextShape>({
+        id,
+        type: "text",
+        props: { richText: toRichText(operation.text), autoSize: true },
+        meta: shapeMeta({
+          timestamp,
+          turnId: readMeta(shape).createdByTurnId,
+          createdAt: readMeta(shape).createdAt,
+        }),
+      });
+      return { updated: id };
+    }
+    const union = unionRects(operation.rects);
+    if (union === undefined) throw new Error("Annotation geometry is empty.");
+    const id = createShapeId();
+    const segments = operation.rects.map((rect): NoteAnnotationSegment => ({
+      x: rect.x - union.x,
+      y: rect.y - union.y,
+      width: rect.width,
+      height: rect.height,
+    }));
+    this.editor.createShape<NoteAnnotationShape>({
+      id,
+      type: NOTE_ANNOTATION_SHAPE_TYPE,
+      x: union.x,
+      y: union.y,
+      props: {
+        w: union.width,
+        h: union.height,
+        annotationType: operation.annotationType,
+        segments,
+        color: operation.color
+          ?? (operation.annotationType === "highlight" ? "#facc15" : "#1f2937"),
+        opacity: operation.annotationType === "highlight" ? 0.35 : 1,
+        thickness: 2,
+      },
+      meta: shapeMeta({
+        timestamp,
+        turnId,
+        targetObjectIds: operation.targetObjectIds,
+      }),
+    });
+    return { created: id };
+  }
+
+  private projectShape(
+    shape: TLShape,
+    selected: boolean,
+    focused: boolean,
+  ): TldrawObjectProjection | undefined {
+    const box = this.editor.getShapePageBounds(shape);
+    if (box === undefined) return undefined;
+    const bounds = { x: box.x, y: box.y, width: box.w, height: box.h };
+    const normalizedBounds = normalizeRect(bounds, this.pageSize);
+    const meta = readMeta(shape);
+    if (shape.type === "text") {
+      const textShape = shape as TLTextShape;
+      return Object.freeze({
+        objectId: shape.id,
+        kind: "text",
+        bounds: Object.freeze(bounds),
+        normalizedBounds: Object.freeze(normalizedBounds),
+        text: renderPlaintextFromRichText(this.editor, textShape.props.richText),
+        selected,
+        focused,
+        ...projectedMeta(meta),
+      });
+    }
+    if (shape.type !== NOTE_ANNOTATION_SHAPE_TYPE) return undefined;
+    const annotation = shape as NoteAnnotationShape;
+    const rects = annotation.props.segments.map((segment) => ({
+      x: shape.x + segment.x,
+      y: shape.y + segment.y,
+      width: segment.width,
+      height: segment.height,
+    }));
+    return Object.freeze({
+      objectId: shape.id,
+      kind: "annotation",
+      bounds: Object.freeze(bounds),
+      normalizedBounds: Object.freeze(normalizedBounds),
+      annotationType: annotation.props.annotationType,
+      rects: Object.freeze(rects),
+      selected,
+      focused,
+      ...projectedMeta(meta),
+    });
+  }
+}
+
+function projectionToSerializedAnnotation(
+  object: TldrawObjectProjection,
+  pageId: string,
+  pageSize: Size,
+  zIndex: number,
+): SerializedAnnotation {
+  const createdAt = object.createdAt ?? 0;
+  const updatedAt = object.updatedAt ?? createdAt;
+  if (object.kind === "text") {
+    return {
+      schemaVersion: 1,
+      id: object.objectId,
+      pageId,
+      type: "TEXT",
+      bounds: { ...object.normalizedBounds },
+      zIndex,
+      properties: {
+        text: object.text ?? "",
+        fontSize: 18,
+        textFontFamily: "Arial",
+        textFontWeight: "normal",
+      },
+      createdAt,
+      updatedAt,
+      ...(object.createdByTurnId === undefined
+        ? {}
+        : { createdByTurnId: object.createdByTurnId }),
+      creationOrder: zIndex + 1,
+    };
+  }
+  return {
+    schemaVersion: 1,
+    id: object.objectId,
+    pageId,
+    type: object.annotationType === "highlight" ? "HIGHLIGHT" : "UNDERLINE",
+    bounds: { ...object.normalizedBounds },
+    rects: object.rects?.map((rect) => normalizeRect(rect, pageSize)),
+    targetObjectIds: object.targetObjectIds === undefined
+      ? undefined
+      : [...object.targetObjectIds],
+    zIndex,
+    properties: object.annotationType === "highlight"
+      ? { color: "#facc15", opacity: 0.35 }
+      : { color: "#1f2937", thickness: 2 },
+    createdAt,
+    updatedAt,
+    ...(object.createdByTurnId === undefined
+      ? {}
+      : { createdByTurnId: object.createdByTurnId }),
+    creationOrder: zIndex + 1,
+  };
+}
+
+function legacyAnnotationOperation(
+  annotation: SerializedAnnotation,
+  pageSize: Size,
+): readonly PreparedTldrawOperation[] {
+  const bounds = denormalizeRect(annotation.bounds, pageSize);
+  if (annotation.type === "TEXT") {
+    const text = typeof annotation.properties.text === "string"
+      ? annotation.properties.text
+      : "";
+    return text.length === 0 ? [] : [{ kind: "CREATE_TEXT", text, bounds }];
+  }
+  if (annotation.type !== "UNDERLINE" && annotation.type !== "HIGHLIGHT") return [];
+  const rects = annotation.rects?.map((rect) => denormalizeRect(rect, pageSize)) ?? [bounds];
+  return [{
+    kind: "CREATE_ANNOTATION",
+    annotationType: annotation.type === "HIGHLIGHT" ? "highlight" : "underline",
+    rects,
+    ...(typeof annotation.properties.color === "string"
+      ? { color: annotation.properties.color }
+      : {}),
+    ...(annotation.targetObjectIds === undefined
+      ? {}
+      : { targetObjectIds: annotation.targetObjectIds }),
+  }];
+}
+
+function shapeMeta(input: {
+  readonly timestamp: number;
+  readonly turnId?: string;
+  readonly createdAt?: number;
+  readonly targetObjectIds?: readonly string[];
+}) {
+  return {
+    ggulnote: {
+      canvasStoreVersion: CANVAS_STORE_VERSION,
+      createdAt: input.createdAt ?? input.timestamp,
+      updatedAt: input.timestamp,
+      ...(input.turnId === undefined ? {} : { createdByTurnId: input.turnId }),
+      ...(input.targetObjectIds === undefined
+        ? {}
+        : { targetObjectIds: [...input.targetObjectIds] }),
+    },
+  };
+}
+
+function readMeta(shape: TLShape): GgulnoteShapeMeta {
+  const meta = strictRecord(shape.meta);
+  const value = strictRecord(meta.ggulnote);
+  return {
+    canvasStoreVersion: readNumber(value.canvasStoreVersion) ?? CANVAS_STORE_VERSION,
+    createdAt: readNumber(value.createdAt) ?? 0,
+    updatedAt: readNumber(value.updatedAt) ?? 0,
+    ...(typeof value.createdByTurnId === "string"
+      ? { createdByTurnId: value.createdByTurnId }
+      : {}),
+    ...(Array.isArray(value.targetObjectIds)
+      ? { targetObjectIds: value.targetObjectIds.filter((id): id is string => typeof id === "string") }
+      : {}),
+  };
+}
+
+function projectedMeta(meta: GgulnoteShapeMeta) {
+  return {
+    ...(meta.createdAt <= 0 ? {} : { createdAt: meta.createdAt }),
+    ...(meta.updatedAt <= 0 ? {} : { updatedAt: meta.updatedAt }),
+    ...(meta.createdByTurnId === undefined ? {} : { createdByTurnId: meta.createdByTurnId }),
+    ...(meta.targetObjectIds === undefined ? {} : { targetObjectIds: meta.targetObjectIds }),
+  };
+}
+
+function normalizeRect(rect: Rect, pageSize: Size): Rect {
+  assertPageSize(pageSize);
+  return {
+    x: rect.x / pageSize.width,
+    y: rect.y / pageSize.height,
+    width: rect.width / pageSize.width,
+    height: rect.height / pageSize.height,
+  };
+}
+
+function denormalizeRect(rect: Rect, pageSize: Size): Rect {
+  assertPageSize(pageSize);
+  return {
+    x: rect.x * pageSize.width,
+    y: rect.y * pageSize.height,
+    width: rect.width * pageSize.width,
+    height: rect.height * pageSize.height,
+  };
+}
+
+function unionRects(rects: readonly Rect[]): Rect | undefined {
+  if (rects.length === 0) return undefined;
+  const x = Math.min(...rects.map((rect) => rect.x));
+  const y = Math.min(...rects.map((rect) => rect.y));
+  const right = Math.max(...rects.map((rect) => rect.x + rect.width));
+  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function assertPageSize(size: Size): void {
+  if (!Number.isFinite(size.width) || size.width <= 0
+    || !Number.isFinite(size.height) || size.height <= 0) {
+    throw new RangeError("Tldraw page size must be finite and positive.");
+  }
+}
+
+function monotonicNow(): number {
+  return globalThis.performance?.now() ?? Date.now();
+}
+
+function strictRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}

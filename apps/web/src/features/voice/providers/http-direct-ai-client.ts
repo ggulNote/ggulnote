@@ -15,6 +15,7 @@ export async function postDirectAiRequest(
   input: unknown,
   fetchImpl: DirectAiFetch,
   signal?: AbortSignal,
+  onTelemetry?: (value: unknown) => void,
 ): Promise<unknown> {
   throwIfAborted(signal);
   let response: Response;
@@ -49,11 +50,15 @@ export async function postDirectAiRequest(
       { httpStatus: response.status },
     );
   }
-  if (!isRecord(body) || Object.keys(body).some((key) => key !== "result")) {
+  const allowedKeys = onTelemetry === undefined ? ["result"] : ["result", "telemetry"];
+  if (!isRecord(body) || Object.keys(body).some((key) => !allowedKeys.includes(key))) {
     throw new DirectAiProviderError(
       "PLANNER_INVALID_OUTPUT",
       "INVALID_OUTPUT",
     );
+  }
+  if (onTelemetry !== undefined && body.telemetry !== undefined) {
+    onTelemetry(body.telemetry);
   }
   return body.result;
 }
