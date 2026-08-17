@@ -3,8 +3,8 @@
 ## Current Milestone
 
 ```text
-Phase 4 — Prompt Parts / Registered Actions / Atomic Prepare-Commit
-Status: IMPLEMENTED / PRODUCTION-DEFAULT CUTOVER GATE REMAINS
+Phase 5 — tldraw Object Catalog / One Decision
+Status: IMPLEMENTED LOCALLY / EXTERNAL CATALOG HANDOFF AND CUTOVER GATED
 ```
 
 ## Phase 1 / Phase 2 Foundation
@@ -141,3 +141,70 @@ Status: IMPLEMENTED / PRODUCTION-DEFAULT CUTOVER GATE REMAINS
 - [ ] live model/network representative parity
 - [ ] manual microphone/browser smoke
 - [ ] production default cutover and rollback observation
+
+## Phase 5 tldraw source of truth
+
+- [x] requested base에서 새 branch 생성
+- [x] dirty original worktree와 기존 untracked `next`, `pnpm` 보존
+- [x] production path user-created canvas object의 mutable source를 TLStore로 전환
+- [x] built-in tldraw text shape 재사용
+- [x] multi-segment annotation을 하나의 logical custom shape로 투영
+- [x] PDF.js base/semantic/text/glyph ownership 유지
+- [x] Agent domain과 tldraw SDK 사이 `TldrawEditorAdapter` boundary
+- [x] 기존 `pageSnapshots` IndexedDB record에 versioned snapshot/migration
+- [x] 별도 DB와 TLStore/SceneObject dual mutable state 없음
+
+## Phase 5 Object Catalog / One Decision
+
+- [x] request마다 새 O-handle map 생성
+- [x] 현재 페이지 user-created object 전체 compact catalog 포함
+- [x] normalized bounds, capabilities, selection/focus/recent 반영
+- [x] persistent ID, full PDF/page text, screenshot bytes 제외
+- [x] raw PDF word object catalog 제외
+- [x] enabled Action schema에서 strict discriminated JSON Schema 생성
+- [x] Responses `text.format=json_schema`, `strict=true` 연결
+- [x] 짧은 One Decision system contract와 대표 사례
+- [x] invalid O99는 commit 0
+- [x] duplicate same-content object는 모델 handle 선택 또는 clarification/commit 0
+- [ ] compact Object Catalog를 외부 OpenAI request에 포함하기 위한 명시적 승인
+- [ ] standalone PDF sentence catalog projection
+
+## Phase 5 No Fast Path / Resolver boundary
+
+- [x] next page provider call 정확히 1
+- [x] previous page provider call 정확히 1
+- [x] undo provider call 정확히 1
+- [x] production failure에서 legacy silent fallback 없음
+- [x] user-created object command에서 primary/fuzzy/`anchorQuery` resolver 미호출
+- [x] 선택된 PDF object 내부에서만 Stage 3.5 range alignment
+- [x] 알고리즘이 LLM-selected handle을 다른 object로 교체하지 않음
+
+## Phase 5 Prepare / Atomic tldraw
+
+- [x] `Action.prepare` persistent side effect 0
+- [x] 여러 mutation step prepare 후 tldraw transaction 1
+- [x] 두 번째 prepare 실패 commit 0
+- [x] commit child failure full rollback
+- [x] stale scene commit 0
+- [x] logical turn undo 1회
+- [x] Operation Ledger를 semantic recent history로만 유지
+- [x] normal visual call 0 / Stage 4 bounded visual call 최대 1
+- [ ] first-decision `NEEDS_VISUAL` generic second pass
+
+## Phase 5 Verification
+
+- [x] tldraw projection/catalog/privacy/fresh handle tests
+- [x] sequential typo/recent placement와 one-undo integration
+- [x] primary resolver 미호출과 selected-PDF-only range test
+- [x] no-fast-path Decision Provider count tests
+- [x] rollback/undo/persistence/PDF-Blank common path regression
+- [x] Node 22 Web full 141 files / 982 tests
+- [x] Node 22 Editor Core full 7 files / 54 tests
+- [x] Web/Editor strict typecheck
+- [x] Web/Editor lint
+- [x] `git diff --check`
+- [x] browser Blank tldraw mount/text select/edit/refresh smoke
+- [ ] live OpenAI/network
+- [ ] microphone and full voice browser smoke
+- [ ] PDF voice underline browser smoke
+- [ ] production-default cutover

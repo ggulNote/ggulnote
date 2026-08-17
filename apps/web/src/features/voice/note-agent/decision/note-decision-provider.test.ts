@@ -89,8 +89,17 @@ describe("One Note Decision provider", () => {
     expect(result).toMatchObject({ status: "CALL" });
     expect(transport.calls).toHaveLength(1);
     const request = transport.calls[0];
-    expect(request.maxOutputTokens).toBeLessThanOrEqual(900);
+    expect(request.maxOutputTokens).toBeLessThanOrEqual(700);
     expect(request.input).toHaveLength(4);
+    expect(request.responseFormat).toMatchObject({
+      type: "json_schema",
+      name: "note_decision",
+      strict: true,
+    });
+    expect(request.responseFormat?.schema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+    });
     expect(JSON.stringify(request)).not.toContain("fullScene");
   });
 
@@ -136,6 +145,8 @@ describe("One Note Decision provider", () => {
     const serialized = JSON.stringify(request.input);
     expect(serialized).not.toContain("a".repeat(241));
     expect(serialized).not.toContain("objectById");
+    expect(serialized).not.toContain("doc-1");
+    expect(serialized).not.toContain("page-1");
   });
 
   it("forwards only validated numeric transport telemetry across same-origin HTTP", async () => {
