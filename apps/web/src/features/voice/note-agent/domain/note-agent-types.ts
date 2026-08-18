@@ -95,7 +95,7 @@ export interface CompactToolSchema {
   readonly kind: NoteToolKind;
   readonly description: string;
   readonly examples?: readonly string[];
-  readonly input: Readonly<Record<string, string>>;
+  readonly input?: Readonly<Record<string, string>>;
   readonly strictArgs?: Readonly<Record<string, JsonValue>>;
 }
 
@@ -151,6 +151,7 @@ export interface NoteCatalogObject {
   readonly handle: ObjectHandle;
   readonly source: "pdf" | "tldraw";
   readonly kind: SceneObjectKind;
+  readonly text?: string;
   readonly summary?: string;
   readonly bounds: {
     readonly x: number;

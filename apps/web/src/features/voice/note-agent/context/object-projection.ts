@@ -179,7 +179,8 @@ export function projectCatalogObject(
   if (projected === undefined) return undefined;
   if (pageSize.width <= 0 || pageSize.height <= 0) return undefined;
   const metadata = projected.metadata;
-  const summary = bound(metadata.searchableText, 160);
+  const text = fullCatalogText(metadata);
+  const summary = text === undefined ? bound(metadata.searchableText, 160) : undefined;
   const capabilities = Object.entries(metadata.capabilities)
     .filter(([, enabled]) => enabled === true)
     .map(([name]) => name)
@@ -194,6 +195,7 @@ export function projectCatalogObject(
     handle,
     source: metadata.source === "PDF_BASE" ? "pdf" : "tldraw",
     kind: metadata.kind,
+    ...(text === undefined ? {} : { text }),
     ...(summary === undefined ? {} : { summary }),
     bounds: Object.freeze({
       x: clampUnit(metadata.bounds.x / pageSize.width),
@@ -209,6 +211,13 @@ export function projectCatalogObject(
       ? {}
       : { parts: Object.freeze(parts) }),
   });
+}
+
+function fullCatalogText(metadata: SceneObjectMetadataView): string | undefined {
+  const textAddressablePdf = metadata.source === "PDF_BASE"
+    && metadata.capabilities.textRangeAddressable;
+  const userText = metadata.source !== "PDF_BASE" && metadata.kind === "text";
+  return textAddressablePdf || userText ? metadata.searchableText : undefined;
 }
 
 function projectionSource(

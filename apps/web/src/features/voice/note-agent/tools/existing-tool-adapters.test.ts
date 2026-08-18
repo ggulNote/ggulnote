@@ -198,6 +198,11 @@ describe("existing NoteTool adapters", () => {
   });
 
   it("aligns a selected PDF text range inside that paragraph only", async () => {
+    const selectedParagraph: ParagraphSceneObject = {
+      ...PDF,
+      text: `${"canonical context ".repeat(14)}rendering HTML into visual webpages`,
+    };
+    expect(selectedParagraph.text.indexOf("rendering HTML")).toBeGreaterThan(160);
     const otherParagraph: ParagraphSceneObject = {
       ...PDF,
       id: "pdf-paragraph-2",
@@ -207,7 +212,7 @@ describe("existing NoteTool adapters", () => {
       readingOrder: 2,
     };
     const base = context({
-      pdfObjects: [PDF, ...duplicatePdfSceneWords(), otherParagraph],
+      pdfObjects: [selectedParagraph, ...duplicatePdfSceneWords(), otherParagraph],
       semanticModel: duplicatePdfRangeModel(),
     });
     const primaryResolve = vi.spyOn(base.resolver, "resolve");
@@ -224,8 +229,8 @@ describe("existing NoteTool adapters", () => {
           row: null,
           column: null,
           text: null,
-          startText: "Vision capability",
-          endText: "browsers",
+          startText: "rendering HTML",
+          endText: "visual webpages",
         },
       },
       annotationType: "UNDERLINE",
@@ -256,14 +261,19 @@ describe("existing NoteTool adapters", () => {
 
 function duplicatePdfRangeModel(): PageSemanticModel {
   const firstWords = [
-    semanticWord("word-1", "Vision", "line-1", 1, 0.04, 0.04),
-    semanticWord("word-2", "capability", "line-1", 2, 0.14, 0.04),
-    semanticWord("word-3", "browsers", "line-1", 3, 0.31, 0.04),
+    semanticWord("word-0", "context".repeat(24), "line-1", 1, 0.02, 0.04),
+    semanticWord("word-1", "rendering", "line-1", 2, 0.12, 0.04),
+    semanticWord("word-2", "HTML", "line-1", 3, 0.22, 0.04),
+    semanticWord("word-3", "into", "line-1", 4, 0.30, 0.04),
+    semanticWord("word-4", "visual", "line-1", 5, 0.38, 0.04),
+    semanticWord("word-5", "webpages", "line-1", 6, 0.47, 0.04),
   ];
   const secondWords = [
-    semanticWord("word-4", "Vision", "line-2", 4, 0.04, 0.54),
-    semanticWord("word-5", "capability", "line-2", 5, 0.14, 0.54),
-    semanticWord("word-6", "browsers", "line-2", 6, 0.31, 0.54),
+    semanticWord("word-6", "rendering", "line-2", 7, 0.12, 0.54),
+    semanticWord("word-7", "HTML", "line-2", 8, 0.22, 0.54),
+    semanticWord("word-8", "into", "line-2", 9, 0.30, 0.54),
+    semanticWord("word-9", "visual", "line-2", 10, 0.38, 0.54),
+    semanticWord("word-10", "webpages", "line-2", 11, 0.47, 0.54),
   ];
   const words = [...firstWords, ...secondWords];
   return new PageSemanticModel({
@@ -297,12 +307,17 @@ function duplicatePdfRangeModel(): PageSemanticModel {
 
 function duplicatePdfSceneWords(): readonly WordSceneObject[] {
   return [
-    pdfWord("word-1", "Vision", "line-1", 1, 24, 32),
-    pdfWord("word-2", "capability", "line-1", 2, 84, 32),
-    pdfWord("word-3", "browsers", "line-1", 3, 186, 32),
-    pdfWord("word-4", "Vision", "line-2", 4, 24, 432),
-    pdfWord("word-5", "capability", "line-2", 5, 84, 432),
-    pdfWord("word-6", "browsers", "line-2", 6, 186, 432),
+    pdfWord("word-0", "context".repeat(24), "line-1", 1, 12, 32),
+    pdfWord("word-1", "rendering", "line-1", 2, 72, 32),
+    pdfWord("word-2", "HTML", "line-1", 3, 132, 32),
+    pdfWord("word-3", "into", "line-1", 4, 192, 32),
+    pdfWord("word-4", "visual", "line-1", 5, 252, 32),
+    pdfWord("word-5", "webpages", "line-1", 6, 312, 32),
+    pdfWord("word-6", "rendering", "line-2", 7, 72, 432),
+    pdfWord("word-7", "HTML", "line-2", 8, 132, 432),
+    pdfWord("word-8", "into", "line-2", 9, 192, 432),
+    pdfWord("word-9", "visual", "line-2", 10, 252, 432),
+    pdfWord("word-10", "webpages", "line-2", 11, 312, 432),
   ];
 }
 
@@ -360,7 +375,7 @@ function semanticWord(
     direction: "ltr",
     startsWithPunctuation: false,
     endsWithPunctuation: false,
-    hasEOL: text === "browsers",
+    hasEOL: text === "webpages",
     axis: { advanceX: 8, advanceY: 0, normalX: 0, normalY: 1 },
     quad: { points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }] },
   };

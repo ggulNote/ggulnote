@@ -139,8 +139,6 @@ function harness() {
     id: "graph.inspect" as const,
     kind: "QUERY" as const,
     description: "Inspect a graph.",
-    examples: ["첫 번째 그래프를 보여 줘"],
-    input: { target: "EntitySelector" },
   }]);
   return {
     assembler: new NoteContextAssembler({ actionLoader: { loadActions } }),
@@ -278,6 +276,13 @@ describe("NoteContextAssembler", () => {
   });
 
   it("includes every current-page user object but omits raw PDF words", async () => {
+    const paragraphText = [
+      "However, existing approaches overlook a critical functionality of browsing.",
+      "The paragraph intentionally continues beyond the former catalog preview boundary.",
+      "This additional canonical context keeps the later phrase available to the model.",
+      "rendering HTML into visual webpages. Particularly, the final clause must remain visible.",
+    ].join(" ");
+    expect(paragraphText.length).toBeGreaterThan(160);
     const canvasObjects: TextSceneObject[] = Array.from({ length: 9 }, (_, index) => ({
       id: `canvas-secret-${index + 1}`,
       pageId: "page-mixed",
@@ -305,7 +310,7 @@ describe("NoteContextAssembler", () => {
       visible: true,
       locked: true,
       objectRevision: 1,
-      text: "bounded paragraph",
+      text: paragraphText,
       readingOrder: 1,
       childLineIds: ["line-secret"],
       regionId: "region-secret",
@@ -335,6 +340,7 @@ describe("NoteContextAssembler", () => {
       pdfObjects: [paragraph, word],
       canvasObjects,
     });
+    const searchIndex = vi.fn(() => []);
     const mixedWorld: UnifiedObjectWorld = {
       getSnapshot: (pageId, revision) =>
         pageId === "page-mixed" && revision === 11 ? mixedScene : undefined,
@@ -344,7 +350,7 @@ describe("NoteContextAssembler", () => {
         return object === undefined ? undefined : describeSceneObject(object, { documentId: "doc-mixed" });
       },
       listPageObjects: () => objects,
-      searchIndex: () => [],
+      searchIndex,
       getRecentOperations: () => [],
       getRecentOperationOutputs: () => [],
     };
@@ -390,15 +396,23 @@ describe("NoteContextAssembler", () => {
     expect(result.decisionInput.objectCatalog.objects).toHaveLength(10);
     expect(result.decisionInput.objectCatalog.objects.filter((object) => object.source === "tldraw"))
       .toHaveLength(9);
+    expect(result.decisionInput.objectCatalog.objects[0]).toMatchObject({
+      source: "tldraw",
+      kind: "text",
+      text: "user text 1",
+    });
     expect(result.decisionInput.objectCatalog.objects.at(-1)).toMatchObject({
       handle: "O10",
       source: "pdf",
       kind: "paragraph",
-      summary: "bounded paragraph",
+      text: paragraphText,
     });
+    expect(result.decisionInput.objectCatalog.objects.at(-1)).not.toHaveProperty("summary");
+    expect(JSON.stringify(result.decisionInput.objectCatalog)).toContain("rendering HTML into visual webpages");
     expect(JSON.stringify(result.decisionInput.objectCatalog)).not.toContain("raw-word-must-not-appear");
     expect(JSON.stringify(result.decisionInput.objectCatalog)).not.toContain("secret");
     expect(result.decisionInput.objectCatalog.truncated).toBe(false);
+    expect(searchIndex).not.toHaveBeenCalled();
   });
 
   it("rejects action schemas that consume the configured context budget", async () => {

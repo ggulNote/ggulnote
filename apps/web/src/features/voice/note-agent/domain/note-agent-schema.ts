@@ -319,15 +319,21 @@ function readDecisionDestination(value: unknown, path: string): DecisionDestinat
 function readCatalogObject(value: unknown, path: string): NoteCatalogObject {
   const object = readRecord(value, path);
   assertOnlyKeys(object, [
-    "handle", "source", "kind", "summary", "bounds", "capabilities",
+    "handle", "source", "kind", "text", "summary", "bounds", "capabilities",
     "selected", "focused", "recent", "parts",
   ], path);
+  if (object.text !== undefined && object.summary !== undefined) {
+    fail(path, "catalog object cannot contain both text and summary");
+  }
   const bounds = readRecord(object.bounds, `${path}.bounds`);
   assertOnlyKeys(bounds, ["x", "y", "width", "height"], `${path}.bounds`);
   return {
     handle: readObjectHandle(object.handle, `${path}.handle`),
     source: readUnion(object.source, `${path}.source`, ["pdf", "tldraw"] as const),
     kind: readSceneObjectKind(object.kind, `${path}.kind`),
+    ...(object.text === undefined
+      ? {}
+      : { text: readString(object.text, `${path}.text`) }),
     ...(object.summary === undefined
       ? {}
       : { summary: readString(object.summary, `${path}.summary`) }),
@@ -525,7 +531,9 @@ function readToolCall(value: unknown, path: string): NoteToolCall {
 function readCompactToolSchema(value: unknown, path: string): CompactToolSchema {
   const tool = readRecord(value, path);
   assertOnlyKeys(tool, ["id", "kind", "description", "examples", "input", "strictArgs"], path);
-  const fields = readRecord(tool.input, `${path}.input`);
+  const fields = tool.input === undefined
+    ? undefined
+    : readRecord(tool.input, `${path}.input`);
   return {
     id: readToolId(tool.id, `${path}.id`),
     kind: readUnion(tool.kind, `${path}.kind`, ["QUERY", "COMPUTE", "MUTATION"] as const),
@@ -533,10 +541,12 @@ function readCompactToolSchema(value: unknown, path: string): CompactToolSchema 
     ...(tool.examples === undefined
       ? {}
       : { examples: readNonEmptyStringArray(tool.examples, `${path}.examples`) }),
-    input: Object.fromEntries(Object.entries(fields).map(([key, entry]) => [
-      key,
-      readNonEmptyString(entry, `${path}.input.${key}`),
-    ])),
+    ...(fields === undefined ? {} : {
+      input: Object.fromEntries(Object.entries(fields).map(([key, entry]) => [
+        key,
+        readNonEmptyString(entry, `${path}.input.${key}`),
+      ])),
+    }),
     ...(tool.strictArgs === undefined
       ? {}
       : { strictArgs: readJsonRecord(readRecord(tool.strictArgs, `${path}.strictArgs`), `${path}.strictArgs`) }),

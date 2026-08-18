@@ -126,8 +126,6 @@ describe("NoteToolRegistry", () => {
       id: "test.echo",
       kind: "COMPUTE",
       description: "echo",
-      examples: ["echo value"],
-      input: { value: "string" },
     }]);
     expect(() => registry.register(tool)).toThrowError(/Duplicate NoteTool/u);
 

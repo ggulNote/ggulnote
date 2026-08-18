@@ -63,7 +63,7 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
   return {
     id: "text.create",
     kind: "MUTATION",
-    description: "Create user text with an optional declarative destination.",
+    description: "Create text; omit destination unless the user explicitly requests a page or object-relative location.",
     examples: ["가나다라 써 줘", "안녕하세요 아래에 가나다라 써 줘"],
     inputSchema: textCreateSchema,
     outputSchema: preparedActionValueSchema,
@@ -78,9 +78,6 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
       if (context.placement === undefined || context.preparePlacement === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "PLACEMENT_UNAVAILABLE" };
       }
-      if (context.handles !== undefined && input.destination === undefined) {
-        return { status: "NEEDS_INPUT", missing: ["destination"] };
-      }
       const prepared = await context.preparePlacement("text.create", input);
       if (prepared === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "MEASUREMENT_UNAVAILABLE" };
@@ -91,7 +88,7 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
           if (input.destination.anchor === null) {
             return { status: "NEEDS_INPUT", missing: ["destination.anchor"] };
           }
-          const directAnchor = resolveDecisionObjectRef(input.destination.anchor, context);
+          const directAnchor = resolveDecisionAnchorRef(input.destination.anchor, context);
           if ("result" in directAnchor) return directAnchor.result;
           if (directAnchor.status !== "RESOLVED") {
             return { status: "FAILED", reasonCode: "ANCHOR_RESOLUTION_FAILED" };
@@ -250,7 +247,7 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, PreparedActionVal
   return {
     id: "annotation.apply",
     kind: "MUTATION",
-    description: "Apply an underline or highlight to a grounded text target.",
+    description: "Apply underline or highlight to an object or its text range.",
     examples: ["Moreover부터 instance까지 밑줄 쳐 줘"],
     inputSchema: annotationApplySchema,
     outputSchema: preparedActionValueSchema,
@@ -315,7 +312,11 @@ function controlTool(
   return {
     id,
     kind: "MUTATION",
-    description: `${capability}.${operation} through the existing runtime boundary.`,
+    description: operation === "next_page"
+      ? "Move to the next page."
+      : operation === "previous_page"
+        ? "Move to the previous page."
+        : "Undo the latest edit.",
     examples: operation === "next_page"
       ? ["다음 페이지"]
       : operation === "previous_page" ? ["이전 페이지"] : ["방금 거 취소해"],
@@ -469,6 +470,32 @@ function resolveDecisionObjectRef(
   };
 }
 
+function resolveDecisionAnchorRef(
+  target: DecisionObjectRef,
+  context: NoteToolContext,
+): WorldResolutionResult | {
+  readonly result: Exclude<NoteToolResult<never>, { status: "SUCCESS" }>;
+} {
+  if (target.part?.kind !== "text_range") {
+    return resolveDecisionObjectRef(target, context);
+  }
+  const ref = context.handles?.resolve(target.object);
+  if (ref === undefined) {
+    return { result: { status: "FAILED", reasonCode: "INVALID_HANDLE" } };
+  }
+  if (ref.kind !== "OBJECT") return { result: { status: "NOT_FOUND" } };
+  const object = context.world.getObject(ref.objectId);
+  const metadata = context.world.getObjectMetadata(ref.objectId);
+  if (
+    object?.source === "canvas"
+    && object.kind === "text"
+    && metadata?.capabilities.textRangeAddressable === true
+  ) {
+    return { status: "RESOLVED", ref };
+  }
+  return resolveDecisionObjectRef(target, context);
+}
+
 function resolvePdfTextRange(
   ref: import("../world").EntityRef,
   part: DecisionObjectPartRef,
@@ -600,10 +627,10 @@ function nullablePositiveInteger(value: unknown, path: string): number | null {
 const textCreateSchema: NoteSchema<TextCreateInput> = {
   compact: Object.freeze({
     text: "non-empty string",
-    destination: "optional Destination",
+    destination: "null when not requested; otherwise the explicit semantic Destination",
   }),
   parse(value, path = "input") {
-    const input = strictRecord(value, path, ["text", "destination"]);
+    const input = strictRecord(value, path, ["text", "destination", "target"]);
     return {
       text: nonEmptyString(input.text, `${path}.text`),
       ...(input.destination === undefined

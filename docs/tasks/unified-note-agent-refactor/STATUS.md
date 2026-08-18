@@ -78,18 +78,23 @@ CompletedVoiceTurn
 ## Object Catalog / Provider
 
 Every request gets a new O-handle map. All current-page user-created objects
-are included with bounded summaries, normalized bounds, capabilities, and
-selection/focus/recent flags. PDF paragraphs and semantic
-figure/table/equation/image regions are compacted; raw PDF words are excluded.
-Persistent IDs, full PDF/page text, and screenshot bytes are excluded.
+are included with normalized bounds, capabilities, and selection/focus/recent
+flags. User text and PDF text-addressable paragraphs use one untruncated `text`
+field; PDF paragraph text comes from the existing canonical semantic sentence
+reconstruction. Non-text objects keep compact summaries/parts. Raw PDF words,
+glyphs, persistent IDs, document-wide text, and screenshot bytes are excluded.
+The current page's semantic paragraph text is intentionally included.
 
 Responses strict JSON Schema is generated from enabled registry actions and is
-connected as `text.format=json_schema`. The external provider prompt was
-shortened and document/page IDs were removed. After explicit user approval on
-2026-08-18, the external request now includes the bounded `OBJECT_CATALOG`
-message. It contains request-local handles, source/kind, normalized bounds,
-capabilities, flags, and bounded summaries/parts only. Live handle selection is
-verified for the representative Korean placement request.
+connected as `text.format=json_schema`. The external provider prompt excludes
+document/page IDs and sends each available Action only as `id + description`;
+examples, compact input descriptions, and strict argument schemas are not
+duplicated in the prompt. The response format remains the argument-schema
+source of truth. The `OBJECT_CATALOG` contains request-local handles,
+source/kind, normalized bounds, capabilities, flags, full current-page
+canonical text for text objects, and compact summaries/parts for non-text
+objects. Live handle selection remains verified for the representative Korean
+placement request.
 
 On 2026-08-18, the Node 22 same-origin `/api/voice/note-decision` route loaded
 `apps/web/.env.local` and made a real Responses API call for
@@ -146,6 +151,12 @@ Live OpenAI strict Decision: PASS (HTTP 200, O1 / BELOW)
 git diff --check: PASS
 ```
 
+The full-canonical-text consolidation was verified separately on Node 22.23.2:
+Editor Core targeted 1 file / 24 tests PASS; Web targeted 7 files / 54 tests
+PASS; Web and Editor Core strict typecheck PASS; changed-file Web and Editor
+Core lint PASS. The full suites, production build, and live OpenAI call above
+are the preceding Phase 5 baseline and were not rerun after this consolidation.
+
 The earlier Phase 5 manual browser smoke with the production flag verified Blank-page tldraw
 mount, actual text rendering, click selection, double-click editing,
 contenteditable update, refresh/IndexedDB restoration, and zero page errors.
@@ -167,6 +178,11 @@ scenario therefore remain unrun.
    PDF catalog currently uses paragraphs and semantic regions.
 4. Graph/table/equation/diagram and generic move/delete/style production
    mutations remain unavailable.
+5. The canonical SceneObject model still represents headings, captions, and
+   list items as paragraphs rather than distinct catalog kinds.
+6. Abnormally large current pages fail closed at the existing context budget;
+   lossless semantic splitting is not implemented because no measured page
+   requires it yet.
 
 The next milestone is to observe the default owner in the real browser voice
 flow, run PDF underline and duplicate-object smoke, and collect operating

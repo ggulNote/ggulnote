@@ -81,7 +81,18 @@ describe("tldraw One Decision sequential production flow", () => {
             args: { text: "가나다라" },
             destination: {
               relation: "BELOW",
-              anchor: { object: "O1", part: null },
+              anchor: {
+                object: "O1",
+                part: {
+                  kind: "text_range",
+                  index: null,
+                  row: null,
+                  column: null,
+                  text: "안녕하세요",
+                  startText: null,
+                  endText: null,
+                },
+              },
               region: null,
             },
           }],
@@ -141,7 +152,7 @@ describe("tldraw One Decision sequential production flow", () => {
         handle: "O1",
         source: "tldraw",
         kind: "text",
-        summary: "안녕하세요",
+        text: "안녕하세요",
       }),
     ]);
     expect(JSON.stringify(requestBody)).not.toContain(
@@ -184,7 +195,6 @@ describe("tldraw One Decision sequential production flow", () => {
     };
     const legacyTargetResolver = new FrozenTargetResolver();
     const legacyTargetResolve = vi.spyOn(legacyTargetResolver, "resolve");
-    const sourceCanvas = { width: 600, height: 800 } as HTMLCanvasElement;
     const composition = createEditorDirectCommandComposition({
       editorEngine,
       clock: { now: () => toSessionTimeMs(100) },
@@ -196,7 +206,7 @@ describe("tldraw One Decision sequential production flow", () => {
       planner: legacyPlanner,
       targetResolver: legacyTargetResolver,
       spatial: {
-        getBaseCanvas: () => sourceCanvas,
+        getBaseCanvas: () => null,
         getOverlayCanvas: () => null,
         mountPreviewCanvas: () => () => undefined,
       },
@@ -232,7 +242,7 @@ describe("tldraw One Decision sequential production flow", () => {
         handle: "O1",
         source: "tldraw",
         kind: "text",
-        summary: "안녕하세요",
+        text: "안녕하세요",
         recent: true,
       }),
     ]);
@@ -410,8 +420,8 @@ describe("tldraw One Decision sequential production flow", () => {
       turn("turn-duplicate", "안녕하세요 밑에 써줘", revision),
     )).resolves.toMatchObject({ status: "NEEDS_CLARIFICATION" });
     expect(decisionInput?.objectCatalog.objects).toEqual([
-      expect.objectContaining({ handle: "O1", summary: "안녕하세요" }),
-      expect.objectContaining({ handle: "O2", summary: "안녕하세요" }),
+      expect.objectContaining({ handle: "O1", text: "안녕하세요" }),
+      expect.objectContaining({ handle: "O2", text: "안녕하세요" }),
     ]);
     expect(adapter.getCurrentPageObjects()).toHaveLength(2);
     expect(composition.noteAgentProduction?.traces.getAll().at(-1)).toMatchObject({
@@ -452,7 +462,7 @@ class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
           action: "text.create" as const,
           target: null,
           args: { text: "안녕하세요" },
-          destination: { relation: "CANVAS_REGION" as const, anchor: null, region: "TOP_LEFT" as const },
+          destination: null,
         }],
       });
     }
@@ -472,13 +482,13 @@ class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
           : { summary: "안녕하세요", relation: "BELOW" as const, text: "가나다라" };
     const anchor = transcript.startsWith("선택한 글")
       ? input.objectCatalog.objects.find((object) => object.selected)
-      : input.objectCatalog.objects.find((object) => object.summary === reference.summary);
-    if (anchor?.summary === undefined) {
+      : input.objectCatalog.objects.find((object) => object.text === reference.summary);
+    if (anchor?.text === undefined) {
       throw new Error("Expected model-selected tldraw catalog anchor.");
     }
     this.references.push({
       transcript,
-      summary: anchor.summary,
+      summary: anchor.text,
       recent: anchor.recent,
       selected: anchor.selected,
       relation: reference.relation,
@@ -488,7 +498,7 @@ class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
       sceneRevision,
       steps: [{
         action: "text.create" as const,
-        target: null,
+        target: { object: anchor.handle, part: null },
         args: { text: reference.text },
         destination: {
           relation: reference.relation,

@@ -238,7 +238,7 @@ describe("One Note Decision strict schema", () => {
           handle: "O1",
           source: "tldraw",
           kind: "text",
-          summary: "hello",
+          text: "hello",
           bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
           capabilities: ["canRead", "canEditText"],
           selected: true,
@@ -249,6 +249,13 @@ describe("One Note Decision strict schema", () => {
       },
     };
     expect(parseNoteDecisionInput(input)).toEqual(input);
+    expect(() => parseNoteDecisionInput({
+      ...input,
+      objectCatalog: {
+        objects: [{ ...input.objectCatalog.objects[0], summary: "duplicate" }],
+        truncated: false,
+      },
+    })).toThrowError(/both text and summary/u);
     expect(() => parseNoteDecisionInput({ ...input, fullScene: [] }))
       .toThrowError(/unexpected field/u);
   });

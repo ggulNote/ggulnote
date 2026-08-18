@@ -92,7 +92,7 @@ export class ExistingPlacementEngine {
     }
     const destination = input.destination ?? this.defaultDestination;
     if (destination.kind === "PAGE_REGION") {
-      return this.resolveQuery(input, pageRegionQuery(destination.region, destination.alignment));
+      return this.resolveQuery({ ...input, destination }, pageRegionQuery(destination.region, destination.alignment));
     }
 
     const anchorSelector: EntitySelector = "context" in destination.anchor

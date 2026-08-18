@@ -110,7 +110,7 @@ export function validateSpatialPreview(
   const excludedObjectIds = overlayAnchorExclusion(input);
   const occupancy = new RectSpatialOccupancyIndex({
     snapshot: input.scene,
-    minimumClearance: input.profile.minClearance,
+    minimumClearance: Math.max(0, input.profile.minClearance - tolerance),
     excludedObjectIds,
   });
   const insideEditableBounds = occupancy.isInsideEditableBounds(actual);

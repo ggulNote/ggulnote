@@ -62,7 +62,9 @@ import {
 } from "../../voice";
 
 const ZOOM_STEP = 25;
-const TLDRAW_PRODUCTION_ROUTE = process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE === "production";
+const TLDRAW_PRODUCTION_ROUTE = process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE !== "legacy"
+  && process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE !== "shadow"
+  && process.env.NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE !== "1";
 const DRAG_CREATE_THRESHOLD_PX = 4;
 const LAYOUT_MODEL_STORAGE_KEY = "ggulnote:layout-detection:model-id";
 const INITIAL_LAYOUT_DETECTION_STATE: LayoutDetectionViewState = {

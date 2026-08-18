@@ -28,7 +28,6 @@ const INPUT: NoteDecisionInput = {
     id: "text.create",
     kind: "MUTATION",
     description: "create text",
-    input: { text: "string", destination: "optional Destination" },
     strictArgs: {
       type: "object",
       properties: { text: { type: "string" } },
@@ -41,7 +40,7 @@ const INPUT: NoteDecisionInput = {
       handle: "O1",
       source: "tldraw",
       kind: "text",
-      summary: "안녕하세요",
+      text: "안녕하세요",
       bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
       capabilities: ["editable"],
       selected: false,
@@ -135,6 +134,10 @@ describe("One Note Decision provider", () => {
       type: "object",
       additionalProperties: false,
     });
+    expect(request.instructions).toContain("destination MUST be null");
+    expect(request.instructions).toContain("destination MUST NOT be null");
+    expect(request.instructions).toContain("destination.anchor null");
+    expect(request.instructions).toContain("destination.anchor.part to null");
     const messageContent = request.input.map((message) => message.content).join("\n");
     const serialized = JSON.stringify(request);
     expect(messageContent).toContain('"section":"OBJECT_CATALOG"');
@@ -142,8 +145,39 @@ describe("One Note Decision provider", () => {
     expect(messageContent).toContain("안녕하세요 밑에 가나다라라고 써 줘");
     expect(messageContent).toContain('"handle":"O1"');
     expect(messageContent).toContain("안녕하세요");
+    const availableActions = request.input.find((message) =>
+      message.content.includes('"section":"AVAILABLE_ACTIONS"'));
+    expect(availableActions).toBeDefined();
+    expect(JSON.parse(availableActions!.content)).toEqual({
+      section: "AVAILABLE_ACTIONS",
+      data: [{ id: "text.create", description: "create text" }],
+    });
+    expect(availableActions!.content.length).toBeLessThan(JSON.stringify(INPUT.availableTools).length);
+    expect(availableActions!.content).not.toContain("strictArgs");
+    expect(availableActions!.content).not.toContain("examples");
     expect(serialized).not.toContain("fullScene");
     expect(serialized).not.toContain("shape:persistent");
+  });
+
+  it("sends full canonical PDF paragraph text instead of a bounded summary", () => {
+    const fullText = `${"canonical context ".repeat(14)}rendering HTML into visual webpages. Particularly ...`;
+    const request = buildNoteDecisionModelRequest({
+      ...INPUT,
+      objectCatalog: {
+        objects: [{
+          ...INPUT.objectCatalog.objects[0]!,
+          source: "pdf",
+          kind: "paragraph",
+          text: fullText,
+        }],
+        truncated: false,
+      },
+    });
+    const catalogMessage = request.input.find((message) =>
+      message.content.includes('"section":"OBJECT_CATALOG"'));
+    expect(catalogMessage?.content).toContain(fullText);
+    expect(catalogMessage?.content).toContain("rendering HTML into visual webpages");
+    expect(catalogMessage?.content).not.toContain('"summary"');
   });
 
   it("rejects unavailable tools and model-invented runtime authority", async () => {

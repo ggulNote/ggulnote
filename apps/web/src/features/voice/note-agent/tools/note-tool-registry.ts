@@ -141,8 +141,6 @@ export class NoteToolRegistry {
       id: tool.id,
       kind: tool.kind,
       description: tool.description,
-      examples: Object.freeze([...tool.examples]),
-      input: tool.inputSchema.compact,
       ...(tool.decisionArgsSchema === undefined
         ? {}
         : { strictArgs: tool.decisionArgsSchema }),

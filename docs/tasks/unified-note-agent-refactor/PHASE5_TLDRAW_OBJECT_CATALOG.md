@@ -108,10 +108,13 @@ or duplicate mutable SceneObject store was introduced.
 ## Unified world and Object Catalog
 
 Every request constructs a new `NoteObjectHandleMap`. The LLM-facing catalog
-contains only request-local handles, source/kind, normalized bounds, bounded
-summary/parts, capabilities, and selected/focused/recent flags. Persistent
-tldraw shape IDs, database IDs, PDF internal IDs, full page text, full PDF text,
-and screenshot bytes are excluded.
+contains only request-local handles, source/kind, normalized bounds,
+capabilities, and selected/focused/recent flags. Text-addressable PDF paragraphs
+and Canvas text use one untruncated `text` field. PDF paragraph text reuses the
+semantic sentence reconstruction, including whitespace normalization and
+line-end dehyphenation. Non-text objects keep compact summary/parts. Persistent
+tldraw shape IDs, database IDs, PDF internal IDs, document-wide text, raw word
+or glyph entries, and screenshot bytes are excluded.
 
 All current-page user-created objects are included before optional detail
 compression. They are not capped by the old six-candidate policy. The bounded
@@ -141,12 +144,15 @@ intent, typo/recent/object/part/destination selection to the model while
 assigning existence, capability, stale revision, geometry, math, and execution
 to deterministic code.
 
-The user explicitly approved the disclosed bounded Object Catalog egress on
-2026-08-18. The external OpenAI request now includes one `OBJECT_CATALOG`
-message containing the request-local handle, source/kind, normalized bounds,
-capabilities, selected/focused/recent flags, and bounded summary/parts. It does
-not add persistent object IDs, documentId/pageId, full PDF/page text, or
-screenshot bytes. Fake/local Decision Providers still cover the complete
+The user explicitly requested current-page full semantic text on 2026-08-18.
+The external OpenAI request includes one `OBJECT_CATALOG` message containing
+request-local handles, source/kind, normalized bounds, capabilities,
+selected/focused/recent flags, full canonical text for PDF paragraphs and
+Canvas text, and compact summary/parts for non-text objects. It does not add
+persistent object IDs, documentId/pageId, document-wide text, raw word/glyph
+entries, or screenshot bytes. `AVAILABLE_ACTIONS` contains only action ID and
+semantic description; the strict response JSON Schema is the single argument
+schema source of truth. Fake/local Decision Providers still cover the complete
 handle runtime. A real Node 22 same-origin call on 2026-08-18 sent
 `안녕하세요 밑에 가나다라라고 써 줘` with catalog object `O1 = 안녕하세요`
 and returned strict `READY`, `text.create`, `text=가나다라`, `anchor=O1`,
@@ -243,6 +249,11 @@ Live OpenAI strict Decision: PASS (HTTP 200, O1 / BELOW)
 git diff --check: PASS
 ```
 
+The later full-text consolidation passed Editor Core targeted 1 file / 24
+tests and Web targeted 7 files / 54 tests on Node 22.23.2. Web and Editor Core
+strict typecheck and changed-file lint also passed. Full suites, build, and a
+live OpenAI call were not rerun after this consolidation.
+
 The Web suite covers projection/catalog privacy and freshness, all
 user-created objects, raw PDF word exclusion, invalid handles, no primary
 resolver call, selected-PDF-object-only range alignment, no-fast-path provider
@@ -284,3 +295,7 @@ safety remain covered by fake Decision Provider integration tests.
    unavailable.
 5. Browser smoke did not execute voice-created text, PDF underline, or a live
    model decision.
+6. Headings, captions, and list items remain represented by the canonical
+   paragraph kind; distinct catalog kinds were not invented.
+7. An abnormally large current page fails closed at the existing context
+   budget; lossless semantic splitting remains an extension point.

@@ -161,10 +161,13 @@ Status: IMPLEMENTED / DEFAULT VOICE OWNER CUT OVER
 - [x] request마다 새 O-handle map 생성
 - [x] 현재 페이지 user-created object 전체 compact catalog 포함
 - [x] normalized bounds, capabilities, selection/focus/recent 반영
-- [x] persistent ID, full PDF/page text, screenshot bytes 제외
+- [x] persistent ID, document-wide text, screenshot bytes 제외
+- [x] 현재 페이지 PDF text-addressable paragraph의 full canonical `text` 제공
+- [x] Canvas text와 PDF paragraph를 동일 Object Catalog `text` 계약으로 제공
 - [x] raw PDF word object catalog 제외
 - [x] enabled Action schema에서 strict discriminated JSON Schema 생성
 - [x] Responses `text.format=json_schema`, `strict=true` 연결
+- [x] Action prompt는 `id + description`, strict args는 response schema에만 제공
 - [x] 짧은 One Decision system contract와 대표 사례
 - [x] invalid O99는 commit 0
 - [x] duplicate same-content object는 모델 handle 선택 또는 clarification/commit 0
@@ -211,3 +214,4 @@ Status: IMPLEMENTED / DEFAULT VOICE OWNER CUT OVER
 - [ ] PDF voice underline browser smoke
 - [x] production-default cutover
 - [ ] production rollback observation
+- [x] full-text 변경 targeted Editor 24 / Web 54 tests, strict typecheck, changed-file lint
