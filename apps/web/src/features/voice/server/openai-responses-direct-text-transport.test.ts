@@ -72,6 +72,7 @@ describe("OpenAiResponsesDirectTextTransport", () => {
       apiKey: "server-secret",
       model: "configured-model",
       timeoutMs: 1_000,
+      reasoningEffort: "low",
       fetch: fetchMock,
     });
 
@@ -94,6 +95,7 @@ describe("OpenAiResponsesDirectTextTransport", () => {
         ...REQUEST.input,
       ],
       text: { format: { type: "json_object" } },
+      reasoning: { effort: "low" },
       store: false,
       max_output_tokens: 200,
     });
@@ -198,6 +200,16 @@ describe("direct command AI server configuration", () => {
     expect(() => readDirectCommandAiServerConfig({
       OPENAI_API_KEY: "secret",
     })).toThrowError(/configuration is unavailable/u);
+    expect(() => readDirectCommandAiServerConfig({
+      OPENAI_API_KEY: "secret",
+      DIRECT_COMMAND_MODEL: "configured-model",
+      DIRECT_COMMAND_REASONING_EFFORT: "invalid",
+    })).toThrowError(/configuration is unavailable/u);
+    expect(readDirectCommandAiServerConfig({
+      OPENAI_API_KEY: "secret",
+      DIRECT_COMMAND_MODEL: "configured-model",
+      DIRECT_COMMAND_REASONING_EFFORT: "low",
+    })).toMatchObject({ reasoningEffort: "low" });
   });
 
   it("creates text and multimodal providers without external network calls", () => {

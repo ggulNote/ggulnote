@@ -7,6 +7,7 @@ import { LlmMultimodalPlacementJudgeProvider } from "../providers/llm-multimodal
 import { LlmNoteDecisionProvider } from "../note-agent/decision";
 import {
   OpenAiResponsesDirectTextTransport,
+  type OpenAiReasoningEffort,
   type OpenAiResponsesFetch,
 } from "./openai-responses-direct-text-transport";
 import { OpenAiResponsesDirectMultimodalTransport } from "./openai-responses-direct-multimodal-transport";
@@ -17,7 +18,17 @@ export interface DirectCommandAiServerConfig {
   apiKey: string;
   model: string;
   timeoutMs: number;
+  reasoningEffort?: OpenAiReasoningEffort;
 }
+
+const REASONING_EFFORTS = new Set<OpenAiReasoningEffort>([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
 
 export function readDirectCommandAiServerConfig(
   environment: Readonly<Record<string, string | undefined>>,
@@ -40,7 +51,25 @@ export function readDirectCommandAiServerConfig(
       "MISSING_CONFIGURATION",
     );
   }
-  return { apiKey, model, timeoutMs };
+  const rawReasoningEffort = environment.DIRECT_COMMAND_REASONING_EFFORT?.trim();
+  if (
+    rawReasoningEffort !== undefined
+    && rawReasoningEffort.length > 0
+    && !REASONING_EFFORTS.has(rawReasoningEffort as OpenAiReasoningEffort)
+  ) {
+    throw new DirectAiProviderError(
+      "PLANNER_UNAVAILABLE",
+      "MISSING_CONFIGURATION",
+    );
+  }
+  return {
+    apiKey,
+    model,
+    timeoutMs,
+    ...(rawReasoningEffort === undefined || rawReasoningEffort.length === 0
+      ? {}
+      : { reasoningEffort: rawReasoningEffort as OpenAiReasoningEffort }),
+  };
 }
 
 export function createDirectCommandAiProviders(

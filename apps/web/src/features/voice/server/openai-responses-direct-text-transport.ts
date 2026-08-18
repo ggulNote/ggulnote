@@ -15,10 +15,19 @@ export type OpenAiResponsesFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type OpenAiReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export interface OpenAiResponsesDirectTextTransportOptions {
   apiKey: string;
   model: string;
   timeoutMs: number;
+  reasoningEffort?: OpenAiReasoningEffort;
   fetch?: OpenAiResponsesFetch;
 }
 
@@ -83,6 +92,9 @@ implements DirectTextModelTransport {
             ...request.input,
           ],
           text: { format: request.responseFormat ?? { type: "json_object" } },
+          ...(this.options.reasoningEffort === undefined
+            ? {}
+            : { reasoning: { effort: this.options.reasoningEffort } }),
           max_output_tokens: request.maxOutputTokens,
           store: false,
         }),
