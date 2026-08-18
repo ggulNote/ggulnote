@@ -29,6 +29,20 @@ describe("One Note Decision Responses strict schema", () => {
           additionalProperties: false,
         },
       },
+      {
+        id: "annotation.apply",
+        kind: "MUTATION",
+        description: "Annotate",
+        strictArgs: {
+          type: "object",
+          properties: {
+            annotationType: { type: "string", enum: ["UNDERLINE", "HIGHLIGHT"] },
+            color: { type: ["string", "null"] },
+          },
+          required: ["annotationType", "color"],
+          additionalProperties: false,
+        },
+      },
     ]);
     const root = schema as Record<string, unknown>;
     expect(root.type).toBe("object");
@@ -44,9 +58,19 @@ describe("One Note Decision Responses strict schema", () => {
     const serialized = JSON.stringify(schema);
     expect(serialized).toContain('"const":"text.create"');
     expect(serialized).toContain('"const":"history.undo"');
+    expect(serialized).toContain('"const":"annotation.apply"');
+    expect(serialized).toContain("canonical non-empty startText/endText");
     expect(serialized).not.toContain("graph.create");
     expect(serialized).not.toContain("objectId");
     expect(serialized).not.toContain("TLShapeId");
+    const stepVariants = ((root.properties as Record<string, unknown>).steps as {
+      anyOf: readonly [{ items: { anyOf: readonly Record<string, unknown>[] } }, unknown];
+    }).anyOf[0].items.anyOf;
+    const annotationVariant = stepVariants.find((variant) =>
+      ((variant.properties as Record<string, { const?: string }>).action?.const)
+        === "annotation.apply");
+    expect((annotationVariant?.properties as Record<string, unknown>).destination)
+      .toEqual({ type: "null" });
   });
 
   it("normalizes strict nullable fields without weakening status validation", () => {

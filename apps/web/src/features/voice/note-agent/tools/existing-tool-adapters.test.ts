@@ -125,6 +125,8 @@ describe("existing NoteTool adapters", () => {
     expect(registry.get("navigation.previous_page")).toBeDefined();
     expect(registry.get("history.undo")).toBeDefined();
     expect(registry.get("object.delete")).toBeUndefined();
+    expect(registry.get("annotation.apply")?.description)
+      .toContain("ground across all supplied object text first");
     expect(registry.compactSchemas(context()).map((tool) => tool.id))
       .not.toContain("text.create");
   });
@@ -197,7 +199,13 @@ describe("existing NoteTool adapters", () => {
     expect(primaryResolve).not.toHaveBeenCalled();
   });
 
-  it("aligns a selected PDF text range inside that paragraph only", async () => {
+  it.each([
+    ["UNDERLINE", "underline"],
+    ["HIGHLIGHT", "highlight"],
+  ] as const)("aligns a selected PDF text range for %s inside that paragraph only", async (
+    annotationType,
+    preparedAnnotationType,
+  ) => {
     const selectedParagraph: ParagraphSceneObject = {
       ...PDF,
       text: `${"canonical context ".repeat(14)}rendering HTML into visual webpages`,
@@ -233,7 +241,7 @@ describe("existing NoteTool adapters", () => {
           endText: "visual webpages",
         },
       },
-      annotationType: "UNDERLINE",
+      annotationType,
     });
 
     const result = await tool.prepare(input, { ...base, handles });
@@ -243,7 +251,7 @@ describe("existing NoteTool adapters", () => {
         data: {
           tldrawOperation: {
             kind: "CREATE_ANNOTATION",
-            annotationType: "underline",
+            annotationType: preparedAnnotationType,
             targetObjectIds: [PDF.id],
           },
         },
@@ -256,6 +264,63 @@ describe("existing NoteTool adapters", () => {
     expect(operation.tldrawOperation?.rects).not.toHaveLength(0);
     expect(operation.tldrawOperation?.rects?.every((rect) => rect.y < 200)).toBe(true);
     expect(primaryResolve).not.toHaveBeenCalled();
+  });
+
+  it("keeps whole-object PDF annotation available with part null", async () => {
+    const base = context();
+    const handles = new NoteObjectHandleMap();
+    handles.register("O12", { kind: "OBJECT", objectId: PDF.id });
+    const tool = createExistingNoteToolRegistry().get("annotation.apply");
+    if (tool === undefined) throw new Error("Expected annotation.apply adapter.");
+
+    const result = await tool.prepare(tool.inputSchema.parse({
+      target: { object: "O12", part: null },
+      annotationType: "UNDERLINE",
+      color: null,
+    }), { ...base, handles });
+
+    expect(result).toMatchObject({
+      status: "READY",
+      operations: [{
+        data: {
+          tldrawOperation: {
+            kind: "CREATE_ANNOTATION",
+            annotationType: "underline",
+            rects: [PDF.renderBounds],
+          },
+        },
+      }],
+    });
+  });
+
+  it("does not fall back to whole-object annotation when text-range anchors fail", async () => {
+    const base = context({
+      pdfObjects: [PDF, ...duplicatePdfSceneWords()],
+      semanticModel: duplicatePdfRangeModel(),
+    });
+    const handles = new NoteObjectHandleMap();
+    handles.register("O12", { kind: "OBJECT", objectId: PDF.id });
+    const tool = createExistingNoteToolRegistry().get("annotation.apply");
+    if (tool === undefined) throw new Error("Expected annotation.apply adapter.");
+
+    const result = await tool.prepare(tool.inputSchema.parse({
+      target: {
+        object: "O12",
+        part: {
+          kind: "text_range",
+          index: null,
+          row: null,
+          column: null,
+          text: null,
+          startText: "missing start anchor",
+          endText: "missing end anchor",
+        },
+      },
+      annotationType: "UNDERLINE",
+      color: null,
+    }), { ...base, handles });
+
+    expect(result.status).not.toBe("READY");
   });
 });
 

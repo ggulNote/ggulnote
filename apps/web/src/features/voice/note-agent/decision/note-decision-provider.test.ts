@@ -65,6 +65,22 @@ class StubTransport implements DirectTextModelTransport {
   }
 }
 
+class SequenceTransport implements DirectTextModelTransport {
+  public calls: DirectTextModelRequest[] = [];
+
+  public constructor(private readonly outputs: readonly string[]) {}
+
+  public generate(
+    request: DirectTextModelRequest,
+    _options: DirectTextModelTransportOptions = {},
+  ): Promise<string> {
+    this.calls.push(request);
+    const output = this.outputs[this.calls.length - 1];
+    if (output === undefined) return Promise.reject(new Error("unexpected model call"));
+    return Promise.resolve(output);
+  }
+}
+
 describe("One Note Decision provider", () => {
   it("uses the same provider transport for one alias-only ambiguity choice", async () => {
     const transport = new StubTransport(JSON.stringify({
@@ -138,6 +154,16 @@ describe("One Note Decision provider", () => {
     expect(request.instructions).toContain("destination MUST NOT be null");
     expect(request.instructions).toContain("destination.anchor null");
     expect(request.instructions).toContain("destination.anchor.part to null");
+    expect(request.instructions).toContain("target.part MUST use kind text_range");
+    expect(request.instructions).toContain("copied verbatim from the selected target object's text");
+    expect(request.instructions).toContain("boundary anchors, NOT the full matched span");
+    expect(request.instructions).toContain("smallest canonical exact substring corresponding to A");
+    expect(request.instructions).toContain("set the unused index, row, column, and text fields to null");
+    expect(request.instructions).toContain("NEVER include Korean range particles");
+    expect(request.instructions).toContain("For annotation.apply, destination MUST be null");
+    expect(request.instructions).toContain("DO NOT choose an object first from general topic similarity");
+    expect(request.instructions).toContain("compare it against the supplied text of ALL catalog objects");
+    expect(request.instructions).toContain("explicit content reference, strong object-content evidence");
     const messageContent = request.input.map((message) => message.content).join("\n");
     const serialized = JSON.stringify(request);
     expect(messageContent).toContain('"section":"OBJECT_CATALOG"');
@@ -178,6 +204,214 @@ describe("One Note Decision provider", () => {
     expect(catalogMessage?.content).toContain(fullText);
     expect(catalogMessage?.content).toContain("rendering HTML into visual webpages");
     expect(catalogMessage?.content).not.toContain('"summary"');
+  });
+
+  it("states that canonical span evidence selects its owning PDF object", () => {
+    const request = buildNoteDecisionModelRequest({
+      ...INPUT,
+      turn: {
+        ...INPUT.turn,
+        rawFinalTranscript: "브랜드 html부터 웹 페이지스까지 하이라이트",
+      },
+      objectCatalog: {
+        objects: [
+          {
+            ...INPUT.objectCatalog.objects[0]!,
+            handle: "O4",
+            source: "pdf",
+            kind: "paragraph",
+            text: "The recent advancement of large language models includes web browsing environments.",
+          },
+          {
+            ...INPUT.objectCatalog.objects[0]!,
+            handle: "O12",
+            source: "pdf",
+            kind: "paragraph",
+            text: "However, existing approaches overlook browsing: rendering HTML into visual webpages. Particularly, vision capability is crucial.",
+          },
+        ],
+        truncated: false,
+      },
+    });
+    const catalogMessage = request.input.find((message) =>
+      message.content.includes('"section":"OBJECT_CATALOG"'));
+
+    expect(catalogMessage?.content).toContain('"handle":"O4"');
+    expect(catalogMessage?.content).toContain('"handle":"O12"');
+    expect(catalogMessage?.content).toContain("rendering HTML into visual webpages");
+    expect(request.instructions).toContain('object=O12');
+    expect(request.instructions).toContain('startText="rendering HTML"');
+    expect(request.instructions).toContain('endText="webpages."');
+    expect(request.instructions).toContain("annotationType=HIGHLIGHT");
+    expect(request.instructions).toContain("Do not choose O4");
+    expect(request.instructions).toContain('Correct: startText="rendering HTML", endText="visual webpages."');
+    expect(request.instructions).toContain('Wrong: startText="However, existing approaches ... rendering HTML"');
+  });
+
+  it("repairs only invalid catalog text-range anchors at most once", async () => {
+    const fullText = "However, existing approaches overlook a critical functionality of browsing: rendering HTML into visual webpages. Particularly, vision capability is crucial.";
+    const input: NoteDecisionInput = {
+      ...INPUT,
+      turn: {
+        ...INPUT.turn,
+        rawFinalTranscript: "렌더링 html부터 웹페이지스까지 밑줄 쳐 줘",
+      },
+      availableTools: [{
+        id: "annotation.apply",
+        kind: "MUTATION",
+        description: "Apply a partial text annotation with canonical anchors and no destination.",
+        strictArgs: {
+          type: "object",
+          properties: {
+            annotationType: { type: "string", enum: ["UNDERLINE", "HIGHLIGHT"] },
+            color: { type: ["string", "null"] },
+          },
+          required: ["annotationType", "color"],
+          additionalProperties: false,
+        },
+      }],
+      objectCatalog: {
+        objects: [{
+          ...INPUT.objectCatalog.objects[0]!,
+          handle: "O12",
+          source: "pdf",
+          kind: "paragraph",
+          text: fullText,
+        }],
+        truncated: false,
+      },
+    };
+    const transport = new StubTransport(JSON.stringify({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "annotation.apply",
+        target: {
+          object: "O12",
+          part: {
+            kind: "text_range",
+            index: null,
+            row: null,
+            column: null,
+            text: null,
+            startText: "rendering HTML",
+            endText: "visual webpages",
+          },
+        },
+        args: { annotationType: "UNDERLINE", color: null },
+        destination: null,
+      }],
+      candidateHandles: null,
+      cropRegion: null,
+      reason: null,
+    }));
+
+    await expect(new LlmNoteDecisionProvider(transport).decide(input)).resolves.toEqual({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "annotation.apply",
+        target: {
+          object: "O12",
+          part: {
+            kind: "text_range",
+            index: null,
+            row: null,
+            column: null,
+            text: null,
+            startText: "rendering HTML",
+            endText: "visual webpages",
+          },
+        },
+        args: { annotationType: "UNDERLINE", color: null },
+        destination: null,
+      }],
+    });
+    expect(transport.calls).toHaveLength(1);
+
+    const invalidDecision = JSON.stringify({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "annotation.apply",
+        target: {
+          object: "O12",
+          part: {
+            kind: "text_range",
+            index: null,
+            row: null,
+            column: null,
+            text: null,
+            startText: "렌더링 HTML",
+            endText: "웹페이지스까지",
+          },
+        },
+        args: { annotationType: "UNDERLINE", color: null },
+        destination: null,
+      }],
+      candidateHandles: null,
+      cropRegion: null,
+      reason: null,
+    });
+    const repairedAnchors = JSON.stringify({
+      startText: "rendering HTML",
+      endText: "visual webpages",
+    });
+    const repairTransport = new SequenceTransport([invalidDecision, repairedAnchors]);
+
+    await expect(new LlmNoteDecisionProvider(repairTransport).decide(input)).resolves.toEqual({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "annotation.apply",
+        target: {
+          object: "O12",
+          part: {
+            kind: "text_range",
+            index: null,
+            row: null,
+            column: null,
+            text: null,
+            startText: "rendering HTML",
+            endText: "visual webpages",
+          },
+        },
+        args: { annotationType: "UNDERLINE", color: null },
+        destination: null,
+      }],
+    });
+    expect(repairTransport.calls).toHaveLength(2);
+    expect(repairTransport.calls[1]).toMatchObject({
+      maxOutputTokens: 100,
+      responseFormat: {
+        name: "note_text_range_repair",
+        strict: true,
+      },
+    });
+    const repairPayload = JSON.parse(repairTransport.calls[1]!.input[0]!.content);
+    expect(repairPayload).toEqual({
+      originalUserTranscript: "렌더링 html부터 웹페이지스까지 밑줄 쳐 줘",
+      selectedObject: {
+        handle: "O12",
+        text: fullText,
+      },
+      invalidPreviousAnchors: {
+        startText: "렌더링 HTML",
+        endText: "웹페이지스까지",
+      },
+    });
+    expect(JSON.stringify(repairTransport.calls[1])).not.toContain("objectCatalog");
+
+    const failedRepairTransport = new SequenceTransport([
+      invalidDecision,
+      JSON.stringify({
+        startText: "still invalid",
+        endText: "also invalid",
+      }),
+    ]);
+    await expect(new LlmNoteDecisionProvider(failedRepairTransport).decide(input))
+      .rejects.toMatchObject({ code: "PLANNER_INVALID_OUTPUT" });
+    expect(failedRepairTransport.calls).toHaveLength(2);
   });
 
   it("rejects unavailable tools and model-invented runtime authority", async () => {

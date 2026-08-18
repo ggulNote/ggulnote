@@ -247,7 +247,7 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, PreparedActionVal
   return {
     id: "annotation.apply",
     kind: "MUTATION",
-    description: "Apply underline or highlight to an object or its text range.",
+    description: "Apply underline/highlight. For a partial span, ground across all supplied object text first, select the object containing that span, and return exact canonical startText/endText; destination is null.",
     examples: ["Moreover부터 instance까지 밑줄 쳐 줘"],
     inputSchema: annotationApplySchema,
     outputSchema: preparedActionValueSchema,

@@ -557,6 +557,55 @@ describe("canonical-text-stream", () => {
     expect(resolution.candidates).toHaveLength(3);
   });
 
+  it("uses the nearest repeated end anchor when the start anchor is unique", () => {
+    const words = ["compiling", "automatic", "evaluation", "proposed", "evaluation"]
+      .map((text, index) => buildWord({
+        id: `word-${index + 1}`,
+        text,
+        lineId: "line-1",
+        readingOrder: index + 1,
+        bounds: { x: index * 70, y: 0, width: 64, height: 20 },
+        startOffset: index * 12,
+        endOffset: index * 12 + text.length,
+        hasEOL: index === 4,
+      }));
+    const model = buildModel({
+      words,
+      lines: [buildLine({
+        id: "line-1",
+        text: words.map((word) => word.text).join(" "),
+        readingOrder: 1,
+        wordIds: words.map((word) => word.id),
+        paragraphId: null,
+        bounds: { x: 0, y: 0, width: 344, height: 20 },
+      })],
+      layoutRegions: [],
+      layoutBlocks: [],
+      columns: [],
+      sentences: [],
+      paragraphs: [],
+    });
+    const stream = buildCanonicalTextStream({
+      semanticModel: model,
+      pageId: "page-1",
+      boundsBySourceObjectId: new Map(
+        words.map((word) => [word.id, { ...word.bounds }] as const),
+      ),
+    });
+
+    const resolution = resolveTextSpanWithCanonicalStream(stream, {
+      kind: "text_span",
+      startAnchor: "compiling",
+      endAnchor: "evaluation",
+    });
+
+    expect(resolution).toMatchObject({
+      status: "RESOLVED",
+      range: { startIndex: 0, endIndex: 2 },
+      text: "compiling automatic evaluation",
+    });
+  });
+
   it("returns NOT_FOUND when anchors are missing or reversed", () => {
     const words = [
       buildWord({
