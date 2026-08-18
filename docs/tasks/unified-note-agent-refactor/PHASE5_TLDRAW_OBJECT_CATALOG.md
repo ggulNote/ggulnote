@@ -9,6 +9,7 @@ new branch: refactor/tldraw-object-catalog-one-decision
 implementation commit: d05b02c refactor(note-agent): add tldraw catalog decision runtime
 documentation commit: the commit containing this document
 approved catalog handoff: the final commit containing the external payload connection
+default voice owner cutover: 32932e5 refactor(voice): cut over to one note decision
 ```
 
 The original worktree was on the requested source branch at
@@ -35,16 +36,51 @@ CompletedVoiceTurn
 → semantic Operation Ledger
 ```
 
-This path is selected only by the existing explicit
-`NEXT_PUBLIC_NOTE_AGENT_ROUTE=production` flag. The default remains the
-legacy route until live model/network parity and cutover approval. Production
-failure is fail-closed; it does not fall back silently to a legacy semantic
-route.
+This is now the default app voice path. An absent route value and explicit
+`production` both select the Phase 5 owner. `shadow` remains the explicit
+no-commit comparison mode, and `legacy` is the explicit rollback-only
+selection. Production failure is fail-closed; it does not fall back silently
+to a legacy semantic route.
 
 There is no Fast Path. Actionable next-page, previous-page, and undo turns call
 the same Decision Provider exactly once. Cancelled turns, empty final
 transcripts, unavailable provider initialization, and disposed runtime remain
 lifecycle exclusions.
+
+## Default voice owner cutover
+
+The root cause was composition ownership, not the Phase 5 Decision runtime.
+`VoiceTurnController` and `DirectCommandVoiceTurnBridge` preserved the raw
+transcript, but `noteAgentRoutingOptions()` returned no Note Agent options when
+`NEXT_PUBLIC_NOTE_AGENT_ROUTE` was absent. The browser composition then chose
+`direct.route`, so the real UI ran the legacy planner and could return
+`EXECUTABLE`, rewritten `normalizedIntent`, and `placementQuery` before Phase 5
+was ever invoked.
+
+Before:
+
+```text
+CompletedVoiceTurn
+→ browser direct composition (no flag)
+→ DirectCommandRoute
+→ legacy planner / target resolver / Stage 4 semantic placement
+→ EXECUTABLE + placementQuery
+```
+
+After:
+
+```text
+CompletedVoiceTurn
+→ browser direct composition (default)
+→ NoteAgentProductionRoute
+→ rawFinalTranscript + UnifiedObjectWorld + Object Catalog
+→ one strict NoteDecision
+→ deterministic prepare / atomic tldraw commit
+```
+
+The legacy planner and resolver implementations remain available for explicit
+rollback and their own regression fixtures, but are not invoked by the default
+voice owner. Tests inject spies at both boundaries and assert zero calls.
 
 ## tldraw and PDF boundary
 
@@ -111,7 +147,10 @@ message containing the request-local handle, source/kind, normalized bounds,
 capabilities, selected/focused/recent flags, and bounded summary/parts. It does
 not add persistent object IDs, documentId/pageId, full PDF/page text, or
 screenshot bytes. Fake/local Decision Providers still cover the complete
-handle runtime; a live model check remains outstanding.
+handle runtime. A real Node 22 same-origin call on 2026-08-18 sent
+`안녕하세요 밑에 가나다라라고 써 줘` with catalog object `O1 = 안녕하세요`
+and returned strict `READY`, `text.create`, `text=가나다라`, `anchor=O1`,
+and `relation=BELOW`.
 
 ## Decision responsibility versus deterministic runtime
 
@@ -176,6 +215,13 @@ inputTokens, cachedInputTokens, outputTokens,
 visualCallCount, prepareMs, commitMs
 ```
 
+The default production trace also records the bounded diagnostic fields
+`runtimeOwner=note-agent-v2`, `decisionSchemaVersion`, catalog handles,
+selected/reference handle, decision action/relation,
+`legacyPlannerInvoked=false`, and `fuzzyObjectSelectorInvoked=false`.
+Transcript, object text, and persistent identifiers are not stored in this
+trace.
+
 Same-origin HTTP forwards only validated numeric telemetry. Trace payloads do
 not retain full document/object text, screenshot bytes, persistent object IDs,
 or Authorization headers.
@@ -185,12 +231,15 @@ or Authorization headers.
 Final validation runtime: Node 22.23.2, pnpm 10.9.0.
 
 ```text
-Web full: 141 files / 982 tests PASS
+Targeted cutover: 7 files / 29 tests PASS
+Web full: 141 files / 984 tests PASS
 Editor Core full: 7 files / 54 tests PASS
 Web strict typecheck: PASS
 Editor Core strict typecheck: PASS
 Web lint: PASS
 Editor Core lint: PASS (existing config warnings only)
+Web production build: PASS (Next 16.2.10)
+Live OpenAI strict Decision: PASS (HTTP 200, O1 / BELOW)
 git diff --check: PASS
 ```
 
@@ -203,7 +252,8 @@ PDF/Blank shared runtime.
 
 ## Manual browser smoke
 
-With the explicit production flag and no live OpenAI key:
+The earlier Phase 5 UI smoke, run before this default-cutover session, used the
+explicit production flag without a live model request:
 
 - home/editor and Blank page loaded;
 - tldraw mounted with no Next runtime error or page error;
@@ -214,15 +264,17 @@ With the explicit production flag and no live OpenAI key:
   snapshot;
 - console contained only tldraw Korean-locale missing-message warnings.
 
-Live OpenAI/network, microphone capture, voice-driven PDF underline, and the
-full 12-step manual voice scenario were not executed. The sequential voice
-flow, PDF range, undo, and duplicate-object safety were instead verified with
-fake Decision Provider integration tests.
+This cutover session exercised the real same-origin OpenAI route and loaded the
+app over HTTP 200. Windows Computer Use could not connect to its native pipe,
+and neither Playwright nor agent-browser was installed, so microphone capture,
+voice-driven PDF underline, and the full 12-step browser voice scenario were
+not executed. The sequential voice flow, PDF range, undo, and duplicate-object
+safety remain covered by fake Decision Provider integration tests.
 
 ## Remaining limitations and cutover gate
 
-1. Live model/network and microphone parity are unverified; production default
-   cutover is not complete.
+1. One representative live model/network request passed; microphone/browser
+   parity, operating percentiles, and rollback observation remain unverified.
 2. Top-level `NEEDS_VISUAL` second-pass orchestration remains fail-closed;
    only the existing Stage 4 placement visual pass is connected.
 3. Standalone PDF sentence entries are not in the canonical SceneObject

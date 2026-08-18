@@ -4,16 +4,18 @@
 
 ```text
 Phase: 5 — tldraw Object Catalog / One Decision
-Status: IMPLEMENTED / LIVE MODEL PARITY AND DEFAULT CUTOVER GATED
-Current Milestone: collect live strict-schema parity and operating latency before default cutover
+Status: IMPLEMENTED / DEFAULT VOICE OWNER CUT OVER
+Current Milestone: observe the default owner and complete microphone/PDF browser smoke
 Date: 2026-08-18
 ```
 
-The explicit `NEXT_PUBLIC_NOTE_AGENT_ROUTE=production` path now uses tldraw
-as the mutable user-created canvas source of truth, projects PDF semantic
-objects plus TLStore shapes into one world, constructs request-local O-handles,
-prepares every step without mutation, and commits one tldraw history
-transaction. The no-flag legacy default is unchanged.
+The no-flag app voice path now uses the Phase 5 Note Agent as its only semantic
+decision owner. It preserves the raw final transcript, projects PDF semantic
+objects plus TLStore shapes into one world, sends the compact request-local
+O-handle catalog through one strict Decision call, prepares every step without
+mutation, and commits one tldraw history transaction. The legacy planner is
+available only through the explicit `NEXT_PUBLIC_NOTE_AGENT_ROUTE=legacy`
+rollback flag; Phase 5 failure does not fall back to it.
 
 ## Branch / Base
 
@@ -23,6 +25,9 @@ requested base: fecabbab59016d3a2afe87836990e307a7ef26ff
 original worktree actual HEAD: 677b9e8a6e26c074923dbe544c3fb1cb29d57e6d
 Phase 5 branch: refactor/tldraw-object-catalog-one-decision
 Phase 5 branch base: fecabbab59016d3a2afe87836990e307a7ef26ff
+default-cutover preflight HEAD: 8d363f4d7ba7b6bc836c2f30594e934e75d26afb
+default-cutover worktree: tracked clean; only pre-existing next, pnpm untracked
+default-cutover commit: 32932e5 refactor(voice): cut over to one note decision
 preserved original files: tracked in-progress work, untracked next, pnpm
 ```
 
@@ -44,6 +49,9 @@ CompletedVoiceTurn
 → tldraw History + semantic Operation Ledger
 ```
 
+- `useOwnedBrowserDirectCommandComposition()` selects this flow when the route
+  variable is absent, `production`, or unknown. `legacy` is the explicit
+  rollback value and `shadow` remains an explicit no-commit comparison mode.
 - There is no Fast Path. Next page, previous page, and undo each call the
   Decision Provider exactly once.
 - LLM-selected handles are resolved but never replaced by exact/fuzzy/semantic
@@ -81,7 +89,15 @@ shortened and document/page IDs were removed. After explicit user approval on
 2026-08-18, the external request now includes the bounded `OBJECT_CATALOG`
 message. It contains request-local handles, source/kind, normalized bounds,
 capabilities, flags, and bounded summaries/parts only. Live handle selection is
-still unverified because no live OpenAI call was run.
+verified for the representative Korean placement request.
+
+On 2026-08-18, the Node 22 same-origin `/api/voice/note-decision` route loaded
+`apps/web/.env.local` and made a real Responses API call for
+`안녕하세요 밑에 가나다라라고 써 줘` with `O1 = 안녕하세요`. The strict result
+was `READY`, `text.create`, `text=가나다라`, `anchor=O1`, `relation=BELOW`.
+The call returned HTTP 200 with 2250.1 ms OpenAI TTFB, 42.0 ms body read,
+0.52 ms JSON parse, 1183 input tokens, and 51 output tokens. This is one
+representative sample, not an operating percentile.
 
 ## Atomicity / Undo
 
@@ -104,6 +120,12 @@ inputTokens, cachedInputTokens, outputTokens,
 visualCallCount, prepareMs, commitMs
 ```
 
+The bounded development trace additionally records `runtimeOwner`,
+`decisionSchemaVersion`, request-local catalog handles, selected/reference
+handle, action/relation, and explicit `legacyPlannerInvoked=false` and
+`fuzzyObjectSelectorInvoked=false`. It does not retain transcript or object
+text.
+
 Same-origin HTTP forwards validated numeric telemetry only. Trace data excludes
 full object/document text, screenshot bytes, persistent IDs, and Authorization
 headers.
@@ -112,26 +134,33 @@ headers.
 
 ```text
 Node: 22.23.2
-Web full: 141 files / 982 tests PASS
+Targeted cutover: 7 files / 29 tests PASS
+Web full: 141 files / 984 tests PASS
 Editor Core full: 7 files / 54 tests PASS
 Web strict typecheck: PASS
 Editor Core strict typecheck: PASS
 Web lint: PASS
 Editor Core lint: PASS (existing config warnings only)
+Web production build: PASS (Next 16.2.10; tldraw CSS resolved)
+Live OpenAI strict Decision: PASS (HTTP 200, O1 / BELOW)
 git diff --check: PASS
 ```
 
-Manual browser smoke with the production flag verified Blank-page tldraw
+The earlier Phase 5 manual browser smoke with the production flag verified Blank-page tldraw
 mount, actual text rendering, click selection, double-click editing,
 contenteditable update, refresh/IndexedDB restoration, and zero page errors.
 The shape was seeded through the actual tldraw Editor for UI smoke, not by
-voice. Live OpenAI/network, microphone, PDF voice underline, and the complete
-voice browser scenario were not run.
+voice. During this cutover session the app loaded over HTTP 200 and the live
+same-origin OpenAI route was exercised, but Windows Computer Use could not
+connect to its native pipe and no Playwright/agent-browser binary was
+installed. Microphone UI, PDF voice underline, and the complete browser voice
+scenario therefore remain unrun.
 
 ## Known Limitations / Next Milestone
 
-1. Live model/network/microphone parity and operating latency are absent;
-   production-default cutover remains gated.
+1. Live model/network parity has one representative passing sample, but
+   microphone/browser parity, rollback observation, and operating p50/p90/p95
+   remain absent.
 2. Top-level `NEEDS_VISUAL` second pass is fail-closed; the connected
    one-pass path is existing Stage 4 placement ambiguity.
 3. The canonical SceneObject model has no standalone sentence kind, so the new
@@ -139,13 +168,16 @@ voice browser scenario were not run.
 4. Graph/table/equation/diagram and generic move/delete/style production
    mutations remain unavailable.
 
-The next milestone is to run live strict-schema/model parity, collect operating
-latency, and only then review the default cutover.
+The next milestone is to observe the default owner in the real browser voice
+flow, run PDF underline and duplicate-object smoke, and collect operating
+latency before removing the explicit legacy rollback route.
 
 ## Commits
 
 ```text
 d05b02c refactor(note-agent): add tldraw catalog decision runtime
-test/docs: the commit containing Phase 5 verification and status
-approved catalog handoff: the final Phase 5 commit
+02730b0 docs(note-agent): enforce and record phase 5 decision contract
+8d363f4 feat(note-agent): send approved object catalog in one decision
+32932e5 refactor(voice): cut over to one note decision
+docs(note-agent): record default voice owner cutover
 ```

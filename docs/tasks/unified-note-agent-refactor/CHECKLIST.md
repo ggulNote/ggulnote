@@ -4,7 +4,7 @@
 
 ```text
 Phase 5 — tldraw Object Catalog / One Decision
-Status: IMPLEMENTED / LIVE MODEL PARITY AND CUTOVER GATED
+Status: IMPLEMENTED / DEFAULT VOICE OWNER CUT OVER
 ```
 
 ## Phase 1 / Phase 2 Foundation
@@ -22,14 +22,14 @@ Status: IMPLEMENTED / LIVE MODEL PARITY AND CUTOVER GATED
 ## Phase 3 Production Runtime
 
 - [x] CompletedVoiceTurn → Decision → NoteRuntime → existing Editor transaction 구성
-- [x] explicit `NEXT_PUBLIC_NOTE_AGENT_ROUTE=production` opt-in flag
-- [x] no flag legacy rollback path / explicit shadow mode 유지
+- [x] no-flag/`production` Phase 5 owner와 explicit shadow mode
+- [x] `NEXT_PUBLIC_NOTE_AGENT_ROUTE=legacy` explicit rollback path
 - [x] 한 turn 한 commit owner / concurrent duplicate exactly once
 - [x] strict input/output / pre/post scene revision guard
 - [x] one mutation one transaction / actual Editor operation one undo test
 - [x] failure, stale, ambiguity side effect 0
 - [x] Phase 3에서는 multi-mutation batch를 commit 전 명시적으로 거부
-- [ ] representative parity 승인 후 production을 기본값으로 전환
+- [x] representative parity 승인 후 production을 기본값으로 전환
 - [ ] 여러 mutation을 위한 실제 atomic rollback transaction
 
 ## Ambiguity / Visual
@@ -67,7 +67,7 @@ Status: IMPLEMENTED / LIVE MODEL PARITY AND CUTOVER GATED
 - [x] tool별 p50/p90/p95 aggregator와 deterministic unit fixture
 - [x] Decision 일반 경로 LLM 1회 계약
 - [x] deterministic E2E/safety fixtures
-- [ ] real model/network representative parity sample
+- [x] real model/network representative parity sample
 - [ ] 운영 p50/p90/p95와 visual fallback latency sample
 
 ## Verification
@@ -81,7 +81,8 @@ Status: IMPLEMENTED / LIVE MODEL PARITY AND CUTOVER GATED
 - [x] Editor Core strict typecheck
 - [x] targeted Web/Editor lint
 - [x] `git diff --check`
-- [ ] production-default cutover 후 최종 full E2E 재검증
+- [x] production-default cutover 후 Web/Editor full automated 재검증
+- [ ] production-default cutover 후 microphone/browser full E2E
 
 ## Phase 4 Prompt Parts
 
@@ -138,9 +139,10 @@ Status: IMPLEMENTED / LIVE MODEL PARITY AND CUTOVER GATED
 - [x] Web/Editor strict typecheck
 - [x] targeted Web/Editor lint
 - [x] `git diff --check`
-- [ ] live model/network representative parity
+- [x] live model/network representative parity
 - [ ] manual microphone/browser smoke
-- [ ] production default cutover and rollback observation
+- [x] production default cutover
+- [ ] rollback observation
 
 ## Phase 5 tldraw source of truth
 
@@ -198,13 +200,14 @@ Status: IMPLEMENTED / LIVE MODEL PARITY AND CUTOVER GATED
 - [x] primary resolver 미호출과 selected-PDF-only range test
 - [x] no-fast-path Decision Provider count tests
 - [x] rollback/undo/persistence/PDF-Blank common path regression
-- [x] Node 22 Web full 141 files / 982 tests
+- [x] Node 22 Web full 141 files / 984 tests
 - [x] Node 22 Editor Core full 7 files / 54 tests
 - [x] Web/Editor strict typecheck
 - [x] Web/Editor lint
 - [x] `git diff --check`
 - [x] browser Blank tldraw mount/text select/edit/refresh smoke
-- [ ] live OpenAI/network
+- [x] live OpenAI/network representative `O1 / BELOW` Decision
 - [ ] microphone and full voice browser smoke
 - [ ] PDF voice underline browser smoke
-- [ ] production-default cutover
+- [x] production-default cutover
+- [ ] production rollback observation
