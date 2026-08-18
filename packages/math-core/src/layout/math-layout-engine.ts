@@ -1,5 +1,6 @@
 import type { Point, Rect } from "@ggulnote/shared-types";
 import type { MathObject, MathTable } from "../domain/math-object";
+import { createMathArithmeticChildBounds } from "../arithmetic/math-arithmetic-layout";
 
 export type MathLayoutAnchorRole = "center" | "top" | "right" | "bottom" | "left";
 
@@ -67,6 +68,7 @@ export const createMathTableCellBounds = (
 };
 
 function createChildBounds(object: MathObject): Readonly<Record<string, Rect>> {
+  if (object.kind === "arithmetic_layout") return createMathArithmeticChildBounds(object);
   if (object.kind === "table") return createMathTableCellBounds(object);
   if (object.kind === "expression" && object.content.root !== undefined) {
     return {

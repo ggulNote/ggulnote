@@ -45,9 +45,58 @@
 - [x] `pnpm build` - 7 package 및 Next production build 통과
 - [ ] `pnpm test` - 984 통과, 기존 `editor-shell.test.tsx` 4건 실패(STATUS Known Problems 참조)
 
-## 다음 Milestone (M3)
+## M3 (Phase C)
 
-- [ ] 고등학교 함수 graph evaluator/sampling 확장
-- [ ] graph point/label handler
-- [ ] tangent deterministic geometry
-- [ ] helper line 및 discontinuity-aware rendering
+- [x] 고등학교 함수 graph evaluator/sampling 확장
+- [x] graph point/label handler
+- [x] tangent deterministic geometry
+- [x] helper line 및 discontinuity-aware rendering
+
+## M3 검증 결과
+
+- [x] `pnpm --filter @ggulnote/math-core typecheck`
+- [x] `pnpm --filter @ggulnote/math-core lint`
+- [x] `pnpm --filter @ggulnote/math-core test` - 25/25 통과
+- [x] `pnpm --filter @ggulnote/math-core build`
+- [x] tldraw adapter 관련 테스트 - 6/6 통과
+- [x] `pnpm typecheck` - 7 package 통과
+- [x] `pnpm lint` - 7 package 통과
+- [x] `pnpm build` - 7 package 및 Next production build 통과
+- [ ] `pnpm test` - 988 통과, 기존 `editor-shell.test.tsx` 4건 실패
+
+## M4 (Phase D)
+
+- [x] 세로 덧셈·뺄셈·곱셈 setup handler
+- [x] digit/carry/partial row/separator/cursor/add row mutation
+- [x] 우측 정렬 arithmetic cell geometry와 rendering
+- [x] Phase D stateless dispatcher
+
+## M4 검증 결과
+
+- [x] `pnpm --filter @ggulnote/math-core typecheck`
+- [x] `pnpm --filter @ggulnote/math-core lint`
+- [x] `pnpm --filter @ggulnote/math-core test` - 32/32 통과
+- [x] `pnpm --filter @ggulnote/math-core build`
+- [x] tldraw adapter 관련 테스트 - 6/6 통과
+- [x] `pnpm typecheck` - 7 package 통과
+- [x] `pnpm lint` - 7 package 통과
+- [x] `pnpm build` - 7 package 및 Next production build 통과
+- [ ] `pnpm test` - 988 통과, 기존 `editor-shell.test.tsx` 4건 실패
+
+## 다음 Milestone (M5)
+
+- [x] 필기형 rendering hint 검토 및 가능한 최소 적용
+- [x] SVG turbulence 제거 및 tldraw `PathBuilder` draw stroke 적용
+- [x] Object Catalog projection helper
+- [x] Note Agent/Action Registry integration hook 정리
+
+## M5 검증 결과
+
+- [x] `pnpm --filter @ggulnote/math-core typecheck`
+- [x] `pnpm --filter @ggulnote/math-core lint`
+- [x] `pnpm --filter @ggulnote/math-core test` - 39/39 통과
+- [x] `pnpm --filter @ggulnote/math-core build`
+- [x] tldraw adapter/PathBuilder 관련 테스트 - 11/11 통과
+- [x] `pnpm --filter @ggulnote/web lint`
+- [ ] `pnpm --filter @ggulnote/web typecheck` - 병렬 Voice 파일의 기존 오류 1건
+- [ ] root lint/typecheck/test/build 최종 확인

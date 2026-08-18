@@ -58,3 +58,55 @@
 - `ggulnote-math` custom shape props에 logical id, object kind, serialized math object를 둔다.
 - custom shape는 math-core가 만든 SVG primitive를 매핑만 하며 수학 계산을 하지 않는다.
 - TLStore snapshot에는 수학 shape가 보존되지만 legacy annotation projection과 Object Catalog 투영은 Phase E까지 제외한다.
+
+## 결정 11: M3 함수 parameter convention
+
+- 다항식은 차수 내림차순으로 `a`, `b`, `c`, `d`, `e`를 사용한다.
+- absolute/rational/radical은 `a`, horizontal shift `h`, vertical shift `k`를 사용한다.
+- exponential/logarithmic은 `a`, `base`, `h`, `k`를 사용하며 base 기본값은 2다.
+- sin/cos/tan은 amplitude `a`, angular frequency `b`, phase shift `h`, vertical shift `k`를 사용하고 각도 단위는 radian이다.
+- display expression 문자열은 실행하거나 parameter 추출에 사용하지 않는다.
+
+## 결정 12: 불연속 구간과 접선
+
+- sampling 결과는 point 배열 하나가 아니라 continuous segment 배열로도 제공한다.
+- rational의 `x=h`와 tan의 주기적 점근선 사이에서 segment를 분리해 렌더러가 점근선을 가로질러 잇지 않게 한다.
+- 접선 기울기는 typed descriptor의 analytic derivative로 구하고 viewport 경계에 deterministic하게 clip한다.
+- 미분 불가능하거나 무한 기울기인 위치는 현재 finite slope 모델에서 접선 생성 요청을 거절한다.
+
+## 결정 13: M4 setup은 빈 work row까지만 만든다
+
+- operand는 원문 문자열의 Unicode character를 오른쪽부터 column 0에 배치한다.
+- 마지막 operand row에 연산자를 붙이고 add/subtract는 빈 result row, multiply는 빈 partial row를 만든다.
+- setup은 separator나 결과값을 자동 생성하지 않고 빈 work row의 column 0에 cursor만 둔다.
+
+## 결정 14: 필산 mutation은 기록만 한다
+
+- `write_digit` 이름과 무관하게 전달된 문자열을 그대로 cell에 저장하며 숫자 여부를 검사하지 않는다.
+- partial row의 values는 표시 순서인 왼쪽에서 오른쪽으로 받고, geometry만 오른쪽 기준 column으로 바꾼다.
+- carry는 같은 column/source row 조합을 수정하며 어떤 산술 관계도 확인하지 않는다.
+- arithmetic geometry는 React와 분리하고 layout engine과 SVG visual model이 같은 순수 계산 결과를 사용한다.
+
+## 결정 15: hand-drawn은 opt-in presentation hint
+
+- `style.handDrawn`은 logical geometry나 sampling 결과를 바꾸지 않는다.
+- visual model은 `precise`/`hand-drawn` hint와 기본 font 선택만 결정한다.
+- tldraw custom shape는 hint가 켜진 경우에만 공개 `PathBuilder`의 seeded `draw` stroke를 적용한다.
+- line/polyline/rect/circle/arc는 adapter의 순수 변환 함수가 PathBuilder로 바꾸고, text와 정확 스타일은 기존 SVG를 유지한다.
+- fill은 정확 SVG로 유지하고 hand-drawn 외곽선만 PathBuilder로 렌더링한다.
+- 별도 rough rendering dependency, SVG turbulence 또는 비결정적 geometry는 도입하지 않는다.
+
+## 결정 16: Object Catalog projection은 Note Agent에 구조적으로만 맞춘다
+
+- math-core는 Note Agent나 editor-core 타입을 import하지 않는다.
+- request-local handle, page size, selected/focused/recent 상태는 호출자가 주입한다.
+- catalog bounds는 현재 Note Agent 계약과 같이 page-normalized 좌표로 만든다.
+- expression과 arithmetic layout은 기존 Scene kind 제약에 맞춰 `math`, 나머지는 `table`/`graph`/`shape`로 투영한다.
+- 하위 요소는 최대 12개까지 compact part로 제공하고, 객체 종류별 후속 action capability를 명시한다.
+
+## 결정 17: integration hook은 side effect를 소유하지 않는다
+
+- `prepareMathActionExecution`은 기존 객체 조회와 create id 할당만 외부 port로 받는다.
+- 최신 Phase D dispatcher를 호출해 다음 object와 render operation을 반환한다.
+- persistence, transaction, tldraw apply, catalog handle allocation은 기존 runtime/registry가 담당한다.
+- 병렬 작업 중인 Voice/Note Agent 파일에는 M5에서 직접 등록하지 않는다.

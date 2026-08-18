@@ -1,5 +1,6 @@
 import type { Point, Rect } from "@ggulnote/shared-types";
 import type {
+  ArithmeticLayout,
   MathGraph,
   MathObject,
   MathObjectStyle,
@@ -7,10 +8,12 @@ import type {
   MathShapeMark,
   MathTable,
 } from "../domain/math-object";
+import { createMathArithmeticGeometry } from "../arithmetic/math-arithmetic-layout";
 import { getMathExpressionDisplayText } from "../expression/math-expression-handler";
 import {
+  clipGraphLineToViewport,
   mapGraphPointToBounds,
-  sampleMathGraphFunction,
+  sampleMathGraphFunctionSegments,
 } from "../graph/math-graph-handler";
 import { getMathShapeVertices } from "../shape/math-shape-handler";
 
@@ -22,6 +25,26 @@ export interface MathVisualStroke {
   readonly opacity: number;
   readonly dash?: string;
 }
+
+export type MathVisualPathCommand =
+  | {
+      readonly kind: "move" | "line";
+      readonly x: number;
+      readonly y: number;
+    }
+  | {
+      readonly kind: "arc";
+      readonly radiusX: number;
+      readonly radiusY: number;
+      readonly largeArc: boolean;
+      readonly sweep: boolean;
+      readonly xAxisRotationRadians: number;
+      readonly x: number;
+      readonly y: number;
+    }
+  | {
+      readonly kind: "close";
+    };
 
 export type MathVisualPrimitive =
   | ({
@@ -60,6 +83,8 @@ export type MathVisualPrimitive =
       readonly kind: "path";
       readonly id: string;
       readonly d: string;
+      /** Neutral path commands let runtime adapters reuse their native stroke renderer. */
+      readonly commands?: readonly MathVisualPathCommand[];
       readonly fill: string;
       readonly stroke: string;
       readonly strokeWidth: number;
@@ -85,6 +110,7 @@ export interface MathVisualModel {
   readonly width: number;
   readonly height: number;
   readonly backgroundColor: string;
+  readonly renderingHint: "precise" | "hand-drawn";
   readonly primitives: readonly MathVisualPrimitive[];
 }
 
@@ -97,6 +123,7 @@ export const createMathVisualModel = (object: MathObject): MathVisualModel => {
     width,
     height,
     backgroundColor: object.style.backgroundColor ?? "transparent",
+    renderingHint: object.style.handDrawn === true ? "hand-drawn" : "precise",
     primitives: createPrimitives(object, width, height),
   };
 };
@@ -116,14 +143,7 @@ function createPrimitives(
     case "shape":
       return shapePrimitives(object, width, height);
     case "arithmetic_layout":
-      return [textPrimitive(
-        `${object.id}:placeholder`,
-        object.label ?? object.operands.join("  "),
-        8,
-        height / 2,
-        object.style,
-        "start",
-      )];
+      return arithmeticPrimitives(object, width, height);
   }
 }
 
@@ -217,6 +237,83 @@ function tablePrimitives(
   return primitives;
 }
 
+function arithmeticPrimitives(
+  layout: ArithmeticLayout,
+  width: number,
+  height: number,
+): readonly MathVisualPrimitive[] {
+  const geometry = createMathArithmeticGeometry(layout, { x: 0, y: 0, width, height });
+  const primitives: MathVisualPrimitive[] = [];
+  for (const row of layout.rows) {
+    const baseline = geometry.rowBaselines[row.id];
+    const operatorPosition = geometry.operatorPositions[row.id];
+    if (row.operator !== undefined && operatorPosition !== undefined) {
+      primitives.push(textPrimitive(
+        `${row.id}:operator`,
+        row.operator,
+        operatorPosition.x,
+        operatorPosition.y,
+        layout.style,
+        "middle",
+        geometry.fontSize,
+      ));
+    }
+    if (baseline === undefined) continue;
+    for (const cell of row.cells) {
+      const cellBounds = geometry.cellBounds[cell.id];
+      if (cellBounds === undefined) continue;
+      primitives.push(textPrimitive(
+        cell.id,
+        cell.value,
+        cellBounds.x + cellBounds.width / 2,
+        baseline,
+        layout.style,
+        "middle",
+        geometry.fontSize,
+      ));
+    }
+  }
+  for (const carry of layout.carryMarks) {
+    const carryBounds = geometry.carryBounds[carry.id];
+    if (carryBounds === undefined) continue;
+    primitives.push(textPrimitive(
+      carry.id,
+      carry.value,
+      carryBounds.x + carryBounds.width / 2,
+      carryBounds.y + carryBounds.height * 0.72,
+      { ...layout.style, color: layout.style.color ?? "#64748b" },
+      "middle",
+      geometry.carryFontSize,
+    ));
+  }
+  for (const separator of layout.separators) {
+    const separatorBounds = geometry.separatorBounds[separator.id];
+    if (separatorBounds === undefined) continue;
+    primitives.push({
+      kind: "line",
+      id: separator.id,
+      x1: separatorBounds.x,
+      y1: separatorBounds.y,
+      x2: separatorBounds.x + separatorBounds.width,
+      y2: separatorBounds.y,
+      ...strokeStyle({ ...layout.style, lineStyle: separator.lineStyle }, "#172033", 1.5),
+    });
+  }
+  if (geometry.cursorBounds !== undefined) {
+    primitives.push({
+      kind: "rect",
+      id: `${layout.id}:cursor`,
+      x: geometry.cursorBounds.x,
+      y: geometry.cursorBounds.y,
+      width: geometry.cursorBounds.width,
+      height: geometry.cursorBounds.height,
+      fill: "transparent",
+      ...strokeStyle({ ...layout.style, lineStyle: "dotted" }, "#94a3b8", 1),
+    });
+  }
+  return primitives;
+}
+
 function graphPrimitives(
   graph: MathGraph,
   width: number,
@@ -296,16 +393,18 @@ function graphPrimitives(
     }
   }
   graph.functions.forEach((fn, index) => {
-    const points = sampleMathGraphFunction(fn, graph.coordinateSystem).map((point) =>
-      mapGraphPointToBounds(point, graph.coordinateSystem, plot));
     const style = { ...graph.style, ...fn.style };
-    primitives.push({
-      kind: "polyline",
-      id: fn.id,
-      points,
-      closed: false,
-      fill: "none",
-      ...strokeStyle(style, palette(index), 2),
+    sampleMathGraphFunctionSegments(fn, graph.coordinateSystem).forEach((segment, segmentIndex) => {
+      if (segment.length < 2) return;
+      primitives.push({
+        kind: "polyline",
+        id: `${fn.id}:segment:${segmentIndex}`,
+        points: segment.map((point) =>
+          mapGraphPointToBounds(point, graph.coordinateSystem, plot)),
+        closed: false,
+        fill: "none",
+        ...strokeStyle(style, palette(index), 2),
+      });
     });
     primitives.push(textPrimitive(
       `${fn.id}:label`,
@@ -317,6 +416,103 @@ function graphPrimitives(
       Math.min(14, graph.style.fontSize ?? 14),
     ));
   });
+  for (const helperLine of graph.helperLines) {
+    const start = mapGraphPointToBounds(helperLine.start, graph.coordinateSystem, plot);
+    const end = mapGraphPointToBounds(helperLine.end, graph.coordinateSystem, plot);
+    primitives.push({
+      kind: "line",
+      id: helperLine.id,
+      x1: start.x,
+      y1: start.y,
+      x2: end.x,
+      y2: end.y,
+      ...strokeStyle(
+        { ...graph.style, lineStyle: helperLine.lineStyle },
+        "#64748b",
+        1.25,
+      ),
+    });
+    if (helperLine.label !== undefined) {
+      primitives.push(textPrimitive(
+        `${helperLine.id}:label`,
+        helperLine.label,
+        (start.x + end.x) / 2 + 4,
+        (start.y + end.y) / 2 - 4,
+        graph.style,
+        "start",
+        Math.min(13, graph.style.fontSize ?? 13),
+      ));
+    }
+  }
+  for (const tangent of graph.tangents) {
+    const segment = clipGraphLineToViewport(
+      tangent.point,
+      tangent.slope,
+      graph.coordinateSystem,
+    );
+    if (segment !== undefined) {
+      const start = mapGraphPointToBounds(segment[0], graph.coordinateSystem, plot);
+      const end = mapGraphPointToBounds(segment[1], graph.coordinateSystem, plot);
+      const functionIndex = graph.functions.findIndex((fn) => fn.id === tangent.functionId);
+      primitives.push({
+        kind: "line",
+        id: tangent.id,
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
+        ...strokeStyle(graph.style, palette(Math.max(0, functionIndex)), 1.5),
+      });
+    }
+    if (tangent.label !== undefined) {
+      const position = mapGraphPointToBounds(tangent.point, graph.coordinateSystem, plot);
+      primitives.push(textPrimitive(
+        `${tangent.id}:label`,
+        tangent.label,
+        position.x + 6,
+        position.y - 8,
+        graph.style,
+        "start",
+        Math.min(13, graph.style.fontSize ?? 13),
+      ));
+    }
+  }
+  const pointStroke = strokeStyle(graph.style, "#0f172a", 1.5);
+  for (const point of graph.points) {
+    const position = mapGraphPointToBounds(point.position, graph.coordinateSystem, plot);
+    primitives.push({
+      kind: "circle",
+      id: point.id,
+      cx: position.x,
+      cy: position.y,
+      radius: 4,
+      fill: pointStroke.stroke,
+      ...pointStroke,
+    });
+    if (point.label !== undefined) {
+      primitives.push(textPrimitive(
+        `${point.id}:label`,
+        point.label,
+        position.x + 6,
+        position.y - 6,
+        graph.style,
+        "start",
+        Math.min(14, graph.style.fontSize ?? 14),
+      ));
+    }
+  }
+  for (const label of graph.labels) {
+    const position = mapGraphPointToBounds(label.position, graph.coordinateSystem, plot);
+    primitives.push(textPrimitive(
+      label.id,
+      label.text,
+      position.x,
+      position.y,
+      graph.style,
+      "start",
+      Math.min(14, graph.style.fontSize ?? 14),
+    ));
+  }
   return primitives;
 }
 
@@ -391,16 +587,18 @@ function shapePrimitives(
       ...stroke,
     });
   } else {
+    const arcPath = createArcPath(
+      geometry.center,
+      geometry.radius,
+      geometry.startAngleDegrees,
+      geometry.endAngleDegrees,
+      shape.shapeType === "sector",
+    );
     primitives.push({
       kind: "path",
       id: `${shape.id}:arc`,
-      d: createArcPath(
-        geometry.center,
-        geometry.radius,
-        geometry.startAngleDegrees,
-        geometry.endAngleDegrees,
-        shape.shapeType === "sector",
-      ),
+      d: arcPath.d,
+      commands: arcPath.commands,
       fill: shape.shapeType === "sector" ? shape.style.backgroundColor ?? "none" : "none",
       ...stroke,
     });
@@ -450,7 +648,10 @@ function textPrimitive(
     text,
     color: style.color ?? style.strokeColor ?? "#172033",
     fontSize,
-    fontFamily: style.fontFamily ?? "Arial, sans-serif",
+    fontFamily: style.fontFamily
+      ?? (style.handDrawn === true
+        ? "'Segoe Print', 'Comic Sans MS', cursive"
+        : "Arial, sans-serif"),
     fontWeight,
     anchor,
     opacity: style.opacity ?? 1,
@@ -527,12 +728,34 @@ function createArcPath(
   startAngleDegrees: number,
   endAngleDegrees: number,
   sector: boolean,
-): string {
+): { readonly d: string; readonly commands: readonly MathVisualPathCommand[] } {
   const start = pointOnCircle(center, radius, startAngleDegrees);
   const end = pointOnCircle(center, radius, endAngleDegrees);
   const delta = normalizedArcDelta(startAngleDegrees, endAngleDegrees);
   const arc = `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${delta > 180 ? 1 : 0} 1 ${end.x} ${end.y}`;
-  return sector ? `${arc} L ${center.x} ${center.y} Z` : arc;
+  const commands: MathVisualPathCommand[] = [
+    { kind: "move", x: start.x, y: start.y },
+    {
+      kind: "arc",
+      radiusX: radius,
+      radiusY: radius,
+      largeArc: delta > 180,
+      sweep: true,
+      xAxisRotationRadians: 0,
+      x: end.x,
+      y: end.y,
+    },
+  ];
+  if (sector) {
+    commands.push(
+      { kind: "line", x: center.x, y: center.y },
+      { kind: "close" },
+    );
+  }
+  return {
+    d: sector ? `${arc} L ${center.x} ${center.y} Z` : arc,
+    commands,
+  };
 }
 
 function pointOnCircle(center: Point, radius: number, angleDegrees: number): Point {

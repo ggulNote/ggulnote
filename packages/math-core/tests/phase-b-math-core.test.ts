@@ -119,7 +119,7 @@ describe("Phase B graph evaluator and sampling", () => {
   it("evaluates linear and quadratic descriptors without parsing arbitrary expressions", () => {
     expect(evaluateMathGraphFunction(linear, 3)).toBe(7);
     expect(evaluateMathGraphFunction(quadratic, 3)).toBe(8);
-    expect(evaluateMathGraphFunction({ ...linear, functionType: "sin" }, 0)).toBeUndefined();
+    expect(evaluateMathGraphFunction({ ...linear, functionType: "custom" }, 0)).toBeUndefined();
   });
 
   it("samples a graph deterministically and compiles it into local visual primitives", () => {
@@ -140,11 +140,11 @@ describe("Phase B graph evaluator and sampling", () => {
       primitive.kind === "polyline")).toHaveLength(2);
   });
 
-  it("keeps Phase C function families out of the M2 create handler", () => {
+  it("keeps unsupported general expressions out of the typed create handler", () => {
     expect(() => createMathGraph({
       bounds,
-      functions: [{ ...linear, functionType: "sin", expression: "y=sin x" }],
-    }, "graph-sin")).toThrow("Phase B does not support sin");
+      functions: [{ ...linear, functionType: "custom", expression: "y=f(x)" }],
+    }, "graph-custom")).toThrow("Phase C does not support custom");
   });
 });
 

@@ -1,13 +1,25 @@
 import type { Point } from "@ggulnote/shared-types";
-import type { CreateMathGraphInput } from "../actions/math-action";
+import type {
+  AddMathGraphHelperLineInput,
+  AddMathGraphPointInput,
+  AddMathGraphTangentInput,
+  CreateMathGraphInput,
+  LabelMathGraphPointInput,
+} from "../actions/math-action";
 import type {
   MathCoordinateSystem,
   MathGraph,
   MathGraphFunction,
+  MathGraphFunctionType,
+  MathGraphHelperLine,
+  MathGraphPoint,
+  MathGraphTangent,
   MathInterval,
+  MathObjectChild,
 } from "../domain/math-object";
 import {
   createBaseMathObject,
+  nextSubEntityIds,
   validateMathObject,
 } from "../handlers/math-handler-support";
 
@@ -16,6 +28,22 @@ export interface MathGraphSamplingOptions {
   readonly xMin?: number;
   readonly xMax?: number;
 }
+
+const SUPPORTED_FUNCTION_TYPES = new Set<MathGraphFunctionType>([
+  "linear",
+  "quadratic",
+  "cubic",
+  "quartic",
+  "absolute",
+  "rational",
+  "radical",
+  "exponential",
+  "logarithmic",
+  "sin",
+  "cos",
+  "tan",
+]);
+const FUNCTION_EPSILON = 1e-10;
 
 export const createMathGraph = (
   input: CreateMathGraphInput,
@@ -26,9 +54,10 @@ export const createMathGraph = (
   }
   const functionIds = new Set<string>();
   for (const fn of input.functions) {
+    if (fn.id.length === 0) throw new TypeError("Graph function id must not be empty.");
     if (functionIds.has(fn.id)) throw new TypeError(`Duplicate graph function id: ${fn.id}`);
     functionIds.add(fn.id);
-    assertPhaseBFunction(fn);
+    assertSupportedFunction(fn);
   }
   const viewport = input.viewport ?? { xMin: -5, xMax: 5, yMin: -5, yMax: 5 };
   assertIncreasingRange(viewport.xMin, viewport.xMax, "x");
@@ -59,42 +88,319 @@ export const createMathGraph = (
   });
 };
 
-/** Evaluates only the deterministic M2 function subset. */
+/** Evaluates a typed descriptor without parsing its display expression. */
 export const evaluateMathGraphFunction = (
   fn: MathGraphFunction,
   x: number,
 ): number | undefined => {
   if (!Number.isFinite(x) || !isInsideDomain(x, fn.domain)) return undefined;
+  if (!SUPPORTED_FUNCTION_TYPES.has(fn.functionType)) return undefined;
   const a = parameter(fn, "a", 1);
-  const b = parameter(fn, "b", 0);
-  if (fn.functionType === "linear") return a * x + b;
-  if (fn.functionType === "quadratic") {
-    const c = parameter(fn, "c", 0);
-    return a * x * x + b * x + c;
+  const h = parameter(fn, "h", 0);
+  const k = parameter(fn, "k", 0);
+  let result: number | undefined;
+  switch (fn.functionType) {
+    case "linear":
+      result = a * x + parameter(fn, "b", 0);
+      break;
+    case "quadratic":
+      result = a * x ** 2 + parameter(fn, "b", 0) * x + parameter(fn, "c", 0);
+      break;
+    case "cubic":
+      result = a * x ** 3
+        + parameter(fn, "b", 0) * x ** 2
+        + parameter(fn, "c", 0) * x
+        + parameter(fn, "d", 0);
+      break;
+    case "quartic":
+      result = a * x ** 4
+        + parameter(fn, "b", 0) * x ** 3
+        + parameter(fn, "c", 0) * x ** 2
+        + parameter(fn, "d", 0) * x
+        + parameter(fn, "e", 0);
+      break;
+    case "absolute":
+      result = a * Math.abs(x - h) + k;
+      break;
+    case "rational": {
+      const denominator = x - h;
+      result = Math.abs(denominator) <= FUNCTION_EPSILON ? undefined : a / denominator + k;
+      break;
+    }
+    case "radical": {
+      const radicand = x - h;
+      result = radicand < 0 ? undefined : a * Math.sqrt(radicand) + k;
+      break;
+    }
+    case "exponential":
+      result = a * parameterBase(fn) ** (x - h) + k;
+      break;
+    case "logarithmic": {
+      const argument = x - h;
+      result = argument <= 0
+        ? undefined
+        : a * Math.log(argument) / Math.log(parameterBase(fn)) + k;
+      break;
+    }
+    case "sin":
+      result = a * Math.sin(parameter(fn, "b", 1) * (x - h)) + k;
+      break;
+    case "cos":
+      result = a * Math.cos(parameter(fn, "b", 1) * (x - h)) + k;
+      break;
+    case "tan": {
+      const angle = parameter(fn, "b", 1) * (x - h);
+      result = Math.abs(Math.cos(angle)) <= FUNCTION_EPSILON
+        ? undefined
+        : a * Math.tan(angle) + k;
+      break;
+    }
+    case "circle":
+    case "ellipse":
+    case "hyperbola":
+    case "custom":
+      result = undefined;
   }
-  return undefined;
+  return result !== undefined && Number.isFinite(result) ? result : undefined;
 };
 
-export const sampleMathGraphFunction = (
+/** Returns the analytic slope, or undefined at non-differentiable points. */
+export const evaluateMathGraphDerivative = (
+  fn: MathGraphFunction,
+  x: number,
+): number | undefined => {
+  if (evaluateMathGraphFunction(fn, x) === undefined) return undefined;
+  const a = parameter(fn, "a", 1);
+  const h = parameter(fn, "h", 0);
+  const b = parameter(fn, "b", 1);
+  let result: number | undefined;
+  switch (fn.functionType) {
+    case "linear":
+      result = a;
+      break;
+    case "quadratic":
+      result = 2 * a * x + parameter(fn, "b", 0);
+      break;
+    case "cubic":
+      result = 3 * a * x ** 2 + 2 * parameter(fn, "b", 0) * x + parameter(fn, "c", 0);
+      break;
+    case "quartic":
+      result = 4 * a * x ** 3
+        + 3 * parameter(fn, "b", 0) * x ** 2
+        + 2 * parameter(fn, "c", 0) * x
+        + parameter(fn, "d", 0);
+      break;
+    case "absolute":
+      result = Math.abs(x - h) <= FUNCTION_EPSILON ? undefined : a * Math.sign(x - h);
+      break;
+    case "rational":
+      result = -a / (x - h) ** 2;
+      break;
+    case "radical":
+      result = x <= h ? undefined : a / (2 * Math.sqrt(x - h));
+      break;
+    case "exponential": {
+      const base = parameterBase(fn);
+      result = a * Math.log(base) * base ** (x - h);
+      break;
+    }
+    case "logarithmic":
+      result = a / ((x - h) * Math.log(parameterBase(fn)));
+      break;
+    case "sin":
+      result = a * b * Math.cos(b * (x - h));
+      break;
+    case "cos":
+      result = -a * b * Math.sin(b * (x - h));
+      break;
+    case "tan":
+      result = a * b / Math.cos(b * (x - h)) ** 2;
+      break;
+    case "circle":
+    case "ellipse":
+    case "hyperbola":
+    case "custom":
+      result = undefined;
+  }
+  return result !== undefined && Number.isFinite(result) ? result : undefined;
+};
+
+/** Samples separate continuous segments so renderers never bridge an asymptote. */
+export const sampleMathGraphFunctionSegments = (
   fn: MathGraphFunction,
   coordinateSystem: MathCoordinateSystem,
   options: MathGraphSamplingOptions = {},
-): readonly Point[] => {
-  assertPhaseBFunction(fn);
-  const sampleCount = options.sampleCount ?? 96;
+): readonly (readonly Point[])[] => {
+  assertSupportedFunction(fn);
+  const sampleCount = options.sampleCount ?? 192;
   if (!Number.isInteger(sampleCount) || sampleCount < 2 || sampleCount > 2_000) {
     throw new RangeError("sampleCount must be an integer between 2 and 2000.");
   }
   const xMin = options.xMin ?? coordinateSystem.xMin;
   const xMax = options.xMax ?? coordinateSystem.xMax;
   assertIncreasingRange(xMin, xMax, "sample x");
-  const points: Point[] = [];
+  const segments: Point[][] = [];
+  let current: Point[] = [];
+  let previous: Point | undefined;
   for (let index = 0; index <= sampleCount; index += 1) {
     const x = xMin + (xMax - xMin) * index / sampleCount;
     const y = evaluateMathGraphFunction(fn, x);
-    if (y !== undefined && Number.isFinite(y)) points.push({ x, y });
+    if (y === undefined) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+      previous = undefined;
+      continue;
+    }
+    const point = { x, y };
+    if (previous !== undefined && hasDiscontinuityBetween(fn, previous.x, x)) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+    }
+    current.push(point);
+    previous = point;
   }
-  return points;
+  if (current.length > 0) segments.push(current);
+  return segments;
+};
+
+/** Compatibility helper for callers that only need sampled values. */
+export const sampleMathGraphFunction = (
+  fn: MathGraphFunction,
+  coordinateSystem: MathCoordinateSystem,
+  options: MathGraphSamplingOptions = {},
+): readonly Point[] => sampleMathGraphFunctionSegments(fn, coordinateSystem, options).flat();
+
+export const addMathGraphPoint = (
+  graph: MathGraph,
+  input: AddMathGraphPointInput,
+): MathGraph => {
+  assertGraphTarget(graph, input.objectId);
+  assertFinitePoint({ x: input.x, y: input.y }, "Graph point");
+  const functionIds = [...new Set(input.functionIds ?? [])];
+  functionIds.forEach((functionId) => requireGraphFunction(graph, functionId));
+  const point: MathGraphPoint = {
+    id: resolveGraphEntityId(graph, "point", input.pointId),
+    position: { x: input.x, y: input.y },
+    ...(input.label === undefined ? {} : { label: input.label }),
+    role: "user",
+    functionIds,
+  };
+  const points = [...graph.points, point];
+  return validateMathObject({
+    ...graph,
+    points,
+    children: graphChildren(graph, { points }),
+  });
+};
+
+export const labelMathGraphPoint = (
+  graph: MathGraph,
+  input: LabelMathGraphPointInput,
+): MathGraph => {
+  assertGraphTarget(graph, input.objectId);
+  if (!graph.points.some((point) => point.id === input.pointId)) {
+    throw new Error(`Math graph point does not exist: ${input.pointId}`);
+  }
+  const points = graph.points.map((point) => point.id === input.pointId
+    ? { ...point, label: input.label }
+    : point);
+  return validateMathObject({ ...graph, points });
+};
+
+export const addMathGraphTangent = (
+  graph: MathGraph,
+  input: AddMathGraphTangentInput,
+): MathGraph => {
+  assertGraphTarget(graph, input.objectId);
+  if (!Number.isFinite(input.atX)) throw new TypeError("Tangent x must be finite.");
+  const fn = requireGraphFunction(graph, input.functionId);
+  const y = evaluateMathGraphFunction(fn, input.atX);
+  const slope = evaluateMathGraphDerivative(fn, input.atX);
+  if (y === undefined || slope === undefined) {
+    throw new RangeError(`A finite tangent does not exist for ${input.functionId} at x=${input.atX}.`);
+  }
+  const tangent: MathGraphTangent = {
+    id: resolveGraphEntityId(graph, "tangent", input.tangentId),
+    functionId: input.functionId,
+    atX: input.atX,
+    point: { x: input.atX, y },
+    slope,
+    ...(input.label === undefined ? {} : { label: input.label }),
+  };
+  const tangents = [...graph.tangents, tangent];
+  return validateMathObject({
+    ...graph,
+    tangents,
+    children: graphChildren(graph, { tangents }),
+  });
+};
+
+export const addMathGraphHelperLine = (
+  graph: MathGraph,
+  input: AddMathGraphHelperLineInput,
+): MathGraph => {
+  assertGraphTarget(graph, input.objectId);
+  const line = cloneHelperLine(input.helperLine);
+  assertGraphEntityId(graph, line.id);
+  assertFinitePoint(line.start, "Helper line start");
+  assertFinitePoint(line.end, "Helper line end");
+  if (samePoint(line.start, line.end)) {
+    throw new RangeError("Helper line endpoints must be distinct.");
+  }
+  if (line.helperType === "vertical" && line.start.x !== line.end.x) {
+    throw new RangeError("A vertical helper line requires equal x coordinates.");
+  }
+  if (line.helperType === "horizontal" && line.start.y !== line.end.y) {
+    throw new RangeError("A horizontal helper line requires equal y coordinates.");
+  }
+  const helperLines = [...graph.helperLines, line];
+  return validateMathObject({
+    ...graph,
+    helperLines,
+    children: graphChildren(graph, { helperLines }),
+  });
+};
+
+/** Clips an infinite point-slope line to the graph viewport. */
+export const clipGraphLineToViewport = (
+  point: Point,
+  slope: number,
+  coordinateSystem: MathCoordinateSystem,
+): readonly [Point, Point] | undefined => {
+  assertFinitePoint(point, "Line point");
+  if (!Number.isFinite(slope)) return undefined;
+  const candidates: Point[] = [];
+  for (const x of [coordinateSystem.xMin, coordinateSystem.xMax]) {
+    const y = point.y + slope * (x - point.x);
+    if (insideClosedRange(y, coordinateSystem.yMin, coordinateSystem.yMax)) {
+      candidates.push({ x, y });
+    }
+  }
+  if (Math.abs(slope) > FUNCTION_EPSILON) {
+    for (const y of [coordinateSystem.yMin, coordinateSystem.yMax]) {
+      const x = point.x + (y - point.y) / slope;
+      if (insideClosedRange(x, coordinateSystem.xMin, coordinateSystem.xMax)) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+  const unique = candidates.filter((candidate, index) =>
+    candidates.findIndex((other) => nearlySamePoint(candidate, other)) === index);
+  if (unique.length < 2) return undefined;
+  let farthest: readonly [Point, Point] = [unique[0]!, unique[1]!];
+  let farthestDistance = squaredDistance(farthest[0], farthest[1]);
+  for (let left = 0; left < unique.length; left += 1) {
+    for (let right = left + 1; right < unique.length; right += 1) {
+      const distance = squaredDistance(unique[left]!, unique[right]!);
+      if (distance > farthestDistance) {
+        farthest = [unique[left]!, unique[right]!];
+        farthestDistance = distance;
+      }
+    }
+  }
+  return comparePoints(farthest[0], farthest[1]) <= 0
+    ? farthest
+    : [farthest[1], farthest[0]];
 };
 
 export const mapGraphPointToBounds = (
@@ -117,20 +423,69 @@ export const chooseGraphStep = (min: number, max: number): number => {
   return nice * magnitude;
 };
 
-function assertPhaseBFunction(fn: MathGraphFunction): void {
-  if (fn.functionType !== "linear" && fn.functionType !== "quadratic") {
-    throw new TypeError(`Phase B does not support ${fn.functionType} graph evaluation.`);
+function assertSupportedFunction(fn: MathGraphFunction): void {
+  if (!SUPPORTED_FUNCTION_TYPES.has(fn.functionType)) {
+    throw new TypeError(`Phase C does not support ${fn.functionType} graph evaluation.`);
   }
   parameter(fn, "a", 1);
-  parameter(fn, "b", 0);
-  if (fn.functionType === "quadratic") parameter(fn, "c", 0);
+  switch (fn.functionType) {
+    case "linear":
+      parameter(fn, "b", 0);
+      break;
+    case "quadratic":
+      parameter(fn, "b", 0);
+      parameter(fn, "c", 0);
+      break;
+    case "cubic":
+      parameter(fn, "b", 0);
+      parameter(fn, "c", 0);
+      parameter(fn, "d", 0);
+      break;
+    case "quartic":
+      parameter(fn, "b", 0);
+      parameter(fn, "c", 0);
+      parameter(fn, "d", 0);
+      parameter(fn, "e", 0);
+      break;
+    case "absolute":
+    case "rational":
+    case "radical":
+      parameter(fn, "h", 0);
+      parameter(fn, "k", 0);
+      break;
+    case "exponential":
+    case "logarithmic":
+      parameterBase(fn);
+      parameter(fn, "h", 0);
+      parameter(fn, "k", 0);
+      break;
+    case "sin":
+    case "cos":
+    case "tan":
+      parameter(fn, "b", 1);
+      parameter(fn, "h", 0);
+      parameter(fn, "k", 0);
+      break;
+    case "circle":
+    case "ellipse":
+    case "hyperbola":
+    case "custom":
+      break;
+  }
+  if (fn.domain !== undefined) assertIncreasingRange(fn.domain.min, fn.domain.max, "function domain");
+}
+
+function parameterBase(fn: MathGraphFunction): number {
+  const base = parameter(fn, "base", 2);
+  if (base <= 0 || base === 1) {
+    throw new RangeError("Graph base must be positive and different from 1.");
+  }
+  return base;
 }
 
 function parameter(fn: MathGraphFunction, name: string, fallback: number): number {
   const value = fn.parameters[name] ?? fallback;
-  if (!Number.isFinite(value)) {
-    throw new TypeError(`Graph parameter ${name} must be finite.`);
-  }
+  if (!Number.isFinite(value)) throw new TypeError(`Graph parameter ${name} must be finite.`);
   return value;
 }
 
@@ -143,6 +498,10 @@ function cloneFunction(fn: MathGraphFunction): MathGraphFunction {
   };
 }
 
+function cloneHelperLine(line: MathGraphHelperLine): MathGraphHelperLine {
+  return { ...line, start: { ...line.start }, end: { ...line.end } };
+}
+
 function isInsideDomain(x: number, domain: MathInterval | undefined): boolean {
   if (domain === undefined) return true;
   const aboveMin = domain.includeMin ? x >= domain.min : x > domain.min;
@@ -150,8 +509,112 @@ function isInsideDomain(x: number, domain: MathInterval | undefined): boolean {
   return aboveMin && belowMax;
 }
 
+function hasDiscontinuityBetween(fn: MathGraphFunction, leftX: number, rightX: number): boolean {
+  if (fn.functionType === "rational") {
+    return liesStrictlyBetween(parameter(fn, "h", 0), leftX, rightX);
+  }
+  if (fn.functionType !== "tan") return false;
+  const b = parameter(fn, "b", 1);
+  if (Math.abs(b) <= FUNCTION_EPSILON) return false;
+  const h = parameter(fn, "h", 0);
+  const leftAngle = b * (leftX - h);
+  const rightAngle = b * (rightX - h);
+  const minAngle = Math.min(leftAngle, rightAngle);
+  const maxAngle = Math.max(leftAngle, rightAngle);
+  const firstIndex = Math.ceil((minAngle - Math.PI / 2) / Math.PI);
+  const firstAsymptote = Math.PI / 2 + firstIndex * Math.PI;
+  return firstAsymptote > minAngle + FUNCTION_EPSILON
+    && firstAsymptote < maxAngle - FUNCTION_EPSILON;
+}
+
+function graphChildren(
+  graph: MathGraph,
+  patch: Partial<Pick<MathGraph, "points" | "tangents" | "helperLines" | "labels">> = {},
+): readonly MathObjectChild[] {
+  const points = patch.points ?? graph.points;
+  const tangents = patch.tangents ?? graph.tangents;
+  const helperLines = patch.helperLines ?? graph.helperLines;
+  const labels = patch.labels ?? graph.labels;
+  return [
+    ...graph.functions.map((fn) => ({ id: fn.id, kind: "function" })),
+    ...points.map((point) => ({ id: point.id, kind: "graph_point" })),
+    ...tangents.map((tangent) => ({ id: tangent.id, kind: "graph_tangent" })),
+    ...helperLines.map((line) => ({ id: line.id, kind: "graph_helper_line" })),
+    ...labels.map((label) => ({ id: label.id, kind: "graph_label" })),
+  ];
+}
+
+function graphEntityIds(graph: MathGraph): ReadonlySet<string> {
+  return new Set([
+    ...graph.functions,
+    ...graph.points,
+    ...graph.tangents,
+    ...graph.helperLines,
+    ...graph.labels,
+  ].map((entity) => entity.id));
+}
+
+function resolveGraphEntityId(
+  graph: MathGraph,
+  entityKind: "point" | "tangent",
+  requestedId: string | undefined,
+): string {
+  if (requestedId !== undefined) {
+    assertGraphEntityId(graph, requestedId);
+    return requestedId;
+  }
+  return nextSubEntityIds(graph.id, entityKind, 1, graphEntityIds(graph))[0]!;
+}
+
+function assertGraphEntityId(graph: MathGraph, id: string): void {
+  if (id.length === 0) throw new TypeError("Graph sub-entity id must not be empty.");
+  if (graphEntityIds(graph).has(id)) throw new TypeError(`Duplicate graph sub-entity id: ${id}`);
+}
+
+function requireGraphFunction(graph: MathGraph, functionId: string): MathGraphFunction {
+  const fn = graph.functions.find((candidate) => candidate.id === functionId);
+  if (fn === undefined) throw new Error(`Math graph function does not exist: ${functionId}`);
+  return fn;
+}
+
+function assertGraphTarget(graph: MathGraph, objectId: string): void {
+  if (graph.id !== objectId) throw new Error(`Math graph target does not exist: ${objectId}`);
+}
+
+function assertFinitePoint(point: Point, name: string): void {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    throw new TypeError(`${name} must contain finite coordinates.`);
+  }
+}
+
 function assertIncreasingRange(min: number, max: number, name: string): void {
   if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
     throw new RangeError(`${name} range must contain finite increasing values.`);
   }
+}
+
+function liesStrictlyBetween(value: number, left: number, right: number): boolean {
+  return value > Math.min(left, right) + FUNCTION_EPSILON
+    && value < Math.max(left, right) - FUNCTION_EPSILON;
+}
+
+function insideClosedRange(value: number, min: number, max: number): boolean {
+  return value >= min - FUNCTION_EPSILON && value <= max + FUNCTION_EPSILON;
+}
+
+function samePoint(left: Point, right: Point): boolean {
+  return left.x === right.x && left.y === right.y;
+}
+
+function nearlySamePoint(left: Point, right: Point): boolean {
+  return Math.abs(left.x - right.x) <= FUNCTION_EPSILON
+    && Math.abs(left.y - right.y) <= FUNCTION_EPSILON;
+}
+
+function squaredDistance(left: Point, right: Point): number {
+  return (left.x - right.x) ** 2 + (left.y - right.y) ** 2;
+}
+
+function comparePoints(left: Point, right: Point): number {
+  return left.x === right.x ? left.y - right.y : left.x - right.x;
 }

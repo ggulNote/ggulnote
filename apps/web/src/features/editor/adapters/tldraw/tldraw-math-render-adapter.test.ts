@@ -100,6 +100,26 @@ describe("TldrawMathRenderAdapter", () => {
     };
     expect(() => toMathShapeVisualModel(shapeProps)).toThrow("do not match");
   });
+
+  it("preserves the hand-drawn rendering hint in the custom shape visual model", () => {
+    const table = createMathTable({
+      bounds: { x: 0, y: 0, width: 100, height: 60 },
+      style: { handDrawn: true },
+      rows: 1,
+      columns: 1,
+    }, "table-hand-drawn");
+    const shapeProps: MathObjectShape["props"] = {
+      w: 100,
+      h: 60,
+      logicalObjectId: table.id,
+      objectKind: table.kind,
+      serializedObject: JSON.stringify(serializeMathObject(table)),
+    };
+
+    expect(toMathShapeVisualModel(shapeProps)).toMatchObject({
+      renderingHint: "hand-drawn",
+    });
+  });
 });
 
 function createAdapter(): { editor: Editor; adapter: TldrawMathRenderAdapter } {

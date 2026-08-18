@@ -14,6 +14,7 @@ import {
   type RecordProps,
   type TLBaseShape,
 } from "tldraw";
+import { createMathPrimitivePathBuilder } from "./math-primitive-path-builder";
 
 export type MathObjectShape = TLBaseShape<
   typeof MATH_TLDRAW_SHAPE_TYPE,
@@ -103,7 +104,11 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
               y={0}
             />
           )}
-          {model.primitives.map(renderPrimitive)}
+          {model.primitives.map((primitive) => renderPrimitive(
+            primitive,
+            model.renderingHint,
+            model.logicalObjectId,
+          ))}
         </svg>
       </HTMLContainer>
     );
@@ -124,7 +129,94 @@ export const toMathShapeVisualModel = (props: MathObjectShape["props"]) => {
   return createMathVisualModel(object);
 };
 
-function renderPrimitive(primitive: MathVisualPrimitive): React.ReactElement {
+function renderPrimitive(
+  primitive: MathVisualPrimitive,
+  renderingHint: MathVisualModel["renderingHint"],
+  logicalObjectId: string,
+): React.ReactElement {
+  if (renderingHint === "hand-drawn" && primitive.kind !== "text") {
+    const handDrawn = renderHandDrawnPrimitive(primitive, logicalObjectId);
+    if (handDrawn !== undefined) return handDrawn;
+  }
+  return renderPrecisePrimitive(primitive);
+}
+
+function renderHandDrawnPrimitive(
+  primitive: Exclude<MathVisualPrimitive, { readonly kind: "text" }>,
+  logicalObjectId: string,
+): React.ReactElement | undefined {
+  const path = createMathPrimitivePathBuilder(primitive);
+  if (path === undefined) return undefined;
+  const fill = renderPrimitiveFill(primitive);
+  const stroke = path.toSvg({
+    style: "draw",
+    strokeWidth: primitive.strokeWidth,
+    randomSeed: `${logicalObjectId}:${primitive.id}`,
+    passes: 2,
+    props: {
+      fill: "none",
+      opacity: primitive.opacity,
+      stroke: primitive.stroke,
+      strokeDasharray: primitive.dash,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+    },
+  });
+  return (
+    <g key={primitive.id}>
+      {fill}
+      {stroke}
+    </g>
+  );
+}
+
+function renderPrimitiveFill(
+  primitive: Exclude<MathVisualPrimitive, { readonly kind: "text" }>,
+): React.ReactElement | null {
+  if (primitive.kind === "line") return null;
+  if (primitive.fill === "none" || primitive.fill === "transparent") return null;
+  switch (primitive.kind) {
+    case "polyline":
+      return primitive.closed ? (
+        <polygon
+          fill={primitive.fill}
+          opacity={primitive.opacity}
+          points={primitive.points.map((point) => `${point.x},${point.y}`).join(" ")}
+        />
+      ) : null;
+    case "circle":
+      return (
+        <circle
+          cx={primitive.cx}
+          cy={primitive.cy}
+          fill={primitive.fill}
+          opacity={primitive.opacity}
+          r={primitive.radius}
+        />
+      );
+    case "rect":
+      return (
+        <rect
+          fill={primitive.fill}
+          height={primitive.height}
+          opacity={primitive.opacity}
+          width={primitive.width}
+          x={primitive.x}
+          y={primitive.y}
+        />
+      );
+    case "path":
+      return (
+        <path
+          d={primitive.d}
+          fill={primitive.fill}
+          opacity={primitive.opacity}
+        />
+      );
+  }
+}
+
+function renderPrecisePrimitive(primitive: MathVisualPrimitive): React.ReactElement {
   switch (primitive.kind) {
     case "line":
       return (
