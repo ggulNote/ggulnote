@@ -752,7 +752,7 @@ function readCandidateAlias(value: unknown, path: string): `${"C" | "S"}${number
 
 function readToolId(value: unknown, path: string): NoteToolId {
   const id = readNonEmptyString(value, path);
-  if (!/^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*$/u.test(id)) {
+  if (!/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/u.test(id)) {
     return fail(path, "expected a namespaced tool id");
   }
   return id as NoteToolId;

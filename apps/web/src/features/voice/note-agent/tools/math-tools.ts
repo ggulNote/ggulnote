@@ -1,230 +1,261 @@
-import { NoteAgentValidationError } from "../domain";
-import type { NoteSchema, NoteTool } from "./note-tool-registry";
+import {
+  CONNECTED_MATH_ACTION_IDS,
+  connectedMathActionDecisionArgsSchema,
+  createConnectedMathAction,
+  createMathAction,
+  deserializeMathObject,
+  mathActionDefinitionById,
+  parseConnectedMathActionDecisionArgs,
+  prepareMathActionExecution,
+  type ConnectedMathActionId,
+  type MathObject,
+  type MathObjectKind,
+} from "@ggulnote/math-core";
+import { NoteAgentValidationError, type DecisionObjectRef } from "../domain";
+import { editorMathSceneId } from "../../integration/editor-voice-context";
+import type { NoteSchema, NoteTool, NoteToolContext } from "./note-tool-registry";
 
-export type NumericMatrix = readonly (readonly number[])[];
-
-export interface MatrixMultiplyResult {
-  readonly value: NumericMatrix;
-  readonly rows: number;
-  readonly columns: number;
+interface MathToolInput {
+  readonly args: Readonly<Record<string, unknown>>;
+  readonly target?: DecisionObjectRef;
 }
 
-export function addFiniteNumbers(values: readonly number[]): number {
-  if (values.length < 2 || values.some((value) => !Number.isFinite(value))) {
-    throw new RangeError("math.add requires at least two finite numbers.");
-  }
-  return values.reduce((sum, value) => sum + value, 0);
-}
-
-export function multiplyNumericMatrices(
-  left: NumericMatrix,
-  right: NumericMatrix,
-): MatrixMultiplyResult {
-  const leftShape = matrixShape(left, "left");
-  const rightShape = matrixShape(right, "right");
-  if (leftShape.columns !== rightShape.rows) {
-    throw new RangeError("INCOMPATIBLE_MATRIX_DIMENSIONS");
-  }
-  const value = left.map((row) =>
-    Array.from({ length: rightShape.columns }, (_, column) =>
-      row.reduce((sum, entry, index) => sum + entry * (right[index]?.[column] ?? 0), 0)));
-  return {
-    value,
-    rows: leftShape.rows,
-    columns: rightShape.columns,
-  };
+interface PreparedMathValue {
+  readonly logicalObjectId: string;
+  readonly objectKind: MathObjectKind;
 }
 
 export function createMathTools(): readonly NoteTool[] {
-  return [mathAddTool(), matrixMultiplyTool()];
+  return CONNECTED_MATH_ACTION_IDS.map((actionId) => mathActionTool(actionId));
 }
 
-function mathAddTool(): NoteTool<{ values: readonly number[] }, { value: number }> {
+function mathActionTool(actionId: ConnectedMathActionId): NoteTool<MathToolInput, PreparedMathValue> {
+  const definition = mathActionDefinitionById(actionId);
   return {
-    id: "math.add",
-    kind: "COMPUTE",
-    description: "Add two or more finite numbers deterministically.",
-    examples: ["1, 2, 3을 더해 줘"],
-    inputSchema: finiteNumberArraySchema,
-    outputSchema: finiteNumberOutputSchema,
-    decisionArgsSchema: {
-      type: "object",
-      properties: {
-        values: { type: "array", items: { type: "number" }, minItems: 1 },
-      },
-      required: ["values"],
-      additionalProperties: false,
-    },
+    id: actionId,
+    kind: "MUTATION",
+    description: actionDescription(actionId, definition.summary),
+    examples: actionExamples(actionId),
+    inputSchema: mathToolInputSchema(actionId),
+    outputSchema: preparedMathValueSchema,
+    decisionArgsSchema: connectedMathActionDecisionArgsSchema(actionId),
     isAvailable: () => true,
-    prepare: async (input, context) => compute(context, () => ({
-      status: "READY" as const,
-      value: { value: addFiniteNumbers(input.values) },
-      operations: [],
-    })),
-  };
-}
-
-function matrixMultiplyTool(): NoteTool<
-  { left: NumericMatrix; right: NumericMatrix },
-  MatrixMultiplyResult
-> {
-  return {
-    id: "math.matrix_multiply",
-    kind: "COMPUTE",
-    description: "Multiply two rectangular numeric matrices when dimensions are compatible.",
-    examples: ["첫 번째 행렬과 두 번째 행렬을 곱해 줘"],
-    inputSchema: matrixMultiplyInputSchema,
-    outputSchema: matrixMultiplyOutputSchema,
-    decisionArgsSchema: {
-      type: "object",
-      properties: {
-        left: {
-          type: "array",
-          items: { type: "array", items: { type: "number" }, minItems: 1 },
-          minItems: 1,
-        },
-        right: {
-          type: "array",
-          items: { type: "array", items: { type: "number" }, minItems: 1 },
-          minItems: 1,
-        },
-      },
-      required: ["left", "right"],
-      additionalProperties: false,
-    },
-    isAvailable: () => true,
-    prepare: async (input, context) => compute(context, () => {
-      try {
-        return {
-          status: "READY" as const,
-          value: multiplyNumericMatrices(input.left, input.right),
-          operations: [],
-        };
-      } catch (error) {
-        return error instanceof RangeError && error.message === "INCOMPATIBLE_MATRIX_DIMENSIONS"
-          ? { status: "FAILED" as const, reasonCode: "INCOMPATIBLE_MATRIX_DIMENSIONS" }
-          : { status: "FAILED" as const, reasonCode: "INVALID_MATRIX" };
+    prepare: async (input, context) => {
+      const currentObject = input.target === undefined
+        ? undefined
+        : mathObjectForHandle(input.target.object, context);
+      if (definition.target === "existing" && currentObject === undefined) {
+        return { status: "NOT_FOUND" };
       }
-    }),
+      if (definition.target === "create" && input.target !== undefined) {
+        return { status: "NOT_ALLOWED", reasonCode: "MATH_CREATE_TARGET_NOT_ALLOWED" };
+      }
+      const logicalObjectId = currentObject?.id
+        ?? createLogicalObjectId(context, definition.objectKind);
+      const bounds = definition.target === "create"
+        ? defaultMathBounds(definition.objectKind, context)
+        : undefined;
+      const action = createConnectedMathAction(actionId, input.args, {
+        objectId: logicalObjectId,
+        ...(bounds === undefined ? {} : { bounds }),
+      });
+      const prepared = prepareMathActionExecution(action, {
+        getObject: (objectId) => currentObject?.id === objectId ? currentObject : undefined,
+      });
+      const renderReady = actionId === "math.arithmetic.setup_vertical_multiply"
+        ? addSetupSeparator(prepared.object)
+        : prepared;
+      const outputRef = {
+        kind: "OBJECT" as const,
+        objectId: editorMathSceneId(
+          context.frozenWorld.pageId,
+          renderReady.object.id,
+          renderReady.object.kind,
+        ),
+      };
+      return {
+        status: "READY",
+        value: {
+          logicalObjectId: renderReady.object.id,
+          objectKind: renderReady.object.kind,
+        },
+        operations: [{
+          kind: "EXISTING_EDITOR_OPERATION",
+          data: {
+            tldrawOperation: {
+              kind: "APPLY_MATH_RENDER_OPERATION",
+              operation: renderReady.renderOperation,
+            },
+            output: outputRef,
+            ...(input.target === undefined
+              ? {}
+              : { target: context.handles?.resolve(input.target.object) }),
+          },
+        }],
+      };
+    },
   };
 }
 
-function compute<T>(
-  context: Parameters<NoteTool["prepare"]>[1],
-  operation: () => T,
-): T {
-  const startedAt = context.metrics?.now();
-  const result = operation();
-  if (startedAt !== undefined) {
-    context.metrics?.add("computeMs", context.metrics.now() - startedAt);
+function addSetupSeparator(object: MathObject) {
+  if (object.kind !== "arithmetic_layout") {
+    throw new TypeError("Vertical multiplication did not create an arithmetic layout.");
   }
-  return result;
-}
-
-const finiteNumberArraySchema: NoteSchema<{ values: readonly number[] }> = {
-  compact: Object.freeze({ values: "array of 2+ finite numbers" }),
-  parse(value, path = "input") {
-    const input = strictRecord(value, path, ["values"]);
-    if (!Array.isArray(input.values) || input.values.length < 2) {
-      throw validation(`${path}.values`, "expected at least two numbers");
-    }
-    const values = input.values.map((entry, index) =>
-      finiteNumber(entry, `${path}.values[${index}]`));
-    return { values };
-  },
-};
-
-const matrixMultiplyInputSchema: NoteSchema<{ left: NumericMatrix; right: NumericMatrix }> = {
-  compact: Object.freeze({
-    left: "non-empty rectangular finite number matrix",
-    right: "non-empty rectangular finite number matrix",
-  }),
-  parse(value, path = "input") {
-    const input = strictRecord(value, path, ["left", "right"]);
-    return {
-      left: parseMatrix(input.left, `${path}.left`),
-      right: parseMatrix(input.right, `${path}.right`),
-    };
-  },
-};
-
-const finiteNumberOutputSchema: NoteSchema<{ value: number }> = {
-  compact: Object.freeze({ value: "finite number" }),
-  parse(value, path = "output") {
-    const output = strictRecord(value, path, ["value"]);
-    return { value: finiteNumber(output.value, `${path}.value`) };
-  },
-};
-
-const matrixMultiplyOutputSchema: NoteSchema<MatrixMultiplyResult> = {
-  compact: Object.freeze({ value: "matrix", rows: "integer", columns: "integer" }),
-  parse(value, path = "output") {
-    const output = strictRecord(value, path, ["value", "rows", "columns"]);
-    const matrix = parseMatrix(output.value, `${path}.value`);
-    const rows = positiveInteger(output.rows, `${path}.rows`);
-    const columns = positiveInteger(output.columns, `${path}.columns`);
-    const shape = matrixShape(matrix, path);
-    if (shape.rows !== rows || shape.columns !== columns) {
-      throw validation(path, "matrix shape metadata mismatch");
-    }
-    return { value: matrix, rows, columns };
-  },
-};
-
-function parseMatrix(value: unknown, path: string): NumericMatrix {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw validation(path, "expected a non-empty matrix");
+  const lastOperandRow = object.rows.filter((row) => row.rowType === "operand").at(-1);
+  if (lastOperandRow === undefined) {
+    throw new TypeError("Vertical multiplication has no operand row.");
   }
-  const matrix = value.map((row, rowIndex) => {
-    if (!Array.isArray(row) || row.length === 0) {
-      throw validation(`${path}[${rowIndex}]`, "expected a non-empty row");
-    }
-    return row.map((entry, columnIndex) =>
-      finiteNumber(entry, `${path}[${rowIndex}][${columnIndex}]`));
+  return prepareMathActionExecution(createMathAction("math.arithmetic.draw_separator", {
+    objectId: object.id,
+    afterRowId: lastOperandRow.id,
+  }), {
+    getObject: (objectId) => objectId === object.id ? object : undefined,
   });
-  matrixShape(matrix, path);
-  return matrix;
 }
 
-function matrixShape(matrix: NumericMatrix, path: string) {
-  const columns = matrix[0]?.length ?? 0;
-  if (matrix.length === 0 || columns === 0 || matrix.some((row) => row.length !== columns)) {
-    throw validation(path, "expected a rectangular matrix");
-  }
-  if (matrix.flat().some((value) => !Number.isFinite(value))) {
-    throw validation(path, "expected finite numbers");
-  }
-  return { rows: matrix.length, columns };
+function mathToolInputSchema(actionId: ConnectedMathActionId): NoteSchema<MathToolInput> {
+  return {
+    compact: Object.freeze({}),
+    parse(value, path = "input") {
+      const input = strictRecord(value, path);
+      const { target, ...decisionArgs } = input;
+      let args: Readonly<Record<string, unknown>>;
+      try {
+        args = parseConnectedMathActionDecisionArgs(actionId, decisionArgs);
+      } catch (error) {
+        throw new NoteAgentValidationError(path, errorMessage(error));
+      }
+      if (actionId === "math.graph.add_point") {
+        if (target === undefined) {
+          throw new NoteAgentValidationError(`${path}.target`, "expected a graph ObjectHandle");
+        }
+        return { args, target: parseWholeObjectRef(target, `${path}.target`) };
+      }
+      if (target !== undefined) {
+        throw new NoteAgentValidationError(`${path}.target`, "create action does not accept a target");
+      }
+      return { args };
+    },
+  };
 }
 
-function strictRecord(value: unknown, path: string, allowedKeys: readonly string[]) {
+function mathObjectForHandle(handle: string, context: NoteToolContext): MathObject | undefined {
+  const ref = context.handles?.resolve(handle);
+  const objectId = ref?.kind === "OBJECT" || ref?.kind === "OBJECT_PART"
+    ? ref.objectId
+    : undefined;
+  if (objectId === undefined) return undefined;
+  const sceneObject = context.world.getObject(objectId);
+  const snapshot = (sceneObject as { readonly mathObjectSnapshot?: unknown } | undefined)
+    ?.mathObjectSnapshot;
+  if (snapshot === undefined) return undefined;
+  try {
+    return deserializeMathObject(snapshot);
+  } catch {
+    return undefined;
+  }
+}
+
+function createLogicalObjectId(context: NoteToolContext, kind: MathObjectKind): string {
+  const turn = safeIdPart(context.turnId);
+  const step = safeIdPart(context.stepId ?? "step");
+  return `math-${kind}-${turn}-${step}`;
+}
+
+function defaultMathBounds(kind: MathObjectKind, context: NoteToolContext) {
+  const scene = context.world.getSnapshot(
+    context.frozenWorld.pageId,
+    context.frozenWorld.sceneRevision,
+  );
+  const page = scene?.page ?? { width: 600, height: 800 };
+  const preferred = kind === "graph"
+    ? { width: 360, height: 300 }
+    : kind === "shape"
+      ? { width: 240, height: 160 }
+      : kind === "arithmetic_layout"
+        ? { width: 220, height: 190 }
+        : { width: 320, height: 80 };
+  const width = Math.max(1, Math.min(preferred.width, page.width * 0.8));
+  const height = Math.max(1, Math.min(preferred.height, page.height * 0.8));
+  return {
+    x: Math.max(0, (page.width - width) / 2),
+    y: Math.max(0, (page.height - height) / 2),
+    width,
+    height,
+  };
+}
+
+function parseWholeObjectRef(value: unknown, path: string): DecisionObjectRef {
+  const target = strictRecord(value, path);
+  const keys = Object.keys(target);
+  if (keys.some((key) => key !== "object" && key !== "part")) {
+    throw new NoteAgentValidationError(path, "unexpected target field");
+  }
+  if (typeof target.object !== "string" || !/^O[1-9][0-9]*$/u.test(target.object)) {
+    throw new NoteAgentValidationError(`${path}.object`, "expected an ObjectHandle");
+  }
+  if (target.part !== null) {
+    throw new NoteAgentValidationError(`${path}.part`, "expected the whole graph object");
+  }
+  return { object: target.object as DecisionObjectRef["object"], part: null };
+}
+
+const preparedMathValueSchema: NoteSchema<PreparedMathValue> = {
+  compact: Object.freeze({ logicalObjectId: "string", objectKind: "MathObjectKind" }),
+  parse(value, path = "output") {
+    const output = strictRecord(value, path);
+    if (typeof output.logicalObjectId !== "string" || output.logicalObjectId.length === 0) {
+      throw new NoteAgentValidationError(`${path}.logicalObjectId`, "expected a non-empty string");
+    }
+    const objectKind = output.objectKind;
+    if (objectKind !== "expression" && objectKind !== "table" && objectKind !== "graph"
+      && objectKind !== "shape" && objectKind !== "arithmetic_layout") {
+      throw new NoteAgentValidationError(`${path}.objectKind`, "expected a MathObjectKind");
+    }
+    return { logicalObjectId: output.logicalObjectId, objectKind };
+  },
+};
+
+function actionDescription(actionId: ConnectedMathActionId, summary: string): string {
+  switch (actionId) {
+    case "math.graph.create":
+      return `${summary} Supply the typed descriptor; for x squared use quadratic with parameters a=1, b=0, c=0.`;
+    case "math.graph.add_point":
+      return `${summary} Select the existing graph handle as target; null coordinates create the deterministic smoke-test point (1, 1).`;
+    case "math.shape.create_rectangle":
+      return `${summary} Geometry is supplied deterministically by the runtime.`;
+    case "math.expression.create":
+    case "math.arithmetic.setup_vertical_multiply":
+      return summary;
+  }
+}
+
+function actionExamples(actionId: ConnectedMathActionId): readonly string[] {
+  switch (actionId) {
+    case "math.expression.create": return ["x제곱 더하기 2x 더하기 1이라고 써줘"];
+    case "math.graph.create": return ["x제곱 그래프 그려줘"];
+    case "math.shape.create_rectangle": return ["직사각형 하나 그려줘"];
+    case "math.arithmetic.setup_vertical_multiply": return ["58 곱하기 72 세로셈으로 써줘"];
+    case "math.graph.add_point": return ["방금 만든 그래프에 점 하나 찍어줘"];
+  }
+}
+
+function strictRecord(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw validation(path, "expected an object");
+    throw new NoteAgentValidationError(path, "expected an object");
   }
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
-    throw validation(path, "expected a plain object");
+    throw new NoteAgentValidationError(path, "expected a plain object");
   }
-  const record = value as Record<string, unknown>;
-  const unknown = Object.keys(record).find((key) => !allowedKeys.includes(key));
-  if (unknown !== undefined) throw validation(`${path}.${unknown}`, "unexpected field");
-  return record;
+  return value as Record<string, unknown>;
 }
 
-function finiteNumber(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw validation(path, "expected a finite number");
-  }
-  return value;
+function safeIdPart(value: string): string {
+  const result = value.trim().replace(/[^A-Za-z0-9_-]+/gu, "-");
+  return result.length === 0 ? "turn" : result;
 }
 
-function positiveInteger(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    throw validation(path, "expected a positive integer");
-  }
-  return value;
-}
-
-function validation(path: string, message: string): NoteAgentValidationError {
-  return new NoteAgentValidationError(path, message);
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "invalid math action args";
 }

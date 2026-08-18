@@ -13,9 +13,12 @@ import {
   tipTapDefaultExtensions,
   type TLAnyShapeUtilConstructor,
 } from "tldraw";
+import { deserializeMathObject } from "@ggulnote/math-core";
 import {
+  MathObjectShapeUtil,
   NoteAnnotationShapeUtil,
   TldrawEditorAdapter,
+  mathObjectShapeId,
 } from "../../editor/adapters/tldraw";
 import type { CompletedVoiceTurn } from "../domain";
 import { FrozenTargetResolver } from "../application";
@@ -39,6 +42,125 @@ afterEach(() => {
 });
 
 describe("tldraw One Decision sequential production flow", () => {
+  it("executes the five connected math actions and updates the same graph shape by handle", async () => {
+    const { editor: tldrawEditor, adapter } = createTldrawAdapter();
+    const editorEngine = new EditorEngine();
+    editorEngine.setDocument("doc-sequential");
+    editorEngine.setActivePage(PAGE_ID, PAGE_SIZE);
+    let currentRevision = 7;
+    let currentScene = projectScene(adapter, currentRevision);
+    const provider = new MathSmokeDecisionProvider();
+    const composition = createEditorDirectCommandComposition({
+      editorEngine,
+      clock: { now: () => toSessionTimeMs(100) },
+      readCurrentGroundingSnapshot: () => ({ documentId: "doc-sequential", scene: currentScene }),
+      getCurrentSceneRevision: () => currentRevision,
+      getCurrentPage: () => 1,
+      goToPage: () => undefined,
+      getTldrawAdapter: () => adapter,
+      noteAgent: { mode: "PRODUCTION", provider },
+    });
+
+    await expect(composition.noteAgentProduction?.execute(
+      turn("math-turn-1", "x제곱 그래프 그려줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    const createdGraph = adapter.getCurrentPageObjects().find((object) =>
+      object.mathObjectKind === "graph");
+    expect(createdGraph).toBeDefined();
+    const graphLogicalId = createdGraph!.logicalObjectId!;
+    const graphShapeId = mathObjectShapeId(graphLogicalId);
+    expect(createdGraph?.objectId).toBe(graphShapeId);
+    expect(tldrawEditor.getShape(graphShapeId)).toMatchObject({
+      type: "ggulnote-math",
+      props: { logicalObjectId: graphLogicalId, objectKind: "graph" },
+    });
+    expect(tldrawEditor.getCurrentPageShapes()).toHaveLength(1);
+    expect(deserializeMathObject(createdGraph!.mathObjectSnapshot!)).toMatchObject({
+      id: graphLogicalId,
+      kind: "graph",
+      style: { handDrawn: true },
+      coordinateSystem: { showAxes: true, showGrid: false },
+    });
+
+    currentRevision += 1;
+    currentScene = projectScene(adapter, currentRevision);
+    await expect(composition.noteAgentProduction?.execute(
+      turn("math-turn-2", "방금 만든 그래프에 점 하나 찍어줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    const graphObjects = adapter.getCurrentPageObjects().filter((object) =>
+      object.mathObjectKind === "graph");
+    expect(graphObjects).toHaveLength(1);
+    expect(graphObjects[0]?.objectId).toBe(graphShapeId);
+    expect(graphObjects[0]?.logicalObjectId).toBe(graphLogicalId);
+    expect(tldrawEditor.getCurrentPageShapes()).toHaveLength(1);
+    expect(deserializeMathObject(graphObjects[0]!.mathObjectSnapshot!)).toMatchObject({
+      id: graphLogicalId,
+      kind: "graph",
+      points: [{ position: { x: 1, y: 1 } }],
+    });
+    expect(provider.selectedGraphHandle).toBe("O1");
+    expect(provider.inputs[1]?.objectCatalog.objects[0]).toMatchObject({
+      handle: "O1",
+      kind: "graph",
+      summary: "y=x² graph",
+      capabilities: expect.arrayContaining(["mathPointAddable"]),
+      recent: true,
+    });
+
+    currentRevision += 1;
+    currentScene = projectScene(adapter, currentRevision);
+    await expect(composition.noteAgentProduction?.execute(
+      turn("math-turn-3", "58 곱하기 72 세로셈으로 써줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    const arithmetic = adapter.getCurrentPageObjects().find((object) =>
+      object.mathObjectKind === "arithmetic_layout");
+    expect(deserializeMathObject(arithmetic!.mathObjectSnapshot!)).toMatchObject({
+      kind: "arithmetic_layout",
+      arithmeticType: "multiply",
+      operands: ["58", "72"],
+      rows: [
+        { rowType: "operand" },
+        { rowType: "operand", operator: "×" },
+        { rowType: "partial", cells: [] },
+      ],
+      separators: [{ lineStyle: "solid" }],
+    });
+
+    currentRevision += 1;
+    currentScene = projectScene(adapter, currentRevision);
+    await expect(composition.noteAgentProduction?.execute(
+      turn("math-turn-4", "직사각형 하나 그려줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    const rectangle = adapter.getCurrentPageObjects().find((object) =>
+      object.mathObjectKind === "shape");
+    expect(deserializeMathObject(rectangle!.mathObjectSnapshot!)).toMatchObject({
+      kind: "shape",
+      shapeType: "rectangle",
+      preset: "rectangle",
+      geometry: { kind: "polygon" },
+    });
+
+    currentRevision += 1;
+    currentScene = projectScene(adapter, currentRevision);
+    await expect(composition.noteAgentProduction?.execute(
+      turn("math-turn-5", "x제곱 더하기 2x 더하기 1이라고 써줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    const expression = adapter.getCurrentPageObjects().find((object) =>
+      object.mathObjectKind === "expression");
+    expect(deserializeMathObject(expression!.mathObjectSnapshot!)).toMatchObject({
+      kind: "expression",
+      content: { source: "x² + 2x + 1", format: "plain" },
+    });
+    expect(adapter.getCurrentPageObjects().filter((object) => object.kind === "math"))
+      .toHaveLength(4);
+    expect(provider.inputs).toHaveLength(5);
+    expect(provider.disambiguationCallCount).toBe(0);
+
+    composition.dispose();
+    tldrawEditor.dispose();
+    editorEngine.destroy();
+  });
+
   it("sends the raw utterance and compact catalog through the same-origin strict Decision route", async () => {
     const { editor: tldrawEditor, adapter } = createTldrawAdapter();
     installBrowserCanvas();
@@ -515,6 +637,94 @@ class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
   }
 }
 
+class MathSmokeDecisionProvider implements NoteDecisionCompositionProvider {
+  public readonly inputs: NoteDecisionInput[] = [];
+  public disambiguationCallCount = 0;
+  public selectedGraphHandle: string | undefined;
+
+  public decide(input: NoteDecisionInput) {
+    this.inputs.push(input);
+    const sceneRevision = input.frozenContext.sceneRevision;
+    switch (input.turn.rawFinalTranscript) {
+      case "x제곱 그래프 그려줘":
+        return Promise.resolve({
+          status: "READY" as const,
+          sceneRevision,
+          steps: [{
+            action: "math.graph.create" as const,
+            target: null,
+            args: {
+              expression: "y=x²",
+              functionType: "quadratic",
+              parameters: [
+                { name: "a", value: 1 },
+                { name: "b", value: 0 },
+                { name: "c", value: 0 },
+              ],
+            },
+            destination: null,
+          }],
+        });
+      case "방금 만든 그래프에 점 하나 찍어줘": {
+        const graph = input.objectCatalog.objects.find((object) =>
+          object.kind === "graph" && object.recent);
+        if (graph === undefined) throw new Error("Expected the recent graph in Object Catalog.");
+        this.selectedGraphHandle = graph.handle;
+        return Promise.resolve({
+          status: "READY" as const,
+          sceneRevision,
+          steps: [{
+            action: "math.graph.add_point" as const,
+            target: { object: graph.handle, part: null },
+            args: { xValue: null, yValue: null, label: null },
+            destination: null,
+          }],
+        });
+      }
+      case "58 곱하기 72 세로셈으로 써줘":
+        return Promise.resolve({
+          status: "READY" as const,
+          sceneRevision,
+          steps: [{
+            action: "math.arithmetic.setup_vertical_multiply" as const,
+            target: null,
+            args: { operands: ["58", "72"] },
+            destination: null,
+          }],
+        });
+      case "직사각형 하나 그려줘":
+        return Promise.resolve({
+          status: "READY" as const,
+          sceneRevision,
+          steps: [{
+            action: "math.shape.create_rectangle" as const,
+            target: null,
+            args: {},
+            destination: null,
+          }],
+        });
+      case "x제곱 더하기 2x 더하기 1이라고 써줘":
+        return Promise.resolve({
+          status: "READY" as const,
+          sceneRevision,
+          steps: [{
+            action: "math.expression.create" as const,
+            target: null,
+            args: { source: "x² + 2x + 1" },
+            destination: null,
+          }],
+        });
+      default:
+        throw new Error(`Unexpected math smoke transcript: ${input.turn.rawFinalTranscript}`);
+    }
+  }
+
+  public disambiguate(): Promise<NoteDisambiguationChoice> {
+    this.disambiguationCallCount += 1;
+    throw new Error("A separate target-selection call is forbidden.");
+  }
+}
+
 function projectScene(adapter: TldrawEditorAdapter, revision: number): SceneSnapshot {
   return buildEditorVoiceContextRead({
     documentId: "doc-sequential",
@@ -524,6 +734,7 @@ function projectScene(adapter: TldrawEditorAdapter, revision: number): SceneSnap
     pageSize: PAGE_SIZE,
     sceneRevision: revision,
     pageSnapshot: adapter.exportPageProjection(),
+    tldrawObjects: adapter.getCurrentPageObjects(),
   }).scene;
 }
 
@@ -576,6 +787,7 @@ function createTldrawAdapter(): { editor: Editor; adapter: TldrawEditorAdapter }
   const shapeUtils: readonly TLAnyShapeUtilConstructor[] = [
     ...defaultShapeUtils,
     NoteAnnotationShapeUtil,
+    MathObjectShapeUtil,
   ];
   const editor = new Editor({
     store: createTLStore({ shapeUtils, bindingUtils: defaultBindingUtils }),

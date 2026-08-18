@@ -1041,6 +1041,9 @@ export function DocumentWorkspace({
       sceneRevision: voiceSceneRevision.get(),
       pageSnapshot: tldrawAdapter?.exportPageProjection()
         ?? editorEngine.exportPageSnapshot(activePageId),
+      ...(tldrawAdapter === null
+        ? {}
+        : { tldrawObjects: tldrawAdapter.getCurrentPageObjects() }),
       ...(document.kind === "pdf" && visiblePageText && semanticDebugModel
         ? { semanticModel: semanticDebugModel }
         : {}),

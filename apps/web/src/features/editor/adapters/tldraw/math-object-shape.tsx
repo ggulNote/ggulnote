@@ -15,6 +15,11 @@ import {
   type TLBaseShape,
 } from "tldraw";
 import { createMathPrimitivePathBuilder } from "./math-primitive-path-builder";
+import {
+  createMathGraphStrokeAnimationPlan,
+  readMathGraphCreateAnimation,
+  type MathGraphStrokeAnimation,
+} from "./math-graph-animation";
 
 export type MathObjectShape = TLBaseShape<
   typeof MATH_TLDRAW_SHAPE_TYPE,
@@ -85,6 +90,13 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
         </HTMLContainer>
       );
     }
+    const graphAnimation = shape.props.objectKind === "graph"
+      && model.renderingHint === "hand-drawn"
+      ? readMathGraphCreateAnimation(model.logicalObjectId)
+      : undefined;
+    const strokeAnimationPlan = graphAnimation === undefined
+      ? undefined
+      : createMathGraphStrokeAnimationPlan(model.primitives, graphAnimation.elapsedMs);
     return (
       <HTMLContainer style={{ pointerEvents: "none" }}>
         <svg
@@ -95,6 +107,7 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
           viewBox={`0 0 ${shape.props.w} ${shape.props.h}`}
           width={shape.props.w}
         >
+          {graphAnimation === undefined ? null : <style>{GRAPH_ANIMATION_STYLES}</style>}
           {model.backgroundColor === "transparent" ? null : (
             <rect
               fill={model.backgroundColor}
@@ -108,6 +121,8 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
             primitive,
             model.renderingHint,
             model.logicalObjectId,
+            strokeAnimationPlan?.get(primitive.id),
+            primitive.kind === "text" ? graphAnimation?.remainingMs : undefined,
           ))}
         </svg>
       </HTMLContainer>
@@ -133,17 +148,24 @@ function renderPrimitive(
   primitive: MathVisualPrimitive,
   renderingHint: MathVisualModel["renderingHint"],
   logicalObjectId: string,
+  strokeAnimation?: MathGraphStrokeAnimation,
+  contentRevealDelayMs?: number,
 ): React.ReactElement {
   if (renderingHint === "hand-drawn" && primitive.kind !== "text") {
-    const handDrawn = renderHandDrawnPrimitive(primitive, logicalObjectId);
+    const handDrawn = renderHandDrawnPrimitive(
+      primitive,
+      logicalObjectId,
+      strokeAnimation,
+    );
     if (handDrawn !== undefined) return handDrawn;
   }
-  return renderPrecisePrimitive(primitive);
+  return renderPrecisePrimitive(primitive, contentRevealDelayMs);
 }
 
 function renderHandDrawnPrimitive(
   primitive: Exclude<MathVisualPrimitive, { readonly kind: "text" }>,
   logicalObjectId: string,
+  animation?: MathGraphStrokeAnimation,
 ): React.ReactElement | undefined {
   const path = createMathPrimitivePathBuilder(primitive);
   if (path === undefined) return undefined;
@@ -154,10 +176,22 @@ function renderHandDrawnPrimitive(
     randomSeed: `${logicalObjectId}:${primitive.id}`,
     passes: 2,
     props: {
+      ...(animation === undefined ? {} : {
+        className: "ggulnote-math-animated-stroke",
+        pathLength: 1,
+        style: {
+          animationDelay: `${animation.delayMs}ms`,
+          animationDuration: `${animation.durationMs}ms`,
+          animationFillMode: "both",
+          animationName: "ggulnoteMathStrokeDraw",
+          animationTimingFunction: "linear",
+        },
+      }),
       fill: "none",
       opacity: primitive.opacity,
       stroke: primitive.stroke,
-      strokeDasharray: primitive.dash,
+      strokeDasharray: animation === undefined ? primitive.dash : "1",
+      ...(animation === undefined ? {} : { strokeDashoffset: 1 }),
       strokeLinecap: "round",
       strokeLinejoin: "round",
     },
@@ -216,7 +250,10 @@ function renderPrimitiveFill(
   }
 }
 
-function renderPrecisePrimitive(primitive: MathVisualPrimitive): React.ReactElement {
+function renderPrecisePrimitive(
+  primitive: MathVisualPrimitive,
+  contentRevealDelayMs?: number,
+): React.ReactElement {
   switch (primitive.kind) {
     case "line":
       return (
@@ -295,11 +332,21 @@ function renderPrecisePrimitive(primitive: MathVisualPrimitive): React.ReactElem
       return (
         <text
           key={primitive.id}
+          className={contentRevealDelayMs === undefined
+            ? undefined
+            : "ggulnote-math-deferred-content"}
           fill={primitive.color}
           fontFamily={primitive.fontFamily}
           fontSize={primitive.fontSize}
           fontWeight={primitive.fontWeight}
           opacity={primitive.opacity}
+          style={contentRevealDelayMs === undefined ? undefined : {
+            animationDelay: `${contentRevealDelayMs}ms`,
+            animationDuration: "1ms",
+            animationFillMode: "forwards",
+            animationName: "ggulnoteMathContentReveal",
+            visibility: "hidden",
+          }}
           textAnchor={primitive.anchor}
           x={primitive.x}
           y={primitive.y}
@@ -309,3 +356,25 @@ function renderPrecisePrimitive(primitive: MathVisualPrimitive): React.ReactElem
       );
   }
 }
+
+const GRAPH_ANIMATION_STYLES = `
+@keyframes ggulnoteMathStrokeDraw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes ggulnoteMathContentReveal {
+  from { visibility: hidden; }
+  to { visibility: visible; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ggulnote-math-animated-stroke {
+    animation: none !important;
+    stroke-dasharray: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .ggulnote-math-deferred-content {
+    animation: none !important;
+    visibility: visible !important;
+  }
+}
+`;

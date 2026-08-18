@@ -1,10 +1,5 @@
 export { createExistingNoteToolRegistry } from "./existing-tool-adapters";
-export {
-  addFiniteNumbers,
-  createMathTools,
-  multiplyNumericMatrices,
-} from "./math-tools";
-export type { MatrixMultiplyResult, NumericMatrix } from "./math-tools";
+export { createMathTools } from "./math-tools";
 export { createUnavailableExtensionTools } from "./extension-boundary-tools";
 export {
   AllEnabledActionsLoader,

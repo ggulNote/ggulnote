@@ -10,6 +10,10 @@ import {
   type TLShapeId,
 } from "tldraw";
 import type { MathObjectShape } from "./math-object-shape";
+import {
+  finishMathGraphCreateAnimation,
+  startMathGraphCreateAnimation,
+} from "./math-graph-animation";
 
 export interface TldrawMathRenderResult {
   readonly logicalObjectId: string;
@@ -40,6 +44,7 @@ export class TldrawMathRenderAdapter implements MathRenderAdapter<TldrawMathRend
       serializedObject: JSON.stringify(plan.snapshot),
     };
     if (existing === undefined) {
+      if (object.kind === "graph") startMathGraphCreateAnimation(object.id);
       this.editor.createShape<MathObjectShape>({
         id: shapeId,
         type: MATH_TLDRAW_SHAPE_TYPE,
@@ -56,6 +61,7 @@ export class TldrawMathRenderAdapter implements MathRenderAdapter<TldrawMathRend
     if (existing.type !== MATH_TLDRAW_SHAPE_TYPE) {
       throw new TypeError(`Shape id collision for math object: ${plan.logicalObjectId}`);
     }
+    if (object.kind === "graph") finishMathGraphCreateAnimation(object.id);
     this.editor.updateShape<MathObjectShape>({
       id: shapeId,
       type: MATH_TLDRAW_SHAPE_TYPE,
@@ -71,6 +77,7 @@ export class TldrawMathRenderAdapter implements MathRenderAdapter<TldrawMathRend
   }
 
   private delete(logicalObjectId: string): TldrawMathRenderResult {
+    finishMathGraphCreateAnimation(logicalObjectId);
     const shapeId = mathObjectShapeId(logicalObjectId);
     const existing = this.editor.getShape(shapeId);
     if (existing === undefined) {

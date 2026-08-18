@@ -13,4 +13,5 @@ export {
   type PreparedTldrawOperation,
   type TldrawCommitResult,
   type TldrawObjectProjection,
+  type TldrawOperationResult,
 } from "./tldraw-editor-adapter";

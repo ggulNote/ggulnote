@@ -14,9 +14,9 @@ export function buildNoteDecisionJsonSchema(
 ): JsonSchema {
   const stepVariants = tools.map((tool): JsonSchema => strictObject({
     action: { type: "string", const: tool.id },
-    target: nullable(objectRefSchema()),
+    target: actionRequiresTarget(tool.id) ? objectRefSchema() : nullable(objectRefSchema()),
     args: tool.strictArgs ?? strictObject({}, []),
-    destination: actionMutatesExistingObject(tool.id)
+    destination: actionMutatesExistingObject(tool.id) || tool.id.startsWith("math.")
       ? { type: "null" }
       : nullable(destinationSchema()),
   }, ["action", "target", "args", "destination"]));
@@ -78,7 +78,13 @@ function objectRefSchema(): JsonSchema {
 }
 
 function actionMutatesExistingObject(action: string): boolean {
-  return action === "annotation.apply" || action === "text.replace";
+  return action === "annotation.apply"
+    || action === "text.replace"
+    || action === "math.graph.add_point";
+}
+
+function actionRequiresTarget(action: string): boolean {
+  return action === "math.graph.add_point";
 }
 
 function destinationSchema(): JsonSchema {

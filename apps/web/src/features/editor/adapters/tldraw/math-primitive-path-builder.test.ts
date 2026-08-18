@@ -35,10 +35,16 @@ describe("tldraw math primitive PathBuilder", () => {
       throw new Error("Expected PathBuilder output.");
     }
     const options = { strokeWidth: 2, randomSeed: "stable-line", passes: 2 } as const;
-    expect(linePath.toDrawD(options)).toBe(linePath.toDrawD(options));
+    expect(createMathPrimitivePathBuilder(line)?.toDrawD(options))
+      .toBe(createMathPrimitivePathBuilder(line)?.toDrawD(options));
     expect(linePath.toDrawD(options)).not.toBe(linePath.toD());
-    expect(curvePath.toDrawD({ ...options, randomSeed: "stable-curve" }))
-      .not.toBe(curvePath.toD());
+    const curveOptions = {
+      ...options,
+      randomSeed: `logical-graph:${polyline.id}`,
+    } as const;
+    expect(createMathPrimitivePathBuilder(polyline)?.toDrawD(curveOptions))
+      .toBe(createMathPrimitivePathBuilder(polyline)?.toDrawD(curveOptions));
+    expect(curvePath.toDrawD(curveOptions)).not.toBe(curvePath.toD());
   });
 
   it("supports closed rectangles and circles without changing the source primitive", () => {

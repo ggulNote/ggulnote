@@ -137,7 +137,8 @@ describe("Phase B graph evaluator and sampling", () => {
       { x: 2, y: 5 },
     ]);
     expect(createMathVisualModel(graph).primitives.filter((primitive) =>
-      primitive.kind === "polyline")).toHaveLength(2);
+      primitive.kind === "polyline" && primitive.id.includes(":segment:")))
+      .toHaveLength(2);
   });
 
   it("keeps unsupported general expressions out of the typed create handler", () => {

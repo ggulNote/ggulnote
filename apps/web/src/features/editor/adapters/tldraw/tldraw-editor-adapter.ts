@@ -4,7 +4,14 @@ import type {
   SerializedAnnotation,
   Size,
 } from "@ggulnote/editor-core";
-import type { MathRenderOperation } from "@ggulnote/math-core";
+import {
+  MATH_TLDRAW_SHAPE_TYPE,
+  parseMathObject,
+  serializeMathObject,
+  type MathObjectKind,
+  type MathRenderOperation,
+  type SerializedMathObject,
+} from "@ggulnote/math-core";
 import {
   createShapeId,
   getSnapshot,
@@ -25,6 +32,7 @@ import {
   TldrawMathRenderAdapter,
   type TldrawMathRenderResult,
 } from "./tldraw-math-render-adapter";
+import type { MathObjectShape } from "./math-object-shape";
 
 const CANVAS_STORE_VERSION = 1;
 
@@ -53,11 +61,15 @@ export type PreparedTldrawOperation =
       readonly rects: readonly Rect[];
       readonly color?: string;
       readonly targetObjectIds?: readonly string[];
+    }
+  | {
+      readonly kind: "APPLY_MATH_RENDER_OPERATION";
+      readonly operation: MathRenderOperation;
     };
 
 export interface TldrawObjectProjection {
   readonly objectId: string;
-  readonly kind: "text" | "annotation";
+  readonly kind: "text" | "annotation" | "math";
   readonly bounds: Rect;
   readonly normalizedBounds: Rect;
   readonly text?: string;
@@ -69,11 +81,20 @@ export interface TldrawObjectProjection {
   readonly updatedAt?: number;
   readonly createdByTurnId?: string;
   readonly targetObjectIds?: readonly string[];
+  readonly logicalObjectId?: string;
+  readonly mathObjectKind?: MathObjectKind;
+  readonly mathObjectSnapshot?: SerializedMathObject;
+}
+
+export interface TldrawOperationResult {
+  readonly created?: string;
+  readonly updated?: string;
 }
 
 export interface TldrawCommitResult {
   readonly createdObjectIds: readonly string[];
   readonly updatedObjectIds: readonly string[];
+  readonly operationResults: readonly TldrawOperationResult[];
   readonly sceneRevision: number;
 }
 
@@ -149,10 +170,12 @@ export class TldrawEditorAdapter {
     const markId = this.editor.markHistoryStoppingPoint(`note-agent:${input.turnId}`);
     const createdObjectIds: string[] = [];
     const updatedObjectIds: string[] = [];
+    const operationResults: TldrawOperationResult[] = [];
     try {
       this.editor.run(() => {
         for (const operation of input.operations) {
           const changed = this.applyOperation(operation, input.turnId);
+          operationResults.push(changed);
           if (changed.created !== undefined) createdObjectIds.push(changed.created);
           if (changed.updated !== undefined) updatedObjectIds.push(changed.updated);
         }
@@ -162,6 +185,7 @@ export class TldrawEditorAdapter {
       return Object.freeze({
         createdObjectIds: Object.freeze(createdObjectIds),
         updatedObjectIds: Object.freeze(updatedObjectIds),
+        operationResults: Object.freeze(operationResults),
         sceneRevision: this.sceneRevision,
       });
     } catch (error) {
@@ -210,8 +234,10 @@ export class TldrawEditorAdapter {
   }
 
   public exportPageProjection(): PageSceneSnapshot {
-    const annotations = this.getCurrentPageObjects().map((object, index) =>
-      projectionToSerializedAnnotation(object, this.pageId, this.pageSize, index));
+    const annotations = this.getCurrentPageObjects().flatMap((object, index) => {
+      const annotation = projectionToSerializedAnnotation(object, this.pageId, this.pageSize, index);
+      return annotation === undefined ? [] : [annotation];
+    });
     return {
       documentId: this.documentId,
       pageId: this.pageId,
@@ -226,6 +252,31 @@ export class TldrawEditorAdapter {
     turnId: string,
   ): { readonly created?: string; readonly updated?: string } {
     const timestamp = this.now();
+    if (operation.kind === "APPLY_MATH_RENDER_OPERATION") {
+      const result = this.mathRenderAdapter.apply(operation.operation);
+      if (result.change === "unchanged" || result.change === "deleted") return {};
+      const shape = this.editor.getShape<MathObjectShape>(result.shapeId);
+      if (shape === undefined || shape.type !== MATH_TLDRAW_SHAPE_TYPE) {
+        throw new Error("Rendered math shape is unavailable.");
+      }
+      const existingMeta = readMeta(shape);
+      this.editor.updateShape<MathObjectShape>({
+        id: shape.id,
+        type: MATH_TLDRAW_SHAPE_TYPE,
+        meta: shapeMeta({
+          timestamp,
+          turnId: result.change === "created"
+            ? turnId
+            : existingMeta.createdByTurnId ?? turnId,
+          createdAt: result.change === "created"
+            ? timestamp
+            : existingMeta.createdAt || timestamp,
+        }),
+      });
+      return result.change === "created"
+        ? { created: result.shapeId }
+        : { updated: result.shapeId };
+    }
     if (operation.kind === "CREATE_TEXT") {
       const id = createShapeId();
       this.editor.createShape<TLTextShape>({
@@ -317,6 +368,26 @@ export class TldrawEditorAdapter {
         ...projectedMeta(meta),
       });
     }
+    if (shape.type === MATH_TLDRAW_SHAPE_TYPE) {
+      const mathShape = shape as MathObjectShape;
+      try {
+        const object = parseMathObject(mathShape.props.serializedObject);
+        return Object.freeze({
+          objectId: shape.id,
+          kind: "math",
+          bounds: Object.freeze(bounds),
+          normalizedBounds: Object.freeze(normalizedBounds),
+          logicalObjectId: object.id,
+          mathObjectKind: object.kind,
+          mathObjectSnapshot: serializeMathObject(object),
+          selected,
+          focused,
+          ...projectedMeta(meta),
+        });
+      } catch {
+        return undefined;
+      }
+    }
     if (shape.type !== NOTE_ANNOTATION_SHAPE_TYPE) return undefined;
     const annotation = shape as NoteAnnotationShape;
     const rects = annotation.props.segments.map((segment) => ({
@@ -344,7 +415,8 @@ function projectionToSerializedAnnotation(
   pageId: string,
   pageSize: Size,
   zIndex: number,
-): SerializedAnnotation {
+): SerializedAnnotation | undefined {
+  if (object.kind === "math") return undefined;
   const createdAt = object.createdAt ?? 0;
   const updatedAt = object.updatedAt ?? createdAt;
   if (object.kind === "text") {

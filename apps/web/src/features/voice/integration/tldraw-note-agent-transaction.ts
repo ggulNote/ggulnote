@@ -14,6 +14,7 @@ import { editorAnnotationSceneId } from "./editor-voice-context";
 interface PreparedOperationData {
   readonly tldrawOperation?: PreparedTldrawOperation;
   readonly target?: EntityRef;
+  readonly output?: EntityRef;
   readonly existingCommand?: {
     readonly capability?: string;
     readonly operation?: string;
@@ -75,13 +76,10 @@ export class TldrawNoteAgentTransaction implements NoteTransactionPort {
       });
       const committedAt = Number(this.options.clock.now());
       const operationId = `note:${input.turnId}:${committed.sceneRevision}`;
-      let createdIndex = 0;
-      for (const entry of entries) {
+      for (const [index, entry] of entries.entries()) {
         const operation = entry.data.tldrawOperation;
-        const createdId = operation?.kind === "CREATE_TEXT" || operation?.kind === "CREATE_ANNOTATION"
-          ? committed.createdObjectIds[createdIndex++]
-          : undefined;
-        const outputRef = createdId === undefined
+        const createdId = committed.operationResults[index]?.created;
+        const outputRef = entry.data.output ?? (createdId === undefined
           ? entry.data.target
           : {
               kind: "OBJECT" as const,
@@ -93,7 +91,7 @@ export class TldrawNoteAgentTransaction implements NoteTransactionPort {
                   ? "HIGHLIGHT"
                   : operation?.kind === "CREATE_ANNOTATION" ? "UNDERLINE" : "TEXT",
               }),
-            };
+            });
         this.options.operationLedger.record({
           operationId,
           sourceTurnId: input.turnId,

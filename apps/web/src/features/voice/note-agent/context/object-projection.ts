@@ -6,6 +6,10 @@ import type {
   SceneObjectMetadataView,
   UnifiedSceneObjectSource,
 } from "@ggulnote/editor-core";
+import {
+  deserializeMathObject,
+  projectMathObjectToCatalog,
+} from "@ggulnote/math-core";
 import type { EntityRef, UnifiedObjectWorld } from "../world";
 import type {
   NoteCatalogObject,
@@ -178,6 +182,22 @@ export function projectCatalogObject(
   const projected = projectionSource(ref, world);
   if (projected === undefined) return undefined;
   if (pageSize.width <= 0 || pageSize.height <= 0) return undefined;
+  const mathObjectSnapshot = (
+    projected.object as { readonly mathObjectSnapshot?: unknown }
+  ).mathObjectSnapshot;
+  if (mathObjectSnapshot !== undefined) {
+    try {
+      return projectMathObjectToCatalog(deserializeMathObject(mathObjectSnapshot), {
+        handle,
+        pageSize,
+        selected: context.selected,
+        focused: context.focused,
+        recent: context.recent,
+      });
+    } catch {
+      return undefined;
+    }
+  }
   const metadata = projected.metadata;
   const text = fullCatalogText(metadata);
   const summary = text === undefined ? bound(metadata.searchableText, 160) : undefined;

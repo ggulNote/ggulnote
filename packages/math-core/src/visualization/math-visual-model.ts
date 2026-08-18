@@ -369,25 +369,41 @@ function graphPrimitives(
     const axes = strokeStyle(graph.style, "#475569", 1.5);
     if (graph.coordinateSystem.yMin <= 0 && graph.coordinateSystem.yMax >= 0) {
       const origin = mapGraphPointToBounds({ x: 0, y: 0 }, graph.coordinateSystem, plot);
+      const axisEnd = { x: plot.x + plot.width, y: origin.y };
       primitives.push({
         kind: "line",
         id: `${graph.id}:axis:x`,
         x1: plot.x,
         y1: origin.y,
-        x2: plot.x + plot.width,
-        y2: origin.y,
+        x2: axisEnd.x,
+        y2: axisEnd.y,
+        ...axes,
+      }, {
+        kind: "polyline",
+        id: `${graph.id}:axis:x:arrowhead`,
+        points: axisArrowhead(axisEnd, "x"),
+        closed: false,
+        fill: "none",
         ...axes,
       });
     }
     if (graph.coordinateSystem.xMin <= 0 && graph.coordinateSystem.xMax >= 0) {
       const origin = mapGraphPointToBounds({ x: 0, y: 0 }, graph.coordinateSystem, plot);
+      const axisEnd = { x: origin.x, y: plot.y };
       primitives.push({
         kind: "line",
         id: `${graph.id}:axis:y`,
         x1: origin.x,
-        y1: plot.y,
+        y1: plot.y + plot.height,
         x2: origin.x,
-        y2: plot.y + plot.height,
+        y2: axisEnd.y,
+        ...axes,
+      }, {
+        kind: "polyline",
+        id: `${graph.id}:axis:y:arrowhead`,
+        points: axisArrowhead(axisEnd, "y"),
+        closed: false,
+        fill: "none",
         ...axes,
       });
     }
@@ -684,6 +700,21 @@ function numericTicks(min: number, max: number, step: number): readonly number[]
 
 function palette(index: number): string {
   return ["#2563eb", "#dc2626", "#059669", "#7c3aed"][index % 4]!;
+}
+
+function axisArrowhead(end: Point, axis: "x" | "y"): readonly Point[] {
+  const size = 8;
+  return axis === "x"
+    ? [
+        { x: end.x - size, y: end.y - size * 0.65 },
+        end,
+        { x: end.x - size, y: end.y + size * 0.65 },
+      ]
+    : [
+        { x: end.x - size * 0.65, y: end.y + size },
+        end,
+        { x: end.x + size * 0.65, y: end.y + size },
+      ];
 }
 
 function extendLinearGeometry(

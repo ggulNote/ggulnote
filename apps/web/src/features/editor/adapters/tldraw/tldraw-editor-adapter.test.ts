@@ -124,7 +124,7 @@ describe("TldrawEditorAdapter", () => {
     ]);
   });
 
-  it("exposes the independent math render hook without projecting it as a legacy annotation", () => {
+  it("projects the math render hook to the runtime while keeping it out of legacy annotations", () => {
     const { editor, adapter } = createAdapter();
     const expression = createMathExpression({
       bounds: { x: 40, y: 50, width: 180, height: 60 },
@@ -134,7 +134,13 @@ describe("TldrawEditorAdapter", () => {
     const created = adapter.applyMathRenderOperation(compileMathRenderUpsert(expression));
     expect(created.change).toBe("created");
     expect(editor.getShape(created.shapeId)).toMatchObject({ type: "ggulnote-math", x: 40, y: 50 });
-    expect(adapter.getCurrentPageObjects()).toEqual([]);
+    expect(adapter.getCurrentPageObjects()).toEqual([
+      expect.objectContaining({
+        kind: "math",
+        logicalObjectId: "expression-runtime-1",
+        mathObjectKind: "expression",
+      }),
+    ]);
     expect(adapter.exportPageProjection().annotations).toEqual([]);
 
     expect(adapter.applyMathRenderOperation(compileMathRenderDelete(expression.id)).change).toBe("deleted");

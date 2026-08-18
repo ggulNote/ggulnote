@@ -1,6 +1,7 @@
 export * from "./domain/math-object";
 export * from "./actions/math-action";
 export * from "./actions/math-action-definitions";
+export * from "./actions/connected-math-action-contract";
 export * from "./serialization/math-object-serializer";
 export * from "./layout/math-layout-engine";
 export * from "./rendering/math-render-adapter";

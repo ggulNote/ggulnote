@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  addMathGraphPoint,
   compileMathRenderDelete,
   compileMathRenderUpsert,
+  createMathGraph,
   createMathTable,
   parseMathObject,
   serializeMathObject,
   setMathTableCell,
 } from "@ggulnote/math-core";
+import { render } from "@testing-library/react";
 import {
   Editor,
   createTLStore,
@@ -119,6 +122,54 @@ describe("TldrawMathRenderAdapter", () => {
     expect(toMathShapeVisualModel(shapeProps)).toMatchObject({
       renderingHint: "hand-drawn",
     });
+  });
+
+  it("animates one graph shape on create and updates that same shape without replay", () => {
+    const { editor, adapter } = createAdapter();
+    const graph = createMathGraph({
+      bounds: { x: 80, y: 120, width: 360, height: 300 },
+      style: { handDrawn: true },
+      showGrid: false,
+      functions: [{
+        id: "graph-one-object:function:1",
+        expression: "y=x²",
+        functionType: "quadratic",
+        parameters: { a: 1, b: 0, c: 0 },
+      }],
+    }, "graph-one-object");
+
+    const created = adapter.apply(compileMathRenderUpsert(graph));
+    const createdShape = editor.getShape<MathObjectShape>(created.shapeId);
+    if (createdShape === undefined) throw new Error("Expected created graph shape.");
+    const shapeUtil = new MathObjectShapeUtil(editor);
+    const rendered = render(shapeUtil.component(createdShape));
+
+    expect(editor.getCurrentPageShapes()).toHaveLength(1);
+    expect(JSON.stringify(createdShape.props)).not.toMatch(
+      /animationProgress|animationStartTime|isAnimating/u,
+    );
+    expect(rendered.container.querySelectorAll(".ggulnote-math-animated-stroke"))
+      .toHaveLength(5);
+    expect(rendered.container.querySelector(".ggulnote-math-animated-stroke"))
+      .toHaveAttribute("pathLength", "1");
+    expect(rendered.container.querySelector(".ggulnote-math-animated-stroke"))
+      .toHaveAttribute("stroke-dasharray", "1");
+
+    const updatedGraph = addMathGraphPoint(graph, {
+      objectId: graph.id,
+      x: 1,
+      y: 1,
+    });
+    const updated = adapter.apply(compileMathRenderUpsert(updatedGraph));
+    const updatedShape = editor.getShape<MathObjectShape>(updated.shapeId);
+    if (updatedShape === undefined) throw new Error("Expected updated graph shape.");
+    rendered.rerender(shapeUtil.component(updatedShape));
+
+    expect(updated).toMatchObject({ change: "updated", shapeId: created.shapeId });
+    expect(updatedShape.props.logicalObjectId).toBe(graph.id);
+    expect(editor.getCurrentPageShapes()).toHaveLength(1);
+    expect(rendered.container.querySelectorAll(".ggulnote-math-animated-stroke"))
+      .toHaveLength(0);
   });
 });
 
