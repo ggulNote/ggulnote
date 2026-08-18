@@ -4,6 +4,7 @@ import type {
   SerializedAnnotation,
   Size,
 } from "@ggulnote/editor-core";
+import type { MathRenderOperation } from "@ggulnote/math-core";
 import {
   createShapeId,
   getSnapshot,
@@ -20,6 +21,10 @@ import {
   type NoteAnnotationSegment,
   type NoteAnnotationShape,
 } from "./note-annotation-shape";
+import {
+  TldrawMathRenderAdapter,
+  type TldrawMathRenderResult,
+} from "./tldraw-math-render-adapter";
 
 const CANVAS_STORE_VERSION = 1;
 
@@ -79,6 +84,7 @@ export interface TldrawCommitResult {
 export class TldrawEditorAdapter {
   private sceneRevision = 0;
   private lastProjectionMs = 0;
+  private readonly mathRenderAdapter: TldrawMathRenderAdapter;
 
   public constructor(
     private readonly editor: Editor,
@@ -87,7 +93,9 @@ export class TldrawEditorAdapter {
     private readonly pageNumber: number,
     private pageSize: Size,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    this.mathRenderAdapter = new TldrawMathRenderAdapter(editor);
+  }
 
   public setPageSize(pageSize: Size): void {
     assertPageSize(pageSize);
@@ -160,6 +168,13 @@ export class TldrawEditorAdapter {
       this.editor.bailToMark(markId);
       throw error;
     }
+  }
+
+  /** Independent math runtime hook; Note Agent registration remains a later concern. */
+  public applyMathRenderOperation(operation: MathRenderOperation): TldrawMathRenderResult {
+    const result = this.mathRenderAdapter.apply(operation);
+    if (result.change !== "unchanged") this.sceneRevision += 1;
+    return result;
   }
 
   public undo(): boolean {

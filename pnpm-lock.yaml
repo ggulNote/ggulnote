@@ -26,6 +26,9 @@ importers:
       '@ggulnote/interaction-core':
         specifier: workspace:*
         version: link:../../packages/interaction-core
+      '@ggulnote/math-core':
+        specifier: workspace:*
+        version: link:../../packages/math-core
       '@ggulnote/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -177,6 +180,28 @@ importers:
       '@ggulnote/gaze-core':
         specifier: workspace:*
         version: link:../gaze-core
+      '@ggulnote/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      eslint:
+        specifier: ^9
+        version: 9.39.5(jiti@2.7.0)
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.0
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: 3.1.4
+        version: 3.1.4(@types/node@20.19.43)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)
+
+  packages/math-core:
+    dependencies:
       '@ggulnote/shared-types':
         specifier: workspace:*
         version: link:../shared-types

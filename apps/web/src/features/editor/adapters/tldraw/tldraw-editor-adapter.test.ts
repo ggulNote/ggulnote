@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  compileMathRenderDelete,
+  compileMathRenderUpsert,
+  createMathExpression,
+} from "@ggulnote/math-core";
+import {
   Editor,
   createTLStore,
   defaultAddFontsFromNode,
@@ -9,6 +14,7 @@ import {
   type TLAnyShapeUtilConstructor,
   type TLShapeId,
 } from "tldraw";
+import { MathObjectShapeUtil } from "./math-object-shape";
 import { NoteAnnotationShapeUtil } from "./note-annotation-shape";
 import { TldrawEditorAdapter } from "./tldraw-editor-adapter";
 
@@ -117,12 +123,30 @@ describe("TldrawEditorAdapter", () => {
       }),
     ]);
   });
+
+  it("exposes the independent math render hook without projecting it as a legacy annotation", () => {
+    const { editor, adapter } = createAdapter();
+    const expression = createMathExpression({
+      bounds: { x: 40, y: 50, width: 180, height: 60 },
+      content: { source: "y=x^2", format: "plain" },
+    }, "expression-runtime-1");
+
+    const created = adapter.applyMathRenderOperation(compileMathRenderUpsert(expression));
+    expect(created.change).toBe("created");
+    expect(editor.getShape(created.shapeId)).toMatchObject({ type: "ggulnote-math", x: 40, y: 50 });
+    expect(adapter.getCurrentPageObjects()).toEqual([]);
+    expect(adapter.exportPageProjection().annotations).toEqual([]);
+
+    expect(adapter.applyMathRenderOperation(compileMathRenderDelete(expression.id)).change).toBe("deleted");
+    expect(editor.getShape(created.shapeId)).toBeUndefined();
+  });
 });
 
 function createAdapter(): { editor: Editor; adapter: TldrawEditorAdapter } {
   const shapeUtils: readonly TLAnyShapeUtilConstructor[] = [
     ...defaultShapeUtils,
     NoteAnnotationShapeUtil,
+    MathObjectShapeUtil,
   ];
   const store = createTLStore({ shapeUtils, bindingUtils: defaultBindingUtils });
   const editor = new Editor({

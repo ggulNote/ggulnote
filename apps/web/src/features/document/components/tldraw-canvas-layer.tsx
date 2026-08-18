@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Size } from "@ggulnote/editor-core";
 import { Tldraw, type Editor } from "tldraw";
 import {
+  MathObjectShapeUtil,
   NoteAnnotationShapeUtil,
   TldrawEditorAdapter,
 } from "../../editor/adapters/tldraw";
@@ -12,7 +13,7 @@ import {
   TLDRAW_CANVAS_STORE_VERSION,
 } from "../local-persistence";
 
-const SHAPE_UTILS = [NoteAnnotationShapeUtil] as const;
+const SHAPE_UTILS = [NoteAnnotationShapeUtil, MathObjectShapeUtil] as const;
 const SAVE_DEBOUNCE_MS = 250;
 
 export interface TldrawCanvasLayerProps {
@@ -86,7 +87,6 @@ export function TldrawCanvasLayer({
     let disposed = false;
     let saveTimer: ReturnType<typeof setTimeout> | null = null;
     let unlistenDocument: (() => void) | undefined;
-    let unlistenAll: (() => void) | undefined;
 
     const persistNow = (): void => {
       const snapshot = adapter.snapshot();
@@ -131,9 +131,6 @@ export function TldrawCanvasLayer({
         onSceneChangeRef.current(adapter.getSceneRevision());
         scheduleSave();
       }, { scope: "document" });
-      unlistenAll = editor.store.listen(() => {
-        onSceneChangeRef.current(adapter.getSceneRevision());
-      }, { scope: "session" });
       onAdapterReadyRef.current(adapter);
       onSceneChangeRef.current(adapter.getSceneRevision());
     };
@@ -144,7 +141,6 @@ export function TldrawCanvasLayer({
     return () => {
       disposed = true;
       unlistenDocument?.();
-      unlistenAll?.();
       if (saveTimer !== null) clearTimeout(saveTimer);
       if (adapterRef.current === adapter) {
         persistNow();

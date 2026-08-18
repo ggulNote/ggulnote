@@ -13,7 +13,12 @@ Thumbs.db
 
 build
 
-docs
+# Task documentation is ignored by default; keep the math-tools milestone docs versioned.
+docs/*
+!docs/tasks/
+docs/tasks/*
+!docs/tasks/math-tools/
+!docs/tasks/math-tools/**
 AGENTS.md
 
 tmp-turbo-cache/
