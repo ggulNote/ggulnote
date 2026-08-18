@@ -11,6 +11,7 @@ import type {
 } from "../../application";
 import type { CompletedVoiceTurnRoute } from "../../integration/direct-command-voice-turn-bridge";
 import type { NoteDecisionProvider } from "../decision";
+import { NOTE_DECISION_SCHEMA_VERSION } from "../decision/note-decision-json-schema";
 import { NoteContextAssembler } from "../context";
 import type { NoteDecision, NoteDecisionInput, NoteToolId } from "../domain";
 import type {
@@ -334,9 +335,13 @@ function baseFailureTrace(
 
 function traceIdentity(turn: CompletedVoiceTurn) {
   return {
+    runtimeOwner: "note-agent-v2" as const,
+    decisionSchemaVersion: NOTE_DECISION_SCHEMA_VERSION,
     turnId: turn.id,
     pageId: turn.frozenContext.pageId,
     sceneRevision: turn.frozenContext.sceneRevision,
+    legacyPlannerInvoked: false as const,
+    fuzzyObjectSelectorInvoked: false as const,
   };
 }
 

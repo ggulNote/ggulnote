@@ -3,6 +3,8 @@ import type { NoteDecision, NoteToolId } from "../domain";
 import type { NoteRuntimeResult } from "./note-runtime";
 
 export interface NoteAgentShadowTrace {
+  readonly runtimeOwner: "note-agent-v2";
+  readonly decisionSchemaVersion: string;
   readonly turnId: string;
   readonly pageId: string;
   readonly sceneRevision: number;
@@ -22,6 +24,14 @@ export interface NoteAgentShadowTrace {
   readonly objectCatalogBuildMs?: number;
   readonly objectCatalogObjectCount?: number;
   readonly objectCatalogSerializedChars?: number;
+  readonly catalogHandles?: readonly `O${number}`[];
+  readonly selectedHandle?: `O${number}`;
+  readonly decisionStatus?: NoteDecision["status"];
+  readonly decisionAction?: NoteToolId;
+  readonly decisionReferenceHandle?: `O${number}`;
+  readonly decisionRelation?: string;
+  readonly legacyPlannerInvoked: false;
+  readonly fuzzyObjectSelectorInvoked: false;
   readonly decisionMs: number;
   readonly decisionTotalMs?: number;
   readonly openaiTtfbMs?: number;
@@ -52,6 +62,7 @@ export interface NoteAgentShadowTrace {
 }
 export class NoteAgentShadowTraceStore {
   private readonly traces: NoteAgentShadowTrace[] = [];
+  private readonly listeners = new Set<() => void>();
 
   public constructor(private readonly capacity = 64) {
     if (!Number.isInteger(capacity) || capacity <= 0) {
@@ -64,6 +75,7 @@ export class NoteAgentShadowTraceStore {
     if (this.traces.length > this.capacity) {
       this.traces.splice(0, this.traces.length - this.capacity);
     }
+    this.emit();
   }
 
   public getAll(): readonly NoteAgentShadowTrace[] {
@@ -71,6 +83,23 @@ export class NoteAgentShadowTraceStore {
   }
 
   public clear(): void {
+    if (this.traces.length === 0) return;
     this.traces.length = 0;
+    this.emit();
+  }
+
+  public subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit(): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener();
+      } catch {
+        // Diagnostics observers cannot affect Note Agent execution.
+      }
+    }
   }
 }

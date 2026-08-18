@@ -18,11 +18,14 @@ import {
   TldrawEditorAdapter,
 } from "../../editor/adapters/tldraw";
 import type { CompletedVoiceTurn } from "../domain";
+import { FrozenTargetResolver } from "../application";
+import type { DirectCommandPlannerProvider } from "../providers";
 import type {
   NoteDecisionCompositionProvider,
   NoteDecisionInput,
   NoteDisambiguationChoice,
 } from "../note-agent";
+import { HttpNoteDecisionProvider } from "../note-agent";
 import { buildEditorVoiceContextRead } from "./editor-voice-context";
 import { createEditorDirectCommandComposition } from "./editor-direct-command-composition";
 
@@ -36,6 +39,137 @@ afterEach(() => {
 });
 
 describe("tldraw One Decision sequential production flow", () => {
+  it("sends the raw utterance and compact catalog through the same-origin strict Decision route", async () => {
+    const { editor: tldrawEditor, adapter } = createTldrawAdapter();
+    installBrowserCanvas();
+    const editorEngine = new EditorEngine();
+    editorEngine.setDocument("doc-sequential");
+    editorEngine.setActivePage(PAGE_ID, PAGE_SIZE);
+    let revision = 7;
+    let scene = projectScene(adapter, revision);
+    const requestBodies: NoteDecisionInput[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("/api/voice/note-decision");
+      const envelope = JSON.parse(String(init?.body)) as { input: NoteDecisionInput };
+      const body = envelope.input;
+      requestBodies.push(body);
+      if (body.turn.rawFinalTranscript === "안녕하세요라고 써 줘") {
+        return Response.json({
+          result: {
+            status: "READY",
+            sceneRevision: body.frozenContext.sceneRevision,
+            steps: [{
+              action: "text.create",
+              target: null,
+              args: { text: "안녕하세요" },
+              destination: {
+                relation: "CANVAS_REGION",
+                anchor: null,
+                region: "TOP_LEFT",
+              },
+            }],
+          },
+        });
+      }
+      return Response.json({
+        result: {
+          status: "READY",
+          sceneRevision: body.frozenContext.sceneRevision,
+          steps: [{
+            action: "text.create",
+            target: null,
+            args: { text: "가나다라" },
+            destination: {
+              relation: "BELOW",
+              anchor: { object: "O1", part: null },
+              region: null,
+            },
+          }],
+        },
+      });
+    });
+    const legacyPlanner: DirectCommandPlannerProvider = {
+      plan: vi.fn(() => Promise.reject(new Error("Legacy planner must not run."))),
+    };
+    const composition = createEditorDirectCommandComposition({
+      editorEngine,
+      clock: { now: () => toSessionTimeMs(100) },
+      readCurrentGroundingSnapshot: () => ({ documentId: "doc-sequential", scene }),
+      getCurrentSceneRevision: () => revision,
+      getCurrentPage: () => 1,
+      goToPage: () => undefined,
+      getTldrawAdapter: () => adapter,
+      planner: legacyPlanner,
+      spatial: {
+        getBaseCanvas: () => ({ width: 600, height: 800 }) as HTMLCanvasElement,
+        getOverlayCanvas: () => null,
+        mountPreviewCanvas: () => () => undefined,
+      },
+      noteAgent: {
+        mode: "PRODUCTION",
+        provider: new HttpNoteDecisionProvider({ fetch }),
+      },
+    });
+
+    const firstHttpResult = await composition.noteAgentProduction?.execute(
+      turn("turn-http-1", "안녕하세요라고 써 줘", revision),
+    );
+    if (firstHttpResult?.status !== "COMMITTED") {
+      throw new Error(JSON.stringify({
+        firstHttpResult,
+        trace: composition.noteAgentProduction?.traces.getAll().at(-1),
+      }));
+    }
+    revision = 8;
+    scene = projectScene(adapter, revision);
+    const result = await composition.noteAgentProduction?.execute(
+      turn("turn-http", "안녕하세요 밑에 가나다라라고 써 줘", revision),
+    );
+    if (result?.status !== "COMMITTED") {
+      throw new Error(JSON.stringify({
+        result,
+        trace: composition.noteAgentProduction?.traces.getAll().at(-1),
+      }));
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(legacyPlanner.plan).not.toHaveBeenCalled();
+    const requestBody = requestBodies[1];
+    expect(requestBody?.turn.rawFinalTranscript)
+      .toBe("안녕하세요 밑에 가나다라라고 써 줘");
+    expect(requestBody?.objectCatalog.objects).toEqual([
+      expect.objectContaining({
+        handle: "O1",
+        source: "tldraw",
+        kind: "text",
+        summary: "안녕하세요",
+      }),
+    ]);
+    expect(JSON.stringify(requestBody)).not.toContain(
+      adapter.getCurrentPageObjects()[0]?.objectId,
+    );
+    const objects = adapter.getCurrentPageObjects();
+    expect(objects[1]?.text).toBe("가나다라");
+    expect(objects[1]!.bounds.y).toBeGreaterThanOrEqual(
+      objects[0]!.bounds.y + objects[0]!.bounds.height,
+    );
+    expect(composition.noteAgentProduction?.traces.getAll().at(-1)).toMatchObject({
+      runtimeOwner: "note-agent-v2",
+      catalogHandles: ["O1"],
+      selectedHandle: "O1",
+      decisionStatus: "READY",
+      decisionAction: "text.create",
+      decisionReferenceHandle: "O1",
+      decisionRelation: "BELOW",
+      legacyPlannerInvoked: false,
+      fuzzyObjectSelectorInvoked: false,
+      commitAttempted: true,
+    });
+
+    composition.dispose();
+    tldrawEditor.dispose();
+    editorEngine.destroy();
+  });
+
   it("creates, catalogs, places below a recent handle, and undoes the second turn once", async () => {
     const { editor: tldrawEditor, adapter } = createTldrawAdapter();
     installBrowserCanvas();
@@ -45,6 +179,11 @@ describe("tldraw One Decision sequential production flow", () => {
     let currentRevision = 7;
     let currentScene = projectScene(adapter, currentRevision);
     const provider = new SequentialDecisionProvider();
+    const legacyPlanner: DirectCommandPlannerProvider = {
+      plan: vi.fn(() => Promise.reject(new Error("Legacy planner must not run."))),
+    };
+    const legacyTargetResolver = new FrozenTargetResolver();
+    const legacyTargetResolve = vi.spyOn(legacyTargetResolver, "resolve");
     const sourceCanvas = { width: 600, height: 800 } as HTMLCanvasElement;
     const composition = createEditorDirectCommandComposition({
       editorEngine,
@@ -54,6 +193,8 @@ describe("tldraw One Decision sequential production flow", () => {
       getCurrentPage: () => 1,
       goToPage: () => undefined,
       getTldrawAdapter: () => adapter,
+      planner: legacyPlanner,
+      targetResolver: legacyTargetResolver,
       spatial: {
         getBaseCanvas: () => sourceCanvas,
         getOverlayCanvas: () => null,
@@ -77,7 +218,7 @@ describe("tldraw One Decision sequential production flow", () => {
     currentRevision = 8;
     currentScene = projectScene(adapter, currentRevision);
     await expect(composition.noteAgentProduction?.execute(
-      turn("turn-2", "안녕하세여 밑에 가나다라라고 써줘", currentRevision),
+      turn("turn-2", "안녕하세요 밑에 가나다라라고 써 줘", currentRevision),
     )).resolves.toMatchObject({ status: "COMMITTED" });
     const afterSecond = adapter.getCurrentPageObjects();
     expect(afterSecond).toHaveLength(2);
@@ -98,7 +239,15 @@ describe("tldraw One Decision sequential production flow", () => {
     expect(JSON.stringify(secondInput)).not.toContain(firstObject!.objectId);
     const secondTrace = composition.noteAgentProduction?.traces.getAll().at(-1);
     expect(secondTrace).toMatchObject({
+      runtimeOwner: "note-agent-v2",
+      decisionSchemaVersion: "phase5-one-decision-v1",
       decisionCallCount: 1,
+      decisionStatus: "READY",
+      decisionAction: "text.create",
+      decisionReferenceHandle: "O1",
+      decisionRelation: "BELOW",
+      legacyPlannerInvoked: false,
+      fuzzyObjectSelectorInvoked: false,
       visualCallCount: 0,
       commitAttempted: true,
       objectCatalogObjectCount: 1,
@@ -119,6 +268,96 @@ describe("tldraw One Decision sequential production flow", () => {
     ]);
     expect(provider.decisionCallCount).toBe(3);
     expect(provider.disambiguationCallCount).toBe(0);
+
+    currentRevision = 10;
+    currentScene = projectScene(adapter, currentRevision);
+    await expect(composition.noteAgentProduction?.execute(
+      turn("turn-4", "안녕하새요 밑에 가나다라라고 써 줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    expect(provider.references.at(-1)).toMatchObject({
+      transcript: "안녕하새요 밑에 가나다라라고 써 줘",
+      summary: "안녕하세요",
+      relation: "BELOW",
+    });
+
+    currentRevision = 11;
+    currentScene = projectScene(adapter, currentRevision);
+    await expect(composition.noteAgentProduction?.execute(
+      turn("turn-5", "방금 쓴 글 아래에 테스트라고 써 줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    expect(provider.references.at(-1)).toMatchObject({
+      transcript: "방금 쓴 글 아래에 테스트라고 써 줘",
+      summary: "가나다라",
+      recent: true,
+      relation: "BELOW",
+    });
+    const afterRecent = adapter.getCurrentPageObjects();
+    const recentAnchor = afterRecent.find((object) => object.text === "가나다라");
+    const recentOutput = afterRecent.find((object) => object.createdByTurnId === "turn-5");
+    expect(recentOutput!.bounds.y).toBeGreaterThanOrEqual(
+      recentAnchor!.bounds.y + recentAnchor!.bounds.height,
+    );
+
+    currentRevision = 12;
+    adapter.applyPreparedOperations({
+      turnId: "case-d-fixture",
+      operations: [{
+        kind: "CREATE_TEXT",
+        text: "반갑습니다",
+        bounds: { x: 200, y: 300, width: 160, height: 40 },
+      }],
+    });
+    currentScene = projectScene(adapter, currentRevision);
+
+    currentRevision = 13;
+    currentScene = projectScene(adapter, currentRevision);
+    const rightResult = await composition.noteAgentProduction?.execute(
+      turn("turn-7", "반갑습니다 오른쪽에 테스트라고 써 줘", currentRevision),
+    );
+    if (rightResult?.status !== "COMMITTED") {
+      throw new Error(JSON.stringify({
+        rightResult,
+        trace: composition.noteAgentProduction?.traces.getAll().at(-1),
+      }));
+    }
+    expect(provider.references.at(-1)).toMatchObject({
+      transcript: "반갑습니다 오른쪽에 테스트라고 써 줘",
+      summary: "반갑습니다",
+      relation: "RIGHT_OF",
+    });
+    const afterRight = adapter.getCurrentPageObjects();
+    const rightAnchor = afterRight.find((object) => object.text === "반갑습니다");
+    const rightOutput = afterRight.find((object) => object.createdByTurnId === "turn-7");
+    expect(rightOutput!.bounds.x).toBeGreaterThanOrEqual(
+      rightAnchor!.bounds.x + rightAnchor!.bounds.width,
+    );
+
+    currentRevision = 14;
+    currentScene = projectScene(adapter, currentRevision);
+    const selected = currentScene.objects.find((object) =>
+      object.source === "canvas" && object.kind === "text" && object.text === "반갑습니다");
+    if (selected === undefined) throw new Error("Expected selectable tldraw text projection.");
+    await expect(composition.noteAgentProduction?.execute(
+      turn(
+        "turn-8",
+        "선택한 글 아래에 가나다라마바사라고 써 줘",
+        currentRevision,
+        selected.id,
+      ),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    expect(provider.references.at(-1)).toMatchObject({
+      transcript: "선택한 글 아래에 가나다라마바사라고 써 줘",
+      summary: "반갑습니다",
+      selected: true,
+      relation: "BELOW",
+    });
+    const selectedOutput = adapter.getCurrentPageObjects()
+      .find((object) => object.createdByTurnId === "turn-8");
+    expect(selectedOutput!.bounds.y).toBeGreaterThanOrEqual(
+      rightAnchor!.bounds.y + rightAnchor!.bounds.height,
+    );
+    expect(legacyPlanner.plan).not.toHaveBeenCalled();
+    expect(legacyTargetResolve).not.toHaveBeenCalled();
 
     composition.dispose();
     tldrawEditor.dispose();
@@ -178,6 +417,8 @@ describe("tldraw One Decision sequential production flow", () => {
     expect(composition.noteAgentProduction?.traces.getAll().at(-1)).toMatchObject({
       decisionCallCount: 1,
       commitAttempted: false,
+      legacyPlannerInvoked: false,
+      fuzzyObjectSelectorInvoked: false,
     });
 
     composition.dispose();
@@ -190,12 +431,20 @@ class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
   public decisionCallCount = 0;
   public disambiguationCallCount = 0;
   public readonly inputs: NoteDecisionInput[] = [];
+  public readonly references: Array<{
+    readonly transcript: string;
+    readonly summary: string;
+    readonly recent: boolean;
+    readonly selected: boolean;
+    readonly relation: "BELOW" | "RIGHT_OF";
+  }> = [];
 
   public decide(input: NoteDecisionInput) {
     this.decisionCallCount += 1;
     this.inputs.push(input);
     const sceneRevision = input.frozenContext.sceneRevision;
-    if (input.turn.rawFinalTranscript === "안녕하세요 써줘") {
+    const transcript = input.turn.rawFinalTranscript;
+    if (transcript === "안녕하세요 써줘") {
       return Promise.resolve({
         status: "READY" as const,
         sceneRevision,
@@ -207,24 +456,42 @@ class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
         }],
       });
     }
-    if (input.turn.rawFinalTranscript === "실행 취소") {
+    if (transcript === "실행 취소") {
       return Promise.resolve({
         status: "READY" as const,
         sceneRevision,
         steps: [{ action: "history.undo" as const, target: null, args: {}, destination: null }],
       });
     }
-    const anchor = input.objectCatalog.objects.find((object) => object.summary === "안녕하세요");
-    if (anchor === undefined) throw new Error("Expected recent tldraw catalog anchor.");
+    const reference = transcript.startsWith("방금 쓴 글")
+      ? { summary: "가나다라", relation: "BELOW" as const, text: "테스트" }
+      : transcript.startsWith("반갑습니다 오른쪽")
+        ? { summary: "반갑습니다", relation: "RIGHT_OF" as const, text: "테스트" }
+        : transcript.startsWith("선택한 글")
+          ? { summary: "반갑습니다", relation: "BELOW" as const, text: "가나다라마바사" }
+          : { summary: "안녕하세요", relation: "BELOW" as const, text: "가나다라" };
+    const anchor = transcript.startsWith("선택한 글")
+      ? input.objectCatalog.objects.find((object) => object.selected)
+      : input.objectCatalog.objects.find((object) => object.summary === reference.summary);
+    if (anchor?.summary === undefined) {
+      throw new Error("Expected model-selected tldraw catalog anchor.");
+    }
+    this.references.push({
+      transcript,
+      summary: anchor.summary,
+      recent: anchor.recent,
+      selected: anchor.selected,
+      relation: reference.relation,
+    });
     return Promise.resolve({
       status: "READY" as const,
       sceneRevision,
       steps: [{
         action: "text.create" as const,
         target: null,
-        args: { text: "가나다라" },
+        args: { text: reference.text },
         destination: {
-          relation: "BELOW" as const,
+          relation: reference.relation,
           anchor: { object: anchor.handle, part: null },
           region: null,
         },
@@ -250,7 +517,12 @@ function projectScene(adapter: TldrawEditorAdapter, revision: number): SceneSnap
   }).scene;
 }
 
-function turn(id: string, transcript: string, revision: number): CompletedVoiceTurn {
+function turn(
+  id: string,
+  transcript: string,
+  revision: number,
+  selectedObjectId?: string,
+): CompletedVoiceTurn {
   return {
     id,
     providerId: "sequential-test",
@@ -266,16 +538,18 @@ function turn(id: string, transcript: string, revision: number): CompletedVoiceT
       pageId: PAGE_ID,
       sceneMode: "blank",
       sceneRevision: revision,
-      focusSource: "page",
+      focusSource: selectedObjectId === undefined ? "page" : "selection",
       focusStale: false,
       capturedAt: 2,
+      ...(selectedObjectId === undefined ? {} : { focusObjectId: selectedObjectId }),
     },
     focusSnapshot: {
-      source: "page",
+      source: selectedObjectId === undefined ? "page" : "selection",
       capturedAt: 2,
       pageId: PAGE_ID,
       sceneRevision: revision,
       stale: false,
+      ...(selectedObjectId === undefined ? {} : { objectId: selectedObjectId }),
     },
     scene: {
       sceneRevisionAtSpeechStart: revision,

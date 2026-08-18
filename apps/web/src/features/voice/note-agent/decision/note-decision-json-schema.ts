@@ -7,6 +7,8 @@ import {
 
 type JsonSchema = Readonly<Record<string, JsonValue>>;
 
+export const NOTE_DECISION_SCHEMA_VERSION = "phase5-one-decision-v1";
+
 export function buildNoteDecisionJsonSchema(
   tools: readonly CompactToolSchema[],
 ): JsonSchema {

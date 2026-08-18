@@ -15,6 +15,7 @@ import {
 } from "./browser-direct-command-composition";
 import type { EditorSpatialPlacementCompositionOptions } from "./editor-direct-command-composition";
 import { subscribeToDevelopmentDirectCommandTraces } from "./direct-command-development-trace";
+import { subscribeToDevelopmentNoteAgentTraces } from "./note-agent-development-trace";
 import { HttpNoteDecisionProvider } from "../note-agent";
 
 export interface OwnedBrowserDirectCommandCompositionOptions {
@@ -114,10 +115,19 @@ export function useOwnedBrowserDirectCommandComposition(
     };
   }, [composition]);
 
-  useEffect(
-    () => subscribeToDevelopmentDirectCommandTraces(composition.direct.traces),
-    [composition],
-  );
+  useEffect(() => {
+    const unsubscribeDirect = subscribeToDevelopmentDirectCommandTraces(
+      composition.direct.traces,
+    );
+    const productionTraces = composition.direct.noteAgentProduction?.traces;
+    const unsubscribeNoteAgent = productionTraces === undefined
+      ? () => undefined
+      : subscribeToDevelopmentNoteAgentTraces(productionTraces);
+    return () => {
+      unsubscribeDirect();
+      unsubscribeNoteAgent();
+    };
+  }, [composition]);
 
   return composition;
 }
@@ -128,12 +138,12 @@ function noteAgentRoutingOptions(): Pick<
 > | Record<string, never> {
   const configured = process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE;
   const legacyShadow = process.env.NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE === "1";
-  if (configured !== "production" && configured !== "shadow" && !legacyShadow) {
+  if (configured === "legacy" && !legacyShadow) {
     return {};
   }
   return {
     noteAgent: {
-      mode: configured === "production" ? "PRODUCTION" : "SHADOW",
+      mode: configured === "shadow" || legacyShadow ? "SHADOW" : "PRODUCTION",
       provider: new HttpNoteDecisionProvider(),
     },
   };

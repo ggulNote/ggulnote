@@ -11,6 +11,7 @@ import {
 } from "../../application";
 import type { CompletedVoiceTurnRoute } from "../../integration/direct-command-voice-turn-bridge";
 import type { NoteDecisionCompositionProvider } from "../decision";
+import { NOTE_DECISION_SCHEMA_VERSION } from "../decision/note-decision-json-schema";
 import { NoteContextAssembler } from "../context";
 import type {
   NoteDecisionInput,
@@ -175,6 +176,8 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       ? result.receipt?.visualCallCount ?? 0
       : 0;
     this.traces.record({
+      runtimeOwner: "note-agent-v2",
+      decisionSchemaVersion: NOTE_DECISION_SCHEMA_VERSION,
       turnId: turn.id,
       pageId: turn.frozenContext.pageId,
       sceneRevision: turn.frozenContext.sceneRevision,
@@ -194,6 +197,10 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       objectCatalogBuildMs,
       objectCatalogObjectCount,
       objectCatalogSerializedChars,
+      catalogHandles: decisionInput.objectCatalog.objects.map((object) => object.handle),
+      ...decisionDiagnostics(decision),
+      legacyPlannerInvoked: false,
+      fuzzyObjectSelectorInvoked: false,
       decisionMs: elapsed(decisionStartedAt, runtimeStartedAt),
       decisionTotalMs: elapsed(decisionStartedAt, runtimeStartedAt),
       openaiTtfbMs: decisionTelemetry?.openaiTtfbMs ?? 0,
@@ -243,6 +250,8 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
   ): DirectCommandRouteResult {
     const completedAt = this.now();
     this.traces.record({
+      runtimeOwner: "note-agent-v2",
+      decisionSchemaVersion: NOTE_DECISION_SCHEMA_VERSION,
       turnId: turn.id,
       pageId: turn.frozenContext.pageId,
       sceneRevision: turn.frozenContext.sceneRevision,
@@ -252,6 +261,8 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       llmCallCount,
       decisionCallCount: llmCallCount,
       toolCallCount: 0,
+      legacyPlannerInvoked: false,
+      fuzzyObjectSelectorInvoked: false,
       contextAssemblyMs,
       decisionMs,
       runtimeMs: 0,
@@ -328,6 +339,31 @@ function primaryTool(
     : decision.status === "BATCH" ? decision.steps[0]?.toolId
       : decision.status === "READY" ? decision.steps[0]?.action : undefined;
   return toolId === undefined ? {} : { toolId };
+}
+
+function decisionDiagnostics(
+  decision: Awaited<ReturnType<NoteDecisionCompositionProvider["decide"]>>,
+): {
+  readonly selectedHandle?: `O${number}`;
+  readonly decisionStatus: typeof decision.status;
+  readonly decisionAction?: NoteToolId;
+  readonly decisionReferenceHandle?: `O${number}`;
+  readonly decisionRelation?: string;
+} {
+  const step = decision.status === "READY" ? decision.steps[0] : undefined;
+  const targetHandle = step?.target?.object;
+  const referenceHandle = step?.destination?.anchor?.object;
+  return {
+    decisionStatus: decision.status,
+    ...(step === undefined ? {} : { decisionAction: step.action }),
+    ...(targetHandle === undefined && referenceHandle === undefined
+      ? {}
+      : { selectedHandle: targetHandle ?? referenceHandle }),
+    ...(referenceHandle === undefined ? {} : { decisionReferenceHandle: referenceHandle }),
+    ...(step?.destination === null || step?.destination === undefined
+      ? {}
+      : { decisionRelation: step.destination.relation }),
+  };
 }
 
 function providerErrorCode(error: unknown): string {

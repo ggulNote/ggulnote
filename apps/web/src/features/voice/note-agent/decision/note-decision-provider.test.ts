@@ -15,7 +15,7 @@ const INPUT: NoteDecisionInput = {
   turn: {
     turnId: "turn-1",
     language: "ko-KR",
-    rawFinalTranscript: "오른쪽 위에 가나다라 써 줘",
+    rawFinalTranscript: "안녕하세요 밑에 가나다라라고 써 줘",
   },
   frozenContext: {
     documentId: "doc-1",
@@ -29,6 +29,12 @@ const INPUT: NoteDecisionInput = {
     kind: "MUTATION",
     description: "create text",
     input: { text: "string", destination: "optional Destination" },
+    strictArgs: {
+      type: "object",
+      properties: { text: { type: "string" } },
+      required: ["text"],
+      additionalProperties: false,
+    },
   }],
   objectCatalog: {
     objects: [{
@@ -88,18 +94,34 @@ describe("One Note Decision provider", () => {
   });
   it("uses one compact schema-only model call and validates the selected tool", async () => {
     const transport = new StubTransport(JSON.stringify({
-      status: "CALL",
-      call: {
-        stepId: "s1",
-        toolId: "text.create",
-        input: {
-          text: "가나다라",
-          destination: { kind: "PAGE_REGION", region: "TOP_RIGHT" },
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "text.create",
+        target: null,
+        args: { text: "가나다라" },
+        destination: {
+          relation: "BELOW",
+          anchor: { object: "O1", part: null },
+          region: null,
         },
-      },
+      }],
+      candidateHandles: null,
+      cropRegion: null,
+      reason: null,
     }));
     const result = await new LlmNoteDecisionProvider(transport).decide(INPUT);
-    expect(result).toMatchObject({ status: "CALL" });
+    expect(result).toMatchObject({
+      status: "READY",
+      steps: [{
+        action: "text.create",
+        args: { text: "가나다라" },
+        destination: {
+          relation: "BELOW",
+          anchor: { object: "O1" },
+        },
+      }],
+    });
     expect(transport.calls).toHaveLength(1);
     const request = transport.calls[0];
     expect(request.maxOutputTokens).toBeLessThanOrEqual(700);
@@ -116,6 +138,8 @@ describe("One Note Decision provider", () => {
     const messageContent = request.input.map((message) => message.content).join("\n");
     const serialized = JSON.stringify(request);
     expect(messageContent).toContain('"section":"OBJECT_CATALOG"');
+    expect(messageContent).toContain('"section":"USER_UTTERANCE"');
+    expect(messageContent).toContain("안녕하세요 밑에 가나다라라고 써 줘");
     expect(messageContent).toContain('"handle":"O1"');
     expect(messageContent).toContain("안녕하세요");
     expect(serialized).not.toContain("fullScene");
