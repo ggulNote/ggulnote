@@ -3,7 +3,15 @@ import type { SpatialSceneSnapshot } from "../domain";
 
 export interface SpatialScreenshotCaptureInput {
   readonly snapshot: SpatialSceneSnapshot;
+  /** Agent-only labels in page-normalized coordinates. */
+  readonly markers?: readonly SpatialScreenshotMarker[];
   readonly signal?: AbortSignal;
+}
+
+export interface SpatialScreenshotMarker {
+  readonly id: string;
+  readonly kind?: string;
+  readonly bounds: Rect;
 }
 
 export interface SpatialScreenshot {
@@ -15,6 +23,8 @@ export interface SpatialScreenshot {
   readonly imageDataUrl: string;
   readonly byteLength: number;
   readonly capturedAt: number;
+  /** Exact markers painted into this encoded image. */
+  readonly markers: readonly SpatialScreenshotMarker[];
 }
 
 export type SpatialScreenshotSourceResult =

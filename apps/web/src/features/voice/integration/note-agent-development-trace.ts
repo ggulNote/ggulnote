@@ -17,6 +17,18 @@ export type NoteAgentDevelopmentTraceSummary = Pick<NoteAgentShadowTrace,
   | "decisionAction"
   | "decisionReferenceHandle"
   | "decisionRelation"
+  | "groundingMode"
+  | "resolvedTargetHandle"
+  | "resolvedCanvasBounds"
+  | "finalLocalOperation"
+  | "resultStatus"
+  | "errorCode"
+  | "commitAttempted"
+  | "visualContextRequested"
+  | "visualContextAttached"
+  | "visualContextFailureReason"
+  | "markedScreenshotObjectCount"
+  | "markedScreenshotHandles"
   | "legacyPlannerInvoked"
   | "fuzzyObjectSelectorInvoked"
   | "prepareMs"
@@ -63,6 +75,34 @@ export function summarizeNoteAgentTrace(
       ? {}
       : { decisionReferenceHandle: trace.decisionReferenceHandle }),
     ...(trace.decisionRelation === undefined ? {} : { decisionRelation: trace.decisionRelation }),
+    ...(trace.groundingMode === undefined ? {} : { groundingMode: trace.groundingMode }),
+    ...(trace.resolvedTargetHandle === undefined
+      ? {}
+      : { resolvedTargetHandle: trace.resolvedTargetHandle }),
+    ...(trace.resolvedCanvasBounds === undefined
+      ? {}
+      : { resolvedCanvasBounds: { ...trace.resolvedCanvasBounds } }),
+    ...(trace.finalLocalOperation === undefined
+      ? {}
+      : { finalLocalOperation: trace.finalLocalOperation }),
+    resultStatus: trace.resultStatus,
+    ...(trace.errorCode === undefined ? {} : { errorCode: trace.errorCode }),
+    commitAttempted: trace.commitAttempted,
+    ...(trace.visualContextRequested === undefined
+      ? {}
+      : { visualContextRequested: trace.visualContextRequested }),
+    ...(trace.visualContextAttached === undefined
+      ? {}
+      : { visualContextAttached: trace.visualContextAttached }),
+    ...(trace.visualContextFailureReason === undefined
+      ? {}
+      : { visualContextFailureReason: trace.visualContextFailureReason }),
+    ...(trace.markedScreenshotObjectCount === undefined
+      ? {}
+      : { markedScreenshotObjectCount: trace.markedScreenshotObjectCount }),
+    ...(trace.markedScreenshotHandles === undefined
+      ? {}
+      : { markedScreenshotHandles: [...trace.markedScreenshotHandles] }),
     legacyPlannerInvoked: trace.legacyPlannerInvoked,
     fuzzyObjectSelectorInvoked: trace.fuzzyObjectSelectorInvoked,
     ...(trace.prepareMs === undefined ? {} : { prepareMs: trace.prepareMs }),

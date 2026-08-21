@@ -112,6 +112,7 @@ function harness(provider?: MultimodalPlacementJudgeProvider) {
       imageDataUrl: IMAGE,
       byteLength: 1,
       capturedAt: 2,
+      markers: [],
     },
   });
   const render = vi.fn<SpatialObservationImageProcessor["render"]>().mockResolvedValue({

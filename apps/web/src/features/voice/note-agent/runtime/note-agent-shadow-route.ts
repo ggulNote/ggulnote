@@ -268,6 +268,22 @@ export function buildDecisionInput(
           }),
     },
     availableTools,
+    pageBase: {
+      documentId,
+      pageId: context.frozenContext.pageId,
+      baseRevision: `${context.frozenContext.pageId}@${context.frozenContext.sceneRevision}`,
+      sceneMode: context.frozenContext.sceneMode,
+      objects: [],
+      createdAt: context.frozenContext.capturedAt,
+    },
+    liveScene: {
+      sceneRevision: context.frozenContext.sceneRevision,
+      createdObjects: [],
+      updatedObjects: [],
+      deletedObjectIds: [],
+      selectedObjectIds: [],
+      recentObjectIds: [],
+    },
     objectCatalog: { objects: [], truncated: false },
   };
 }

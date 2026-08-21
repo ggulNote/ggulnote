@@ -1,6 +1,17 @@
+export type DirectTextModelContentPart =
+  | {
+      readonly type: "input_text";
+      readonly text: string;
+    }
+  | {
+      readonly type: "input_image";
+      readonly image_url: string;
+      readonly detail: "low" | "high";
+    };
+
 export interface DirectTextModelMessage {
   role: "user";
-  content: string;
+  content: string | readonly DirectTextModelContentPart[];
 }
 
 export interface DirectTextModelRequest {

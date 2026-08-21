@@ -13,6 +13,7 @@ import {
   type SerializedMathObject,
 } from "@ggulnote/math-core";
 import {
+  Box,
   createShapeId,
   getSnapshot,
   loadSnapshot,
@@ -33,6 +34,17 @@ import {
   type TldrawMathRenderResult,
 } from "./tldraw-math-render-adapter";
 import type { MathObjectShape } from "./math-object-shape";
+import { mathWriteOnKey } from "./math-object-shape";
+import {
+  HANDWRITING_TEXT_FONT_SIZE,
+  HANDWRITING_TEXT_SHAPE_TYPE,
+  textAnimationKey,
+  type HandwritingTextShape,
+} from "./handwriting-text-shape";
+import {
+  finishWriteOn,
+  startWriteOn,
+} from "./write-on-presentation";
 
 const CANVAS_STORE_VERSION = 1;
 
@@ -98,6 +110,12 @@ export interface TldrawCommitResult {
   readonly sceneRevision: number;
 }
 
+export interface TldrawPageImage {
+  readonly imageDataUrl: string;
+  readonly pixelWidth: number;
+  readonly pixelHeight: number;
+}
+
 /**
  * Canvas infrastructure boundary. Agent/application code sees prepared operations
  * and projections, never Editor, TLShape, TLStore, or persistent shape ids.
@@ -129,6 +147,30 @@ export class TldrawEditorAdapter {
 
   public getLastProjectionMs(): number {
     return this.lastProjectionMs;
+  }
+
+  /** Read-only full-page raster used only as visual Decision evidence. */
+  public async capturePageImage(maxEdge = 1_280): Promise<TldrawPageImage | undefined> {
+    if (!Number.isFinite(maxEdge) || maxEdge <= 0) {
+      throw new RangeError("maxEdge must be finite and positive.");
+    }
+    const shapes = this.editor.getCurrentPageShapes();
+    if (shapes.length === 0) return undefined;
+    const scale = Math.min(1, maxEdge / Math.max(this.pageSize.width, this.pageSize.height));
+    const image = await this.editor.toImageDataUrl(shapes, {
+      background: false,
+      bounds: new Box(0, 0, this.pageSize.width, this.pageSize.height),
+      darkMode: false,
+      format: "png",
+      padding: 0,
+      pixelRatio: 1,
+      scale,
+    });
+    return Object.freeze({
+      imageDataUrl: image.url,
+      pixelWidth: image.width,
+      pixelHeight: image.height,
+    });
   }
 
   /** Advances the stale-scene token for direct canvas edits and selection changes. */
@@ -221,6 +263,13 @@ export class TldrawEditorAdapter {
       throw new Error("Unsupported tldraw canvas snapshot version.");
     }
     loadSnapshot(this.editor.store, record.snapshot as Parameters<typeof loadSnapshot>[1]);
+    for (const shape of this.editor.getCurrentPageShapes()) {
+      if (shape.type === HANDWRITING_TEXT_SHAPE_TYPE) {
+        finishWriteOn(textAnimationKey(shape.id));
+      } else if (shape.type === MATH_TLDRAW_SHAPE_TYPE) {
+        finishWriteOn(mathWriteOnKey((shape as MathObjectShape).props.logicalObjectId));
+      }
+    }
     this.sceneRevision += 1;
   }
 
@@ -279,35 +328,61 @@ export class TldrawEditorAdapter {
     }
     if (operation.kind === "CREATE_TEXT") {
       const id = createShapeId();
-      this.editor.createShape<TLTextShape>({
-        id,
-        type: "text",
-        x: operation.bounds.x,
-        y: operation.bounds.y,
-        props: {
-          richText: toRichText(operation.text),
-          autoSize: true,
-          w: Math.max(1, operation.bounds.width),
-          scale: 1,
-        },
-        meta: shapeMeta({ timestamp, turnId }),
-      });
+      const animationKey = textAnimationKey(id);
+      if (turnId !== "legacy-import") startWriteOn(animationKey, operation.text);
+      try {
+        this.editor.createShape<HandwritingTextShape>({
+          id,
+          type: HANDWRITING_TEXT_SHAPE_TYPE,
+          x: operation.bounds.x,
+          y: operation.bounds.y,
+          props: {
+            w: Math.max(1, operation.bounds.width),
+            h: Math.max(1, operation.bounds.height),
+            text: operation.text,
+            fontSize: HANDWRITING_TEXT_FONT_SIZE,
+          },
+          meta: shapeMeta({ timestamp, turnId }),
+        });
+      } catch (error) {
+        finishWriteOn(animationKey);
+        throw error;
+      }
       return { created: id };
     }
     if (operation.kind === "REPLACE_TEXT") {
       const id = operation.objectId as TLShapeId;
-      const shape = this.editor.getShape<TLTextShape>(id);
-      if (shape === undefined || shape.type !== "text") {
+      const shape = this.editor.getShape(id);
+      if (shape === undefined) {
         throw new Error("Tldraw text target does not exist.");
       }
+      if (shape.type === HANDWRITING_TEXT_SHAPE_TYPE) {
+        const handwriting = shape as HandwritingTextShape;
+        finishWriteOn(textAnimationKey(id));
+        this.editor.updateShape<HandwritingTextShape>({
+          id,
+          type: HANDWRITING_TEXT_SHAPE_TYPE,
+          props: { text: operation.text },
+          meta: shapeMeta({
+            timestamp,
+            turnId: readMeta(handwriting).createdByTurnId,
+            createdAt: readMeta(handwriting).createdAt,
+          }),
+        });
+        return { updated: id };
+      }
+      if (shape.type !== "text") {
+        throw new Error("Tldraw text target does not exist.");
+      }
+      const textShape = shape as TLTextShape;
       this.editor.updateShape<TLTextShape>({
         id,
         type: "text",
         props: { richText: toRichText(operation.text), autoSize: true },
         meta: shapeMeta({
           timestamp,
-          turnId: readMeta(shape).createdByTurnId,
-          createdAt: readMeta(shape).createdAt,
+          turnId: readMeta(textShape).createdByTurnId,
+          createdAt: readMeta(textShape).createdAt,
         }),
       });
       return { updated: id };
@@ -363,6 +438,19 @@ export class TldrawEditorAdapter {
         bounds: Object.freeze(bounds),
         normalizedBounds: Object.freeze(normalizedBounds),
         text: renderPlaintextFromRichText(this.editor, textShape.props.richText),
+        selected,
+        focused,
+        ...projectedMeta(meta),
+      });
+    }
+    if (shape.type === HANDWRITING_TEXT_SHAPE_TYPE) {
+      const textShape = shape as HandwritingTextShape;
+      return Object.freeze({
+        objectId: shape.id,
+        kind: "text",
+        bounds: Object.freeze(bounds),
+        normalizedBounds: Object.freeze(normalizedBounds),
+        text: textShape.props.text,
         selected,
         focused,
         ...projectedMeta(meta),

@@ -666,7 +666,7 @@ function textPrimitive(
     fontSize,
     fontFamily: style.fontFamily
       ?? (style.handDrawn === true
-        ? "'Segoe Print', 'Comic Sans MS', cursive"
+        ? "'Ggulnote Handwriting', 'Nanum Pen Script', 'Segoe Print', 'Comic Sans MS', 'STIX Two Math', 'Cambria Math', cursive"
         : "Arial, sans-serif"),
     fontWeight,
     anchor,

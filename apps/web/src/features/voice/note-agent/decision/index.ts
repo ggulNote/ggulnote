@@ -1,14 +1,10 @@
 export {
   FakeNoteDecisionProvider,
-  FakeNoteDecisionCompositionProvider,
 } from "./note-decision-provider";
 export type {
-  NoteDecisionCompositionProvider,
   NoteDecisionProvider,
   NoteDecisionProviderOptions,
-  NoteDisambiguationProvider,
 } from "./note-decision-provider";
-export { buildNoteDisambiguationModelRequest } from "./note-disambiguation-prompt";
 export {
   buildNoteDecisionModelRequest,
   NOTE_DECISION_SYSTEM_POLICY,

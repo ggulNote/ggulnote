@@ -3,8 +3,7 @@ import {
   describeSceneObject,
   type TextSceneObject,
 } from "@ggulnote/editor-core";
-import { describe, expect, it, vi } from "vitest";
-import type { PreparedSpatialPlacement } from "../../application";
+import { describe, expect, it } from "vitest";
 import type {
   FrozenVoiceTurnContext,
   MeasuredDraft,
@@ -169,56 +168,26 @@ describe("ExistingPlacementEngine facade", () => {
     expect(result).toEqual({ status: "STALE_SCENE" });
   });
 
-  it("delegates production candidate choice and preview to Stage 4 prepare", async () => {
+  it("resolves an explicit page region with deterministic local geometry", async () => {
     const { world, context, spatial } = setup();
     const resolver = new ExistingWorldResolver({ world });
-    const prepared = {
-      placement: {
-        snapshotId: spatial.snapshotId,
-        pageId: PAGE_ID,
-        sceneRevision: REVISION,
-        candidate: {
-          alias: "S1",
-          internalId: "candidate-1",
-          snapshotId: spatial.snapshotId,
-          sceneRevision: REVISION,
-          bounds: { x: 16, y: 16, width: 100, height: 30 },
-          relation: "FREE_SPACE",
-          alignment: "START",
-        },
-        candidateInternalId: "candidate-1",
-        draftKey: DRAFT.draftKey,
-        requestedBounds: { x: 16, y: 16, width: 100, height: 30 },
-        actualRenderBounds: { x: 16, y: 16, width: 100, height: 30 },
-        selectionSource: "DETERMINISTIC",
-        previewAttemptCount: 1,
-        validationEvidence: {},
-      },
-      diagnostics: {},
-    } as unknown as PreparedSpatialPlacement;
-    const preparePlacement = vi.fn(async () => ({
-      status: "READY" as const,
-      prepared,
-    }));
     const result = await new ExistingPlacementEngine({
       world,
       resolver,
-      preparation: { preparePlacement },
     }).resolve({
       destination: { kind: "PAGE_REGION", region: "TOP_LEFT" },
       draft: DRAFT,
       profile: PROFILE,
       snapshot: spatial,
       worldContext: context,
-      instruction: "왼쪽 위에 메모 써 줘",
-      requirePreviewValidation: true,
     });
 
-    expect(preparePlacement).toHaveBeenCalledOnce();
     expect(result).toMatchObject({
       status: "RESOLVED",
-      preparedSpatial: prepared,
-      placement: { bounds: prepared.placement.requestedBounds },
+      placement: {
+        relation: "FREE_SPACE",
+        candidate: { strategy: "REGION_SLOT" },
+      },
     });
   });
 });

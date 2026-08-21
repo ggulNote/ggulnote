@@ -1,5 +1,6 @@
 import {
   NoteAgentValidationError,
+  parseActionTarget,
   parseDestination,
   parseEntitySelector,
   type Destination,
@@ -14,7 +15,6 @@ import {
   buildCanonicalTextStream,
   resolveTextSpanWithCanonicalStream,
 } from "../../application/canonical-text-stream";
-import { groundTextSpan } from "../../application/text-span-grounder";
 import { capabilitiesForRef, type WorldResolutionResult } from "../world";
 import {
   NoteToolRegistry,
@@ -32,6 +32,7 @@ interface PreparedActionValue {
 
 interface TextCreateInput {
   readonly text: string;
+  readonly target?: DecisionObjectRef;
   readonly destination?: Destination | DecisionDestination;
 }
 
@@ -63,7 +64,7 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
   return {
     id: "text.create",
     kind: "MUTATION",
-    description: "Create text; omit destination unless the user explicitly requests a page or object-relative location.",
+    description: "Create ordinary written language or a label. Do not use this when the content's primary meaning is a mathematical expression, equation, or formula. Omit destination when location is unspecified.",
     examples: ["가나다라 써 줘", "안녕하세요 아래에 가나다라 써 줘"],
     inputSchema: textCreateSchema,
     outputSchema: preparedActionValueSchema,
@@ -83,17 +84,23 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
         return { status: "NOT_ALLOWED", reasonCode: "MEASUREMENT_UNAVAILABLE" };
       }
       let anchorRef;
+      const resolvedActionAnchor = input.target === undefined
+        ? undefined
+        : context.resolvedTarget?.anchor;
       if (isDecisionDestination(input.destination)) {
         if (input.destination.relation !== "CANVAS_REGION") {
-          if (input.destination.anchor === null) {
+          if (resolvedActionAnchor !== undefined) {
+            anchorRef = context.resolvedTarget?.objectRef;
+          } else if (input.destination.anchor === null) {
             return { status: "NEEDS_INPUT", missing: ["destination.anchor"] };
+          } else {
+            const directAnchor = resolveDecisionAnchorRef(input.destination.anchor, context);
+            if ("result" in directAnchor) return directAnchor.result;
+            if (directAnchor.status !== "RESOLVED") {
+              return { status: "FAILED", reasonCode: "ANCHOR_RESOLUTION_FAILED" };
+            }
+            anchorRef = directAnchor.ref;
           }
-          const directAnchor = resolveDecisionAnchorRef(input.destination.anchor, context);
-          if ("result" in directAnchor) return directAnchor.result;
-          if (directAnchor.status !== "RESOLVED") {
-            return { status: "FAILED", reasonCode: "ANCHOR_RESOLUTION_FAILED" };
-          }
-          anchorRef = directAnchor.ref;
         }
       } else if (input.destination?.kind === "RELATIVE") {
         const selector = "context" in input.destination.anchor
@@ -104,11 +111,7 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
         if (anchorStartedAt !== undefined) {
           context.metrics?.add("resolverMs", context.metrics.now() - anchorStartedAt);
         }
-        const resolvedAnchor = resolved.status === "AMBIGUOUS"
-          && context.candidateSelection?.stepId === context.stepId
-          ? resolved.candidates.find((candidate) =>
-              candidate.label === context.candidateSelection?.alias)?.ref
-          : resolved.status === "RESOLVED" ? resolved.ref : undefined;
+        const resolvedAnchor = resolved.status === "RESOLVED" ? resolved.ref : undefined;
         if (resolvedAnchor === undefined) {
           if (resolved.status === "AMBIGUOUS") {
             return { status: "AMBIGUOUS", candidates: resolved.candidates };
@@ -123,17 +126,12 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
         anchorRef = resolvedAnchor;
       }
       const runtimeDestination = isDecisionDestination(input.destination)
-        ? placementDestination(input.destination)
+        ? placementDestination(input.destination, resolvedActionAnchor !== undefined)
         : input.destination;
       if (isDecisionDestination(input.destination) && runtimeDestination === undefined) {
         return { status: "NEEDS_INPUT", missing: ["destination"] };
       }
       const placementStartedAt = context.metrics?.now();
-      const selection = context.candidateSelection;
-      const selectedCandidate = selection !== undefined
-        && selection.stepId === context.stepId
-        ? selection.alias
-        : undefined;
       const spatialDecisionInstruction = JSON.stringify({
         destination: input.destination ?? null,
       });
@@ -142,9 +140,9 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
         ...prepared,
         worldContext: context.frozenWorld,
         ...(anchorRef === undefined ? {} : { anchorRef }),
-        ...(selectedCandidate === undefined ? {} : { candidateAlias: selectedCandidate }),
-        instruction: spatialDecisionInstruction,
-        requirePreviewValidation: context.mode === "PRODUCTION",
+        ...(resolvedActionAnchor === undefined
+          ? {}
+          : { resolvedAnchor: resolvedActionAnchor }),
       });
       if (placementStartedAt !== undefined) {
         context.metrics?.add("placementMs", context.metrics.now() - placementStartedAt);
@@ -178,9 +176,6 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
               text: input.text,
               bounds: placement.placement.bounds,
             },
-            ...(placement.preparedSpatial === undefined
-              ? {}
-              : { preparedSpatial: placement.preparedSpatial }),
             spatialDecisionInstruction,
           },
         }],
@@ -355,19 +350,12 @@ function parseToolTarget(
   path: string,
 ): EntitySelector | DecisionObjectRef {
   const target = strictRecord(value, path, [
-    "object", "part", "scope", "kinds", "source", "content", "attributes",
+    "object", "part", "region", "fallbackPoint",
+    "scope", "kinds", "source", "content", "attributes",
     "temporal", "ordinal", "context", "spatial",
   ]);
-  if (typeof target.object !== "string") return parseEntitySelector(value, path);
-  if (!/^O[1-9][0-9]*$/u.test(target.object)) {
-    throw new NoteAgentValidationError(`${path}.object`, "invalid request-local handle");
-  }
-  return {
-    object: target.object as `O${number}`,
-    part: target.part === null || target.part === undefined
-      ? null
-      : parseDecisionPart(target.part, `${path}.part`),
-  };
+  if (!("object" in target)) return parseEntitySelector(value, path);
+  return parseActionTarget(value, path);
 }
 
 function parseDecisionPart(value: unknown, path: string): DecisionObjectPartRef {
@@ -402,7 +390,7 @@ function parseToolDestination(
   if (destination.kind !== undefined) return parseDestination(value, path);
   const relation = stringValue(destination.relation, `${path}.relation`);
   if (![
-    "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "INSIDE", "BETWEEN", "CANVAS_REGION",
+    "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "NEAR", "INSIDE", "BETWEEN", "CANVAS_REGION",
   ].includes(relation)) {
     throw new NoteAgentValidationError(`${path}.relation`, "unsupported destination relation");
   }
@@ -436,6 +424,34 @@ function resolveDecisionObjectRef(
 ): WorldResolutionResult | {
   readonly result: Exclude<NoteToolResult<never>, { status: "SUCCESS" }>;
 } {
+  if (target.object === null) {
+    return { result: { status: "NOT_FOUND" } };
+  }
+  const runtimeTarget = context.resolvedTarget;
+  if (
+    runtimeTarget?.objectHandle === target.object
+    && runtimeTarget.objectRef !== undefined
+    && target.part === null
+  ) {
+    if (runtimeTarget.mode !== "OBJECT_REGION") {
+      return { status: "RESOLVED", ref: runtimeTarget.objectRef };
+    }
+    const objectId = runtimeTarget.objectRef.kind === "OBJECT"
+      || runtimeTarget.objectRef.kind === "OBJECT_PART"
+      ? runtimeTarget.objectRef.objectId
+      : undefined;
+    if (objectId !== undefined) {
+      return {
+        status: "RESOLVED",
+        ref: {
+          kind: "OBJECT_PART",
+          objectId,
+          partId: `${objectId}:visual-region`,
+          bounds: { ...runtimeTarget.canvasBounds },
+        },
+      };
+    }
+  }
   const ref = context.handles?.resolve(target.object);
   if (ref === undefined) {
     return { result: { status: "FAILED", reasonCode: "INVALID_HANDLE" } };
@@ -476,6 +492,9 @@ function resolveDecisionAnchorRef(
 ): WorldResolutionResult | {
   readonly result: Exclude<NoteToolResult<never>, { status: "SUCCESS" }>;
 } {
+  if (target.object === null) {
+    return { result: { status: "NOT_FOUND" } };
+  }
   if (target.part?.kind !== "text_range") {
     return resolveDecisionObjectRef(target, context);
   }
@@ -537,19 +556,9 @@ function resolvePdfTextRange(
   if (tokens.length === 0) return { result: { status: "NOT_FOUND" } };
   const selectedStream = { pageId: stream.pageId, tokens };
   const query = { kind: "text_span" as const, startAnchor, endAnchor };
-  const exact = resolveTextSpanWithCanonicalStream(selectedStream, query);
-  const aligned = exact.status === "RESOLVED"
-    ? exact
-    : groundTextSpan({
-        stream: selectedStream,
-        query,
-        ...(context.frozenWorld.speechGroundingEvidence === undefined
-          ? {}
-          : { speechEvidence: context.frozenWorld.speechGroundingEvidence }),
-      });
-  const materialized = "pair" in aligned ? aligned.pair.materialized : aligned;
+  const materialized = resolveTextSpanWithCanonicalStream(selectedStream, query);
   if (materialized.status !== "RESOLVED") {
-    return { result: materialized.status === "AMBIGUOUS" || ("pairs" in aligned)
+    return { result: materialized.status === "AMBIGUOUS"
       ? { status: "NEEDS_INPUT", missing: ["target.part.text_range"] }
       : { status: "NOT_FOUND" } };
   }
@@ -566,6 +575,7 @@ function resolvePdfTextRange(
 
 function placementDestination(
   destination: DecisionDestination,
+  hasResolvedTarget = false,
 ): Destination | undefined {
   if (destination.relation === "CANVAS_REGION") {
     return destination.region === null ? undefined : {
@@ -575,7 +585,8 @@ function placementDestination(
       avoidOverlap: true,
     };
   }
-  if (destination.anchor === null || destination.relation === "BETWEEN") return undefined;
+  if ((destination.anchor === null && !hasResolvedTarget)
+    || destination.relation === "BETWEEN") return undefined;
   return {
     kind: "RELATIVE",
     relation: destination.relation,
@@ -633,6 +644,9 @@ const textCreateSchema: NoteSchema<TextCreateInput> = {
     const input = strictRecord(value, path, ["text", "destination", "target"]);
     return {
       text: nonEmptyString(input.text, `${path}.text`),
+      ...(input.target === undefined
+        ? {}
+        : { target: parseActionTarget(input.target, `${path}.target`) }),
       ...(input.destination === undefined
         ? {}
         : { destination: parseToolDestination(input.destination, `${path}.destination`) }),

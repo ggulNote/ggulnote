@@ -10,10 +10,15 @@ import {
   type TLShapeId,
 } from "tldraw";
 import type { MathObjectShape } from "./math-object-shape";
+import { mathWriteOnKey } from "./math-object-shape";
 import {
   finishMathGraphCreateAnimation,
   startMathGraphCreateAnimation,
 } from "./math-graph-animation";
+import {
+  finishWriteOn,
+  startWriteOn,
+} from "./write-on-presentation";
 
 export interface TldrawMathRenderResult {
   readonly logicalObjectId: string;
@@ -45,6 +50,9 @@ export class TldrawMathRenderAdapter implements MathRenderAdapter<TldrawMathRend
     };
     if (existing === undefined) {
       if (object.kind === "graph") startMathGraphCreateAnimation(object.id);
+      if (object.kind === "expression") {
+        startWriteOn(mathWriteOnKey(object.id), object.content.source);
+      }
       this.editor.createShape<MathObjectShape>({
         id: shapeId,
         type: MATH_TLDRAW_SHAPE_TYPE,
@@ -62,6 +70,7 @@ export class TldrawMathRenderAdapter implements MathRenderAdapter<TldrawMathRend
       throw new TypeError(`Shape id collision for math object: ${plan.logicalObjectId}`);
     }
     if (object.kind === "graph") finishMathGraphCreateAnimation(object.id);
+    if (object.kind === "expression") finishWriteOn(mathWriteOnKey(object.id));
     this.editor.updateShape<MathObjectShape>({
       id: shapeId,
       type: MATH_TLDRAW_SHAPE_TYPE,
@@ -78,6 +87,7 @@ export class TldrawMathRenderAdapter implements MathRenderAdapter<TldrawMathRend
 
   private delete(logicalObjectId: string): TldrawMathRenderResult {
     finishMathGraphCreateAnimation(logicalObjectId);
+    finishWriteOn(mathWriteOnKey(logicalObjectId));
     const shapeId = mathObjectShapeId(logicalObjectId);
     const existing = this.editor.getShape(shapeId);
     if (existing === undefined) {

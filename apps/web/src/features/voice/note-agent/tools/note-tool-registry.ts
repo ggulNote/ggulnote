@@ -13,6 +13,7 @@ import type {
   FrozenWorldContext,
   UnifiedObjectWorld,
   WorldResolutionResult,
+  ResolvedActionTarget,
 } from "../world";
 import type { EntitySelector } from "../domain";
 import type { MeasuredDraft, PlacementProfile } from "../../domain";
@@ -39,14 +40,11 @@ export interface NoteToolContext {
   readonly world: UnifiedObjectWorld;
   readonly resolver: ExistingWorldResolver;
   readonly handles?: NoteObjectHandleMap;
+  readonly resolvedTarget?: ResolvedActionTarget;
   readonly placement?: ExistingPlacementEngine;
   readonly getCurrentSceneRevision: () => number;
   readonly signal?: AbortSignal;
   readonly stepId?: string;
-  readonly candidateSelection?: {
-    readonly stepId: string;
-    readonly alias: `${"C" | "S"}${number}`;
-  };
   readonly metrics?: NoteRuntimeMetricsSink;
   readonly productionPlacementAvailable?: boolean;
   readonly preparePlacement?: (
@@ -185,14 +183,5 @@ export async function resolveEntitySelector(
   if (startedAt !== undefined) {
     context.metrics?.add("resolverMs", context.metrics.now() - startedAt);
   }
-  const selection = context.candidateSelection;
-  if (
-    result.status !== "AMBIGUOUS"
-    || selection === undefined
-    || selection.stepId !== context.stepId
-  ) return result;
-  const selected = result.candidates.find((candidate) => candidate.label === selection.alias);
-  return selected === undefined
-    ? result
-    : { status: "RESOLVED", ref: selected.ref };
+  return result;
 }

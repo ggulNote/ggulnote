@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { connectedMathActionDecisionArgsSchema } from "@ggulnote/math-core";
 import { parseNoteDecision } from "../domain";
 import { buildNoteDecisionJsonSchema } from "./note-decision-json-schema";
 
@@ -43,6 +44,23 @@ describe("One Note Decision Responses strict schema", () => {
           additionalProperties: false,
         },
       },
+      {
+        id: "math.graph.create",
+        kind: "MUTATION",
+        description: "Create graph",
+        strictArgs: {
+          type: "object",
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
+      },
+      {
+        id: "math.graph.add_tangent",
+        kind: "MUTATION",
+        description: "Add tangent",
+        strictArgs: connectedMathActionDecisionArgsSchema("math.graph.add_tangent"),
+      },
     ]);
     const root = schema as Record<string, unknown>;
     expect(root.type).toBe("object");
@@ -51,16 +69,23 @@ describe("One Note Decision Responses strict schema", () => {
       "status",
       "sceneRevision",
       "steps",
-      "candidateHandles",
-      "cropRegion",
       "reason",
     ]);
     const serialized = JSON.stringify(schema);
+    expect(serialized).not.toContain("NEEDS_VISUAL");
+    expect(serialized).not.toContain("candidateHandles");
+    expect(serialized).not.toContain("cropRegion");
     expect(serialized).toContain('"const":"text.create"');
     expect(serialized).toContain('"const":"history.undo"');
     expect(serialized).toContain('"const":"annotation.apply"');
+    expect(serialized).toContain('"const":"math.graph.add_tangent"');
+    expect(serialized).toContain('"NEAR"');
     expect(serialized).toContain("canonical non-empty startText/endText");
-    expect(serialized).not.toContain("graph.create");
+    expect(serialized).toContain('"coordinateSpace"');
+    expect(serialized).toContain('"OBJECT_LOCAL"');
+    expect(serialized).toContain('"fallbackPoint"');
+    expect(serialized).toContain('"exclusiveMinimum":0');
+    expect(serialized).not.toContain("math.matrix_multiply");
     expect(serialized).not.toContain("objectId");
     expect(serialized).not.toContain("TLShapeId");
     const stepVariants = ((root.properties as Record<string, unknown>).steps as {
@@ -71,9 +96,28 @@ describe("One Note Decision Responses strict schema", () => {
         === "annotation.apply");
     expect((annotationVariant?.properties as Record<string, unknown>).destination)
       .toEqual({ type: "null" });
+    const graphCreateVariant = stepVariants.find((variant) =>
+      ((variant.properties as Record<string, { const?: string }>).action?.const)
+        === "math.graph.create");
+    expect((graphCreateVariant?.properties as Record<string, unknown>).destination)
+      .toHaveProperty("anyOf");
+    const tangentVariant = stepVariants.find((variant) =>
+      ((variant.properties as Record<string, { const?: string }>).action?.const)
+        === "math.graph.add_tangent");
+    expect((tangentVariant?.properties as Record<string, unknown>).destination)
+      .toEqual({ type: "null" });
+    expect((tangentVariant?.properties as Record<string, unknown>).target)
+      .not.toHaveProperty("anyOf");
+    const tangentArgs = (tangentVariant?.properties as Record<string, unknown>).args as {
+      readonly properties: Record<string, unknown>;
+      readonly required: readonly string[];
+    };
+    expect(tangentArgs.required).toEqual(["mode", "x", "y", "quadrant", "label"]);
+    expect(tangentArgs.properties.x).toHaveProperty("anyOf");
+    expect(tangentArgs.properties.y).toHaveProperty("anyOf");
   });
 
-  it("normalizes strict nullable fields without weakening status validation", () => {
+  it("parses the reduced production response without legacy visual-pass fields", () => {
     expect(parseNoteDecision({
       status: "READY",
       sceneRevision: 7,
@@ -87,8 +131,6 @@ describe("One Note Decision Responses strict schema", () => {
           region: "TOP_RIGHT",
         },
       }],
-      candidateHandles: null,
-      cropRegion: null,
       reason: null,
     })).toEqual({
       status: "READY",
@@ -104,13 +146,5 @@ describe("One Note Decision Responses strict schema", () => {
         },
       }],
     });
-    expect(() => parseNoteDecision({
-      status: "READY",
-      sceneRevision: 7,
-      steps: [],
-      candidateHandles: ["O1", "O2"],
-      cropRegion: null,
-      reason: null,
-    })).toThrow(/candidateHandles/u);
   });
 });

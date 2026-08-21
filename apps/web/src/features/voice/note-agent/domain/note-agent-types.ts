@@ -139,9 +139,29 @@ export interface NoteDecisionInput {
     };
   };
   readonly availableTools: readonly CompactToolSchema[];
+  readonly pageBase: PageBaseSnapshot;
+  readonly liveScene: LiveSceneContext;
+  /**
+   * Compatibility view for local validation and handle lookup. Model prompts
+   * use pageBase + liveScene instead of serializing this merged world.
+   */
   readonly objectCatalog: {
     readonly objects: readonly NoteCatalogObject[];
     readonly truncated: boolean;
+  };
+  /** Optional agent-only marked visual evidence tied to the shared object handle world. */
+  readonly visualContext?: {
+    readonly mimeType: "image/png" | "image/jpeg";
+    readonly imageDataUrl: string;
+    readonly pixelWidth: number;
+    readonly pixelHeight: number;
+    readonly byteLength: number;
+    readonly markedObjects: readonly {
+      readonly objectId: ObjectHandle;
+      readonly kind: SceneObjectKind;
+      /** Page-normalized bounds used to draw the marker in the agent screenshot. */
+      readonly bounds: NoteCatalogObject["bounds"];
+    }[];
   };
 }
 
@@ -169,6 +189,29 @@ export interface NoteCatalogObject {
   }[];
 }
 
+/** Immutable, cache-friendly world captured on the first page observation. */
+export interface PageBaseSnapshot {
+  readonly documentId: string;
+  readonly pageId: string;
+  readonly baseRevision: string;
+  readonly sceneMode: "pdf" | "blank";
+  readonly objects: readonly NoteCatalogObject[];
+  readonly pageText?: string;
+  readonly createdAt: number;
+}
+
+/** Dynamic context appended after PageBaseSnapshot for every Decision. */
+export interface LiveSceneContext {
+  readonly sceneRevision: number;
+  readonly createdObjects: readonly NoteCatalogObject[];
+  readonly updatedObjects: readonly NoteCatalogObject[];
+  readonly deletedObjectIds: readonly ObjectHandle[];
+  readonly selectedObjectIds: readonly ObjectHandle[];
+  readonly focusedObjectId?: ObjectHandle;
+  readonly recentObjectIds: readonly ObjectHandle[];
+  readonly lastOperation?: NoteDecisionInput["frozenContext"]["lastOperation"];
+}
+
 export interface NoteContextSummary {
   readonly kind?: string;
   readonly textPreview?: string;
@@ -186,6 +229,7 @@ export type DecisionDestinationRelation =
   | "BELOW"
   | "LEFT_OF"
   | "RIGHT_OF"
+  | "NEAR"
   | "INSIDE"
   | "BETWEEN"
   | "CANVAS_REGION";
@@ -200,10 +244,34 @@ export interface DecisionObjectPartRef {
   readonly endText?: string | null;
 }
 
-export interface DecisionObjectRef {
-  readonly object: ObjectHandle;
-  readonly part: DecisionObjectPartRef | null;
+export interface ActionTargetRegion {
+  /** Object-local normalized coordinates in the [0, 1] range. */
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
+
+export interface ActionTargetFallbackPoint {
+  readonly x: number;
+  readonly y: number;
+  /** PAGE remains usable when the requested object no longer exists. */
+  readonly coordinateSpace: "OBJECT_LOCAL" | "PAGE";
+}
+
+/**
+ * One model-owned target. Runtime only validates the handle and transforms its
+ * normalized visual coordinates into current canvas geometry.
+ */
+export interface ActionTarget {
+  readonly object: ObjectHandle | null;
+  readonly part: DecisionObjectPartRef | null;
+  readonly region?: ActionTargetRegion | null;
+  readonly fallbackPoint?: ActionTargetFallbackPoint | null;
+}
+
+/** Compatibility name retained for existing registered action adapters. */
+export type DecisionObjectRef = ActionTarget;
 
 export interface DecisionDestination {
   readonly relation: DecisionDestinationRelation;
@@ -236,37 +304,11 @@ export interface StepResultRef {
   readonly path?: readonly string[];
 }
 
-export interface NoteDisambiguationCandidate {
-  readonly alias: `${"C" | "S"}${number}`;
-  readonly kind?: string;
-  readonly source?: string;
-  readonly textPreview?: string;
-}
-
-export interface NoteDisambiguationInput {
-  readonly turnId: string;
-  readonly language: string;
-  readonly rawFinalTranscript: string;
-  readonly stepId: string;
-  readonly toolId: NoteToolId;
-  readonly candidates: readonly NoteDisambiguationCandidate[];
-}
-
-export type NoteDisambiguationChoice =
-  | { readonly status: "SELECTED"; readonly alias: NoteDisambiguationCandidate["alias"] }
-  | { readonly status: "NONE" };
-
 export type NoteDecision =
   | {
       readonly status: "READY";
       readonly sceneRevision: number;
       readonly steps: readonly DecisionStep[];
-    }
-  | {
-      readonly status: "NEEDS_VISUAL";
-      readonly sceneRevision: number;
-      readonly candidateHandles: readonly ObjectHandle[];
-      readonly cropRegion: CropRequest;
     }
   | {
       readonly status: "NEEDS_CLARIFICATION";
@@ -278,7 +320,14 @@ export type NoteDecision =
       readonly sceneRevision: number;
       readonly reason: string;
     }
-  // Phase 4 compatibility variants remain parser-only for shadow fixtures.
+  // Compatibility variants remain parser-only for shadow fixtures. Production
+  // schemas never expose NEEDS_VISUAL because the initial image is the only pass.
+  | {
+      readonly status: "NEEDS_VISUAL";
+      readonly sceneRevision: number;
+      readonly candidateHandles: readonly ObjectHandle[];
+      readonly cropRegion: CropRequest;
+    }
   | { readonly status: "CALL"; readonly call: NoteToolCall }
   | { readonly status: "BATCH"; readonly atomic: true; readonly steps: readonly NoteToolCall[] }
   | { readonly status: "NEEDS_INPUT"; readonly missing: readonly string[] }

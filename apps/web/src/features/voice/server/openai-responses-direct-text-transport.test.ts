@@ -102,6 +102,45 @@ describe("OpenAiResponsesDirectTextTransport", () => {
     expect(body).not.toHaveProperty("tools");
   });
 
+  it("forwards text and a low-detail canvas image in one Responses request", async () => {
+    const fetchMock = vi.fn(async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => openAiResponse('{"status":"NONE"}'));
+    const transport = new OpenAiResponsesDirectTextTransport({
+      apiKey: "server-secret",
+      model: "configured-model",
+      timeoutMs: 1_000,
+      fetch: fetchMock,
+    });
+    const visualRequest: DirectTextModelRequest = {
+      ...REQUEST,
+      input: [
+        ...REQUEST.input,
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: '{"section":"CURRENT_CANVAS_IMAGE"}' },
+            {
+              type: "input_image",
+              image_url: "data:image/png;base64,iVBORw0KGgo=",
+              detail: "low",
+            },
+          ],
+        },
+      ],
+    };
+
+    await expect(transport.generate(visualRequest)).resolves.toBe('{"status":"NONE"}');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly input: readonly { readonly role: string; readonly content: unknown }[];
+    };
+    expect(body.input).toHaveLength(3);
+    expect(body.input.at(-1)).toEqual(visualRequest.input.at(-1));
+  });
+
   it("normalizes network, HTTP, empty output, and timeout failures", async () => {
     const network = new OpenAiResponsesDirectTextTransport({
       apiKey: "secret",

@@ -6,8 +6,6 @@ import {
   parseEntitySelector,
   parseNoteDecision,
   parseNoteDecisionInput,
-  parseNoteDisambiguationChoice,
-  parseNoteDisambiguationInput,
 } from "./index";
 
 describe("EntitySelector strict schema", () => {
@@ -83,25 +81,6 @@ describe("EntitySelector strict schema", () => {
   });
 });
 
-describe("Note disambiguation strict schema", () => {
-  it("bounds candidates and accepts only aliases", () => {
-    const input = parseNoteDisambiguationInput({
-      turnId: "turn-1",
-      language: "ko-KR",
-      rawFinalTranscript: "두 번째 것",
-      stepId: "s1",
-      toolId: "text.replace",
-      candidates: [{ alias: "C1" }, { alias: "C2", textPreview: "second" }],
-    });
-    expect(input.candidates).toHaveLength(2);
-    expect(parseNoteDisambiguationChoice({ status: "SELECTED", alias: "C2" }))
-      .toEqual({ status: "SELECTED", alias: "C2" });
-    expect(() => parseNoteDisambiguationChoice({
-      status: "SELECTED",
-      alias: "object-1",
-    })).toThrowError(/candidate alias/u);
-  });
-});
 describe("Destination strict schema", () => {
   it("accepts optional page and relative destinations", () => {
     expect(parseDestination({
@@ -133,6 +112,113 @@ describe("Destination strict schema", () => {
 });
 
 describe("One Note Decision strict schema", () => {
+  it("accepts only normalized object regions and explicit fallback coordinate spaces", () => {
+    const decision = parseNoteDecision({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "text.create",
+        target: {
+          object: "O7",
+          part: null,
+          region: { x: 0.6, y: 0.65, width: 0.16, height: 0.14 },
+          fallbackPoint: { x: 0.7, y: 0.7, coordinateSpace: "PAGE" },
+        },
+        args: { text: "중요" },
+        destination: { relation: "INSIDE", anchor: null, region: null },
+      }],
+      candidateHandles: null,
+      cropRegion: null,
+      reason: null,
+    });
+    expect(decision).toMatchObject({
+      status: "READY",
+      steps: [{
+        target: {
+          object: "O7",
+          region: { x: 0.6, y: 0.65, width: 0.16, height: 0.14 },
+          fallbackPoint: { coordinateSpace: "PAGE" },
+        },
+      }],
+    });
+    expect(() => parseNoteDecision({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "text.create",
+        target: {
+          object: "O7",
+          part: null,
+          region: { x: 0.9, y: 0.1, width: 0.2, height: 0.2 },
+          fallbackPoint: null,
+        },
+        args: { text: "invalid" },
+        destination: null,
+      }],
+      candidateHandles: null,
+      cropRegion: null,
+      reason: null,
+    })).toThrowError(/inside the target object/u);
+    expect(() => parseNoteDecision({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "text.create",
+        target: {
+          object: null,
+          part: null,
+          region: null,
+          fallbackPoint: { x: 0.5, y: 0.5, coordinateSpace: "OBJECT_LOCAL" },
+        },
+        args: { text: "invalid" },
+        destination: null,
+      }],
+      candidateHandles: null,
+      cropRegion: null,
+      reason: null,
+    })).toThrowError(/OBJECT_LOCAL requires an object handle/u);
+  });
+
+  it("allows semantic tangent x/y only inside typed tangent args", () => {
+    const tangent = {
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "math.graph.add_tangent",
+        target: { object: "O1", part: null },
+        args: { mode: "at-point", x: -1, y: 1, quadrant: null, label: null },
+        destination: null,
+      }],
+      candidateHandles: null,
+      cropRegion: null,
+      reason: null,
+    };
+
+    expect(parseNoteDecision(tangent)).toMatchObject({
+      status: "READY",
+      steps: [{
+        action: "math.graph.add_tangent",
+        args: { x: -1, y: 1 },
+      }],
+    });
+    expect(() => parseNoteDecision({
+      ...tangent,
+      steps: [{
+        action: "text.create",
+        target: null,
+        args: { text: "hello", x: 20 },
+        destination: null,
+      }],
+    })).toThrowError(/runtime authority field is forbidden/u);
+    expect(() => parseNoteDecision({
+      ...tangent,
+      steps: [{
+        ...tangent.steps[0],
+        args: { ...tangent.steps[0].args, objectId: "invented" },
+      }],
+    })).toThrowError(/runtime authority field is forbidden/u);
+  });
+
   it.each([
     {
       status: "CALL",
@@ -233,6 +319,23 @@ describe("One Note Decision strict schema", () => {
         description: "create text",
         input: { text: "string" },
       }],
+      pageBase: {
+        documentId: "doc-1",
+        pageId: "page-1",
+        baseRevision: "page-1@1",
+        sceneMode: "pdf",
+        objects: [],
+        pageText: "hello",
+        createdAt: 1,
+      },
+      liveScene: {
+        sceneRevision: 7,
+        createdObjects: [],
+        updatedObjects: [],
+        deletedObjectIds: [],
+        selectedObjectIds: ["O1"],
+        recentObjectIds: ["O1"],
+      },
       objectCatalog: {
         objects: [{
           handle: "O1",
@@ -249,6 +352,29 @@ describe("One Note Decision strict schema", () => {
       },
     };
     expect(parseNoteDecisionInput(input)).toEqual(input);
+    const visualInput = {
+      ...input,
+      visualContext: {
+        mimeType: "image/png",
+        imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+        pixelWidth: 960,
+        pixelHeight: 1280,
+        byteLength: 8,
+        markedObjects: [{
+          objectId: "O1",
+          kind: "text",
+          bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+        }],
+      },
+    };
+    expect(parseNoteDecisionInput(visualInput)).toEqual(visualInput);
+    expect(() => parseNoteDecisionInput({
+      ...visualInput,
+      visualContext: {
+        ...visualInput.visualContext,
+        mimeType: "image/jpeg",
+      },
+    })).toThrowError(/matching base64 image data URL/u);
     expect(() => parseNoteDecisionInput({
       ...input,
       objectCatalog: {

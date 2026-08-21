@@ -24,6 +24,7 @@ import {
   type ObjectDetail,
   type ObjectSummary,
 } from "./object-projection";
+import { PageAgentContextCache } from "./page-agent-context-cache";
 
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 16_000;
 const MAX_TRANSCRIPT_CHARS = 4_000;
@@ -40,6 +41,7 @@ export interface NoteContextCollectionContext {
   readonly frozenWorld: FrozenWorldContext;
   readonly world: UnifiedObjectWorld;
   readonly handles: NoteObjectHandleMap;
+  readonly pageContextCache: PageAgentContextCache;
   readonly viewport?: Rect;
   readonly detailHandles?: readonly ("selection" | "focus")[];
   readonly candidates?: readonly CandidatePartEntry[];
@@ -88,15 +90,21 @@ export interface NoteContextAssemblerOptions {
   readonly actionLoader: ActionContextLoader;
   readonly providers?: readonly NoteContextPartProvider<unknown>[];
   readonly tokenBudget?: number;
+  readonly pageContextCache?: PageAgentContextCache;
+  readonly now?: () => number;
 }
 
 /** Collects every Prompt Part locally and makes exactly one Decision input. */
 export class NoteContextAssembler {
   private readonly providers: readonly NoteContextPartProvider<unknown>[];
   private readonly tokenBudget: number;
+  private readonly pageContextCache: PageAgentContextCache;
+  private readonly now: () => number;
 
   public constructor(private readonly options: NoteContextAssemblerOptions) {
     this.providers = options.providers ?? defaultPartProviders();
+    this.pageContextCache = options.pageContextCache ?? new PageAgentContextCache();
+    this.now = options.now ?? Date.now;
     this.tokenBudget = positiveInteger(
       options.tokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET,
       "tokenBudget",
@@ -125,6 +133,7 @@ export class NoteContextAssembler {
       frozenWorld: input.frozenWorld,
       world: input.world,
       handles,
+      pageContextCache: this.pageContextCache,
       ...(input.viewport === undefined ? {} : { viewport: input.viewport }),
       ...(input.detailHandles === undefined ? {} : { detailHandles: input.detailHandles }),
       ...(input.candidates === undefined ? {} : { candidates: input.candidates }),
@@ -174,6 +183,15 @@ export class NoteContextAssembler {
     const selection = summaryFromPart(parts, "selection-focus", "selection");
     const lastOperation = lastOperationFromPart(parts);
     const objectCatalog = objectCatalogFromPart(parts);
+    const pageContext = this.pageContextCache.build({
+      documentId: input.documentId,
+      pageId: input.frozenWorld.pageId,
+      sceneRevision: input.frozenWorld.sceneRevision,
+      sceneMode: input.frozenWorld.frozenVoiceContext.sceneMode,
+      objects: objectCatalog,
+      ...(lastOperation === undefined ? {} : { lastOperation }),
+      createdAt: this.now(),
+    });
     const decisionInput: NoteDecisionInput = {
       turn: {
         turnId: input.turn.id,
@@ -190,6 +208,8 @@ export class NoteContextAssembler {
         ...(lastOperation === undefined ? {} : { lastOperation }),
       },
       availableTools,
+      pageBase: pageContext.pageBase,
+      liveScene: pageContext.liveScene,
       objectCatalog: {
         objects: objectCatalog,
         truncated: false,
@@ -258,8 +278,12 @@ const objectCatalogProvider: NoteContextPartProvider<readonly NoteCatalogObject[
         - (left.updatedAt ?? left.createdAt ?? 0))
       .slice(0, MAX_RECENT_OPERATIONS)
       .map((object) => object.id));
-    return objects.flatMap((object, index) => {
-      const handle = `O${index + 1}` as const;
+    return objects.flatMap((object) => {
+      const handle = context.pageContextCache.handleFor(
+        context.documentId,
+        context.frozenWorld.pageId,
+        object.id,
+      );
       const ref: EntityRef = { kind: "OBJECT", objectId: object.id };
       const projected = projectCatalogObject(handle, ref, context.world, scene.page, {
         selected: object.id === selectionId,

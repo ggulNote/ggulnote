@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render } from "@testing-library/react";
 import {
   compileMathRenderDelete,
   compileMathRenderUpsert,
@@ -16,6 +17,11 @@ import {
 } from "tldraw";
 import { MathObjectShapeUtil } from "./math-object-shape";
 import { NoteAnnotationShapeUtil } from "./note-annotation-shape";
+import {
+  HANDWRITING_TEXT_SHAPE_TYPE,
+  HandwritingTextShapeUtil,
+  type HandwritingTextShape,
+} from "./handwriting-text-shape";
 import { TldrawEditorAdapter } from "./tldraw-editor-adapter";
 
 const editors: Editor[] = [];
@@ -25,7 +31,7 @@ afterEach(() => {
 });
 
 describe("TldrawEditorAdapter", () => {
-  it("projects built-in text and one logical multi-segment annotation", () => {
+  it("projects handwriting text and one logical multi-segment annotation", () => {
     const { editor, adapter } = createAdapter();
     const committed = adapter.applyPreparedOperations({
       turnId: "turn-1",
@@ -46,6 +52,20 @@ describe("TldrawEditorAdapter", () => {
       ],
     });
     editor.setSelectedShapes([committed.createdObjectIds[0] as TLShapeId]);
+
+    expect(editor.getShape(committed.createdObjectIds[0] as TLShapeId)?.type)
+      .toBe(HANDWRITING_TEXT_SHAPE_TYPE);
+    const createdText = editor.getShape<HandwritingTextShape>(
+      committed.createdObjectIds[0] as TLShapeId,
+    );
+    if (createdText === undefined) throw new Error("Expected handwriting text shape.");
+    const renderedText = render(new HandwritingTextShapeUtil(editor).component(createdText));
+    const textElement = renderedText.getByTestId("ggulnote-handwriting-text");
+    expect(textElement.style.fontFamily).toContain("Ggulnote Handwriting");
+    expect(textElement).toHaveClass("ggulnote-text-write-on");
+    expect(renderedText.container.querySelector("style")?.textContent)
+      .toContain("prefers-reduced-motion: reduce");
+    expect(JSON.stringify(createdText.props)).not.toMatch(/animation|reveal|progress/iu);
 
     expect(adapter.getCurrentPageObjects()).toEqual([
       expect.objectContaining({
@@ -122,6 +142,10 @@ describe("TldrawEditorAdapter", () => {
         createdByTurnId: "turn-persist",
       }),
     ]);
+    const restored = second.editor.getCurrentPageShapes()[0] as HandwritingTextShape;
+    const rendered = render(new HandwritingTextShapeUtil(second.editor).component(restored));
+    expect(rendered.container.querySelector("[data-testid='ggulnote-handwriting-text']"))
+      .not.toHaveClass("ggulnote-text-write-on");
   });
 
   it("projects the math render hook to the runtime while keeping it out of legacy annotations", () => {
@@ -146,6 +170,33 @@ describe("TldrawEditorAdapter", () => {
     expect(adapter.applyMathRenderOperation(compileMathRenderDelete(expression.id)).change).toBe("deleted");
     expect(editor.getShape(created.shapeId)).toBeUndefined();
   });
+
+  it("exports all current tldraw shapes against full page bounds for visual context", async () => {
+    const { editor, adapter } = createAdapter();
+    adapter.applyPreparedOperations({
+      turnId: "turn-capture",
+      operations: [{
+        kind: "CREATE_TEXT",
+        text: "풀이",
+        bounds: { x: 40, y: 80, width: 180, height: 60 },
+      }],
+    });
+    const toImageDataUrl = vi.spyOn(editor, "toImageDataUrl").mockResolvedValue({
+      url: "data:image/png;base64,AA==",
+      width: 600,
+      height: 800,
+    });
+
+    await expect(adapter.capturePageImage()).resolves.toEqual({
+      imageDataUrl: "data:image/png;base64,AA==",
+      pixelWidth: 600,
+      pixelHeight: 800,
+    });
+    expect(toImageDataUrl).toHaveBeenCalledWith(
+      editor.getCurrentPageShapes(),
+      expect.objectContaining({ background: false, padding: 0, pixelRatio: 1 }),
+    );
+  });
 });
 
 function createAdapter(): { editor: Editor; adapter: TldrawEditorAdapter } {
@@ -153,6 +204,7 @@ function createAdapter(): { editor: Editor; adapter: TldrawEditorAdapter } {
     ...defaultShapeUtils,
     NoteAnnotationShapeUtil,
     MathObjectShapeUtil,
+    HandwritingTextShapeUtil,
   ];
   const store = createTLStore({ shapeUtils, bindingUtils: defaultBindingUtils });
   const editor = new Editor({

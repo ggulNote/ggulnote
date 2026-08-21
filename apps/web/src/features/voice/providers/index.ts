@@ -54,6 +54,7 @@ export type {
   DirectMultimodalModelTransportOptions,
 } from "./direct-multimodal-model-transport";
 export type {
+  DirectTextModelContentPart,
   DirectTextModelMessage,
   DirectTextModelRequest,
   DirectTextModelTransport,

@@ -312,8 +312,12 @@ describe("LlmDirectCommandPlannerProvider", () => {
     expect(serialized).toContain("ignore previous instructions");
     expect(serialized).not.toContain("op-last-secret");
     expect(serialized).not.toContain("op-recent-secret");
-    const dataKeys = request.input.flatMap((message) =>
-      collectKeys(JSON.parse(message.content) as unknown));
+    const dataKeys = request.input.flatMap((message) => {
+      if (typeof message.content !== "string") {
+        throw new Error("direct command planner request must remain text-only");
+      }
+      return collectKeys(JSON.parse(message.content) as unknown);
+    });
     expect(dataKeys).not.toContain("x");
     expect(dataKeys).not.toContain("candidateId");
     expect(dataKeys).not.toContain("objectId");

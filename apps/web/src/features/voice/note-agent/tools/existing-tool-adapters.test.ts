@@ -19,7 +19,11 @@ import {
   type UnifiedObjectWorld,
 } from "../world";
 import { createExistingNoteToolRegistry } from "./existing-tool-adapters";
-import type { NoteToolContext } from "./note-tool-registry";
+import type {
+  NotePlacementPreparation,
+  NoteToolContext,
+} from "./note-tool-registry";
+import type { ExistingPlacementEngine } from "../runtime/placement-engine";
 
 const PDF: ParagraphSceneObject = {
   id: "pdf-paragraph",
@@ -129,6 +133,94 @@ describe("existing NoteTool adapters", () => {
       .toContain("ground across all supplied object text first");
     expect(registry.compactSchemas(context()).map((tool) => tool.id))
       .not.toContain("text.create");
+  });
+
+  it("uses a resolved fallback anchor for registered text.create without re-grounding", async () => {
+    const tool = createExistingNoteToolRegistry().get("text.create");
+    if (tool === undefined) throw new Error("Expected text.create adapter.");
+    const placementResolve = vi.fn(async () => ({
+      status: "RESOLVED" as const,
+      placement: {
+        snapshotId: "snapshot-1",
+        pageId: "page-1",
+        sceneRevision: 7,
+        bounds: { x: 300, y: 200, width: 120, height: 40 },
+        relation: "INSIDE" as const,
+        alignment: "CENTER" as const,
+        candidate: {
+          internalId: "candidate-1",
+          alias: "S1" as const,
+          snapshotId: "snapshot-1",
+          sceneRevision: 7,
+          bounds: { x: 300, y: 200, width: 120, height: 40 },
+          strategy: "ANCHOR_RELATIVE" as const,
+          relation: "INSIDE" as const,
+          alignment: "CENTER" as const,
+          sizeVariant: "PREFERRED" as const,
+          evidence: {
+            hardOverlapArea: 0,
+            softOverlapArea: 0,
+            clearance: 0,
+            anchorDistance: 0,
+            relationSatisfied: true,
+            alignmentSatisfied: true,
+            preferredSizePreserved: true,
+            insideEditableBounds: true,
+            regionMatch: true,
+            nearbyObjectIds: [],
+          },
+        },
+      },
+    }));
+    const base = context();
+    const resolvedTarget = {
+      status: "RESOLVED" as const,
+      mode: "FALLBACK_POINT" as const,
+      objectHandle: "O99" as const,
+      canvasBounds: { x: 449.5, y: 199.5, width: 1, height: 1 },
+      canvasPoint: { x: 450, y: 200 },
+      anchor: {
+        kind: "PAGE" as const,
+        bounds: { x: 449.5, y: 199.5, width: 1, height: 1 },
+      },
+    };
+    const input = tool.inputSchema.parse({
+      text: "이거 중요",
+      target: {
+        object: "O99",
+        part: null,
+        region: null,
+        fallbackPoint: { x: 0.75, y: 0.25, coordinateSpace: "PAGE" },
+      },
+      destination: { relation: "INSIDE", anchor: null, region: null },
+    });
+
+    const result = await tool.prepare(input, {
+      ...base,
+      placement: { resolve: placementResolve } as unknown as ExistingPlacementEngine,
+      preparePlacement: async () => ({
+        snapshot: {},
+        draft: {},
+        profile: {},
+      }) as unknown as NotePlacementPreparation,
+      resolvedTarget,
+    });
+
+    expect(result).toMatchObject({
+      status: "READY",
+      operations: [{
+        data: {
+          tldrawOperation: {
+            kind: "CREATE_TEXT",
+            text: "이거 중요",
+            bounds: { x: 300, y: 200, width: 120, height: 40 },
+          },
+        },
+      }],
+    });
+    expect(placementResolve).toHaveBeenCalledWith(expect.objectContaining({
+      resolvedAnchor: resolvedTarget.anchor,
+    }));
   });
 
   it("allows editable user text but refuses immutable PDF replacement", async () => {

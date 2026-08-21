@@ -42,6 +42,13 @@ export function applyPlacementChoicePolicy(
 export function resolveDelegatedLayoutFallback(
   input: Omit<PlacementChoicePolicyInput, "policy">,
 ): SpatialPlacementResult {
+  return resolveDeterministicPlacementTie(input);
+}
+
+/** Chooses among geometry-equivalent candidates without semantic inference. */
+export function resolveDeterministicPlacementTie(
+  input: Omit<PlacementChoicePolicyInput, "policy">,
+): SpatialPlacementResult {
   return input.result.status === "AMBIGUOUS"
     ? resolveStableCandidate({ ...input, policy: "USER_DELEGATED_LAYOUT" })
     : input.result;

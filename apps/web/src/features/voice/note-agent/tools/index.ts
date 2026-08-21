@@ -1,5 +1,9 @@
 export { createExistingNoteToolRegistry } from "./existing-tool-adapters";
-export { createMathTools } from "./math-tools";
+export {
+  createMathPlacementContract,
+  createMathTools,
+} from "./math-tools";
+export type { MathCreatePlacementContract } from "./math-tools";
 export { createUnavailableExtensionTools } from "./extension-boundary-tools";
 export {
   AllEnabledActionsLoader,

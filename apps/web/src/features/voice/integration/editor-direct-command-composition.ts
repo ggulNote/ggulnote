@@ -18,6 +18,8 @@ import {
   FrozenTargetResolver,
   GroundedTargetRecovery,
   BoundedSpeechRefiner,
+  notebookEditableBounds,
+  type SpatialScreenshotSource,
 } from "../application";
 import type {
   FrozenPageGroundingSnapshot,
@@ -43,6 +45,7 @@ import { CanvasSpatialScreenshotSource } from "./canvas-spatial-screenshot-sourc
 import { TextSpatialCreateCapability } from "./text-spatial-create-capability";
 import {
   createExistingNoteToolRegistry,
+  createMathPlacementContract,
   DirectCommandOperationLedgerAdapter,
   ExistingPlacementEngine,
   ExistingSceneUnifiedObjectWorldSource,
@@ -51,7 +54,6 @@ import {
   NoteAgentShadowRoute,
   NoteAgentProductionRoute,
   type NoteDecisionProvider,
-  type NoteDecisionCompositionProvider,
   type FrozenWorldContext,
   type NoteRuntimeContext,
   type NoteRuntimeMetricsRecorder,
@@ -87,7 +89,7 @@ export interface EditorDirectCommandCompositionOptions {
   };
   noteAgent?: {
     readonly mode: "PRODUCTION" | "SHADOW";
-    readonly provider: NoteDecisionCompositionProvider;
+    readonly provider: NoteDecisionProvider;
   };
 }
 
@@ -148,6 +150,15 @@ export function createEditorDirectCommandComposition(
     spatialCapabilities,
   });
   const traces = new DirectCommandTraceStore();
+  const screenshotSource = options.spatial === undefined
+    ? undefined
+    : new CanvasSpatialScreenshotSource({
+        getBaseCanvas: options.spatial.getBaseCanvas,
+        getOverlayCanvas: options.spatial.getOverlayCanvas,
+        getTldrawOverlay: async () => options.getTldrawAdapter?.()?.capturePageImage(),
+        getCurrentPageId: () => options.readCurrentGroundingSnapshot()?.scene.page.id,
+        getCurrentSceneRevision: options.getCurrentSceneRevision,
+      });
   const spatial = options.spatial === undefined
     ? undefined
     : createSpatialExecutionPipeline(
@@ -155,6 +166,7 @@ export function createEditorDirectCommandComposition(
         options.spatial,
         executor,
         spatialCapabilities,
+        screenshotSource!,
       );
   const route = new DirectCommandRoute({
     planning,
@@ -173,6 +185,7 @@ export function createEditorDirectCommandComposition(
         provider: options.noteAgentShadow.provider,
         executor,
         spatial,
+        screenshotSource,
       })
     : undefined;
   const noteAgentProduction = options.noteAgent?.mode === "PRODUCTION"
@@ -184,6 +197,7 @@ export function createEditorDirectCommandComposition(
         provider: options.noteAgent.provider,
         executor,
         spatial,
+        screenshotSource,
       })
     : undefined;
   const configuredShadow = options.noteAgent?.mode === "SHADOW"
@@ -195,6 +209,7 @@ export function createEditorDirectCommandComposition(
         provider: options.noteAgent.provider,
         executor,
         spatial,
+        screenshotSource,
       })
     : noteAgentShadow;
 
@@ -224,6 +239,7 @@ interface CreateNoteAgentShadowRouteInput {
   readonly provider: NoteDecisionProvider;
   readonly executor: EditorDirectCommandExecutor;
   readonly spatial?: SpatialPlacementExecutionPipeline;
+  readonly screenshotSource?: SpatialScreenshotSource;
 }
 
 function createNoteAgentShadowRoute(
@@ -244,7 +260,7 @@ function createNoteAgentShadowRoute(
 
 interface CreateNoteAgentProductionRouteInput
 extends Omit<CreateNoteAgentShadowRouteInput, "provider"> {
-  readonly provider: NoteDecisionCompositionProvider;
+  readonly provider: NoteDecisionProvider;
 }
 
 function createNoteAgentProductionRoute(
@@ -259,6 +275,9 @@ function createNoteAgentProductionRoute(
     provider: input.provider,
     now: () => Number(input.options.clock.now()),
     getTldrawProjectionMs: () => input.options.getTldrawAdapter?.()?.getLastProjectionMs() ?? 0,
+    ...(environment.captureVisualContext === undefined
+      ? {}
+      : { captureVisualContext: environment.captureVisualContext }),
     createToolContext: (frozenWorld, turnId, runtimeOptions) =>
       environment.createToolContext(
         "PRODUCTION",
@@ -294,17 +313,9 @@ function createNoteAgentEnvironment(
     operationLedger: ledger,
   });
   const resolver = new ExistingWorldResolver({ world });
-  const spatialPreparation = input.spatial?.preparePlacement?.bind(input.spatial);
   const placement = new ExistingPlacementEngine({
     world,
     resolver,
-    ...(spatialPreparation === undefined
-      ? {}
-      : {
-          preparation: {
-            preparePlacement: spatialPreparation,
-          },
-        }),
   });
   const registry = createExistingNoteToolRegistry();
   const spatialSceneSource = new ExistingSceneSpatialSceneSource({
@@ -328,6 +339,33 @@ function createNoteAgentEnvironment(
   return {
     world,
     registry,
+    ...(input.screenshotSource === undefined
+      ? {}
+      : {
+          captureVisualContext: async (
+            frozenWorld: FrozenWorldContext,
+            markers: Parameters<SpatialScreenshotSource["capture"]>[0]["markers"],
+            signal?: AbortSignal,
+          ) => {
+            const scene = readSnapshot()?.scene;
+            if (scene === undefined) return { status: "UNAVAILABLE" as const };
+            const reference = spatialReferenceForShadow(frozenWorld, scene);
+            if (reference === undefined) return { status: "STALE_SCENE" as const };
+            const spatialSnapshot = spatialSceneSource.getSnapshot(reference);
+            if (spatialSnapshot.status !== "READY") {
+              return {
+                status: spatialSnapshot.status === "STALE_SCENE"
+                  ? "STALE_SCENE" as const
+                  : "UNAVAILABLE" as const,
+              };
+            }
+            return input.screenshotSource!.capture({
+              snapshot: spatialSnapshot.snapshot,
+              ...(markers === undefined ? {} : { markers }),
+              ...(signal === undefined ? {} : { signal }),
+            });
+          },
+        }),
     createToolContext: (
       mode: "SHADOW" | "PRODUCTION",
       frozenWorld: FrozenWorldContext,
@@ -335,10 +373,6 @@ function createNoteAgentEnvironment(
       runtimeOptions: {
         readonly signal?: AbortSignal;
         readonly metrics?: NoteRuntimeMetricsRecorder;
-        readonly candidateSelection?: {
-          readonly stepId: string;
-          readonly alias: `${"C" | "S"}${number}`;
-        };
       } = {},
     ): NoteRuntimeContext => ({
       mode,
@@ -350,14 +384,29 @@ function createNoteAgentEnvironment(
       getCurrentSceneRevision: input.options.getCurrentSceneRevision,
       ...(runtimeOptions.signal === undefined ? {} : { signal: runtimeOptions.signal }),
       ...(runtimeOptions.metrics === undefined ? {} : { metrics: runtimeOptions.metrics }),
-      ...(runtimeOptions.candidateSelection === undefined
-        ? {}
-        : { candidateSelection: runtimeOptions.candidateSelection }),
       ...(mode === "SHADOW" ? {} : { transaction }),
       ...(mode === "PRODUCTION"
         ? { productionPlacementAvailable: input.spatial !== undefined }
         : {}),
       preparePlacement: async (toolId, toolInput) => {
+        const scene = readSnapshot()?.scene;
+        if (scene === undefined) return undefined;
+        const reference = spatialReferenceForShadow(frozenWorld, scene);
+        if (reference === undefined) return undefined;
+        const spatialSnapshot = spatialSceneSource.getSnapshot(reference);
+        if (spatialSnapshot.status !== "READY") return undefined;
+        const math = createMathPlacementContract(
+          toolId,
+          `note:${turnId}:${toolId}`,
+          spatialSnapshot.snapshot.editableBounds,
+        );
+        if (math !== undefined) {
+          return {
+            snapshot: spatialSnapshot.snapshot,
+            draft: math.draft,
+            profile: math.profile,
+          };
+        }
         if (toolId !== "text.create" || !hasText(toolInput)) return undefined;
         const command = {
           capability: "text" as const,
@@ -371,12 +420,6 @@ function createNoteAgentEnvironment(
           command,
         });
         if (profile.status !== "SUPPORTED") return undefined;
-        const scene = readSnapshot()?.scene;
-        if (scene === undefined) return undefined;
-        const reference = spatialReferenceForShadow(frozenWorld, scene);
-        if (reference === undefined) return undefined;
-        const spatialSnapshot = spatialSceneSource.getSnapshot(reference);
-        if (spatialSnapshot.status !== "READY") return undefined;
         const measured = await input.capabilities.measure({
           kind: "NEW_DRAFT",
           draftKey: `note:${turnId}:${toolId}`,
@@ -413,6 +456,7 @@ function spatialReferenceForShadow(
     capturedAt: frozen.capturedAt,
     rotation: 0,
     viewportBounds: { x: 0, y: 0, width: scene.page.width, height: scene.page.height },
+    editableBounds: notebookEditableBounds(scene.page),
     focusStale: frozen.focusStale,
     ...(frozen.focusObjectId === undefined && frozen.focusBounds === undefined
       ? {}
@@ -436,6 +480,7 @@ function createSpatialExecutionPipeline(
   spatial: EditorSpatialPlacementCompositionOptions,
   executor: EditorDirectCommandExecutor,
   capabilities: InMemorySpatialCommandCapabilityRegistry,
+  screenshotSource: SpatialScreenshotSource,
 ): SpatialPlacementExecutionPipeline {
   const readScene = () => options.readCurrentGroundingSnapshot()?.scene;
   const sceneSource = new ExistingSceneSpatialSceneSource({
@@ -461,12 +506,7 @@ function createSpatialExecutionPipeline(
     },
   };
   const observationBuilder = new MultimodalPlacementObservationBuilder({
-    screenshotSource: new CanvasSpatialScreenshotSource({
-      getBaseCanvas: spatial.getBaseCanvas,
-      getOverlayCanvas: spatial.getOverlayCanvas,
-      getCurrentPageId: () => readScene()?.page.id,
-      getCurrentSceneRevision: options.getCurrentSceneRevision,
-    }),
+    screenshotSource,
     imageProcessor: new BrowserSpatialObservationImageProcessor(),
     now: () => Number(options.clock.now()),
   });

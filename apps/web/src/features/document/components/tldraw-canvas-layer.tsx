@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Size } from "@ggulnote/editor-core";
 import { Tldraw, type Editor } from "tldraw";
 import {
+  HandwritingTextShapeUtil,
   MathObjectShapeUtil,
   NoteAnnotationShapeUtil,
   TldrawEditorAdapter,
@@ -13,7 +14,11 @@ import {
   TLDRAW_CANVAS_STORE_VERSION,
 } from "../local-persistence";
 
-const SHAPE_UTILS = [NoteAnnotationShapeUtil, MathObjectShapeUtil] as const;
+const SHAPE_UTILS = [
+  NoteAnnotationShapeUtil,
+  MathObjectShapeUtil,
+  HandwritingTextShapeUtil,
+] as const;
 const SAVE_DEBOUNCE_MS = 250;
 
 export interface TldrawCanvasLayerProps {

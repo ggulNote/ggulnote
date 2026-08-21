@@ -335,6 +335,131 @@ export const addMathGraphTangent = (
   });
 };
 
+export type MathGraphTangentRequest =
+  | { readonly mode: "at-point"; readonly x: number; readonly y?: number }
+  | { readonly mode: "at-x"; readonly x: number }
+  | { readonly mode: "quadrant"; readonly quadrant: 1 | 2 | 3 | 4 }
+  | { readonly mode: "auto" };
+
+export interface ResolvedMathGraphTangentRequest {
+  readonly functionId: string;
+  readonly atX: number;
+}
+
+/** Resolves a semantic request to one visible contact point; derivative math stays in addMathGraphTangent. */
+export const resolveMathGraphTangentRequest = (
+  graph: MathGraph,
+  request: MathGraphTangentRequest,
+): ResolvedMathGraphTangentRequest => {
+  if (request.mode === "at-point" || request.mode === "at-x") {
+    if (!Number.isFinite(request.x)) throw new TypeError("Tangent x must be finite.");
+    const requestedY = request.mode === "at-point" ? request.y : undefined;
+    if (requestedY !== undefined && !Number.isFinite(requestedY)) {
+      throw new TypeError("Tangent point y must be finite.");
+    }
+    const tolerance = Math.max(
+      FUNCTION_EPSILON,
+      (graph.coordinateSystem.yMax - graph.coordinateSystem.yMin) * 1e-6,
+    );
+    for (const fn of graph.functions) {
+      const y = evaluateMathGraphFunction(fn, request.x);
+      const slope = evaluateMathGraphDerivative(fn, request.x);
+      if (y === undefined || slope === undefined) continue;
+      if (requestedY !== undefined && Math.abs(y - requestedY) > tolerance) continue;
+      return { functionId: fn.id, atX: request.x };
+    }
+    throw new RangeError(requestedY === undefined
+      ? `A finite tangent does not exist at x=${request.x}.`
+      : `The requested point (${request.x}, ${requestedY}) is not on a graph curve.`);
+  }
+
+  const candidate = chooseVisibleTangentCandidate(
+    graph,
+    request.mode === "quadrant" ? request.quadrant : undefined,
+  );
+  if (candidate === undefined) {
+    throw new RangeError(request.mode === "quadrant"
+      ? `No visible finite tangent contact exists in quadrant ${request.quadrant}.`
+      : "No visible finite tangent contact exists in the graph viewport.");
+  }
+  return { functionId: candidate.functionId, atX: candidate.x };
+};
+
+interface VisibleTangentCandidate {
+  readonly functionId: string;
+  readonly functionIndex: number;
+  readonly x: number;
+  readonly score: number;
+}
+
+function chooseVisibleTangentCandidate(
+  graph: MathGraph,
+  quadrant: 1 | 2 | 3 | 4 | undefined,
+): VisibleTangentCandidate | undefined {
+  const coordinates = graph.coordinateSystem;
+  const xSpan = coordinates.xMax - coordinates.xMin;
+  const ySpan = coordinates.yMax - coordinates.yMin;
+  const sampleCount = 40;
+  const inset = 0.12;
+  const targetX = quadrant === undefined
+    ? (coordinates.xMin + coordinates.xMax) / 2
+    : signedAxisMidpoint(
+        coordinates.xMin,
+        coordinates.xMax,
+        quadrant === 1 || quadrant === 4,
+      );
+  const targetY = quadrant === undefined
+    ? (coordinates.yMin + coordinates.yMax) / 2
+    : signedAxisMidpoint(
+        coordinates.yMin,
+        coordinates.yMax,
+        quadrant === 1 || quadrant === 2,
+      );
+  const candidates: VisibleTangentCandidate[] = [];
+  graph.functions.forEach((fn, functionIndex) => {
+    for (let index = 0; index <= sampleCount; index += 1) {
+      const ratio = inset + (1 - inset * 2) * index / sampleCount;
+      const x = coordinates.xMin + xSpan * ratio;
+      const y = evaluateMathGraphFunction(fn, x);
+      const slope = evaluateMathGraphDerivative(fn, x);
+      if (y === undefined || slope === undefined || !insideTangentViewport(y, coordinates)) continue;
+      if (quadrant !== undefined && !pointIsInQuadrant(x, y, quadrant)) continue;
+      if (clipGraphLineToViewport({ x, y }, slope, coordinates) === undefined) continue;
+      candidates.push({
+        functionId: fn.id,
+        functionIndex,
+        x,
+        score: Math.abs(x - targetX) / xSpan + Math.abs(y - targetY) / ySpan,
+      });
+    }
+  });
+  return candidates.sort((left, right) => left.score - right.score
+    || left.functionIndex - right.functionIndex
+    || left.x - right.x)[0];
+}
+
+function signedAxisMidpoint(minimum: number, maximum: number, positive: boolean): number {
+  const start = positive ? Math.max(0, minimum) : minimum;
+  const end = positive ? maximum : Math.min(0, maximum);
+  return start < end ? (start + end) / 2 : (minimum + maximum) / 2;
+}
+
+function insideTangentViewport(
+  y: number,
+  coordinates: MathGraph["coordinateSystem"],
+): boolean {
+  const inset = (coordinates.yMax - coordinates.yMin) * 0.06;
+  return y >= coordinates.yMin + inset && y <= coordinates.yMax - inset;
+}
+
+function pointIsInQuadrant(x: number, y: number, quadrant: 1 | 2 | 3 | 4): boolean {
+  if (Math.abs(x) <= FUNCTION_EPSILON || Math.abs(y) <= FUNCTION_EPSILON) return false;
+  if (quadrant === 1) return x > 0 && y > 0;
+  if (quadrant === 2) return x < 0 && y > 0;
+  if (quadrant === 3) return x < 0 && y < 0;
+  return x > 0 && y < 0;
+}
+
 export const addMathGraphHelperLine = (
   graph: MathGraph,
   input: AddMathGraphHelperLineInput,

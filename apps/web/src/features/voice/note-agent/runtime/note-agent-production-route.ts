@@ -8,14 +8,17 @@ import {
   DirectCommandExecutionRegistry,
   type DirectCommandContextBuilder,
   type DirectCommandHistoryContext,
+  type SpatialScreenshotMarker,
+  type SpatialScreenshotSourceResult,
 } from "../../application";
 import type { CompletedVoiceTurnRoute } from "../../integration/direct-command-voice-turn-bridge";
-import type { NoteDecisionCompositionProvider } from "../decision";
+import type { NoteDecisionProvider } from "../decision";
 import { NOTE_DECISION_SCHEMA_VERSION } from "../decision/note-decision-json-schema";
 import { NoteContextAssembler } from "../context";
 import type {
   NoteDecisionInput,
   NoteToolId,
+  ObjectHandle,
 } from "../domain";
 import type { FrozenWorldContext, UnifiedObjectWorld } from "../world";
 import {
@@ -33,7 +36,7 @@ export interface NoteAgentProductionRouteOptions {
   readonly history: DirectCommandHistoryContext;
   readonly world: UnifiedObjectWorld;
   readonly registry: NoteToolRegistry;
-  readonly provider: NoteDecisionCompositionProvider;
+  readonly provider: NoteDecisionProvider;
   readonly runtime?: NoteRuntime;
   readonly contextAssembler?: NoteContextAssembler;
   readonly createToolContext: (
@@ -42,15 +45,16 @@ export interface NoteAgentProductionRouteOptions {
     options: {
       readonly signal?: AbortSignal;
       readonly metrics: NoteRuntimeMetricsRecorder;
-      readonly candidateSelection?: {
-        readonly stepId: string;
-        readonly alias: `${"C" | "S"}${number}`;
-      };
     },
   ) => NoteRuntimeContext;
   readonly traces?: NoteAgentShadowTraceStore;
   readonly now?: () => number;
   readonly getTldrawProjectionMs?: () => number;
+  readonly captureVisualContext?: (
+    frozenWorld: FrozenWorldContext,
+    markers: readonly SpatialScreenshotMarker[],
+    signal?: AbortSignal,
+  ) => Promise<SpatialScreenshotSourceResult>;
 }
 
 /** Production owner for one CompletedVoiceTurn. No old route is executed. */
@@ -115,6 +119,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     let objectCatalogBuildMs = 0;
     let objectCatalogObjectCount = 0;
     let objectCatalogSerializedChars = 0;
+    let visualContextTrace: VisualContextTrace = NO_VISUAL_CONTEXT;
     const contextAssemblyStartedAt = this.now();
     try {
       const assembly = await this.contextAssembler.assemble({
@@ -140,6 +145,85 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
         elapsed(contextAssemblyStartedAt, this.now()),
       );
     }
+    const screenshotMarkers = decisionInput.objectCatalog.objects.map((object) => ({
+      id: object.handle,
+      kind: object.kind,
+      bounds: object.bounds,
+    })) satisfies readonly SpatialScreenshotMarker[];
+    if (this.options.captureVisualContext !== undefined) {
+      visualContextTrace = {
+        visualContextRequested: true,
+        visualContextAttached: false,
+        visualContextCaptureMs: 0,
+        markedScreenshotObjectCount: screenshotMarkers.length,
+        markedScreenshotHandles: screenshotMarkers.map((marker) => marker.id as ObjectHandle),
+      };
+      const visualStartedAt = this.now();
+      try {
+        const captured = await this.options.captureVisualContext(
+          frozenWorld,
+          screenshotMarkers,
+          signal,
+        );
+        visualContextTrace = {
+          ...visualContextTrace,
+          visualContextCaptureMs: elapsed(visualStartedAt, this.now()),
+        };
+        if (captured.status === "READY"
+          && captured.screenshot.pageId === frozenWorld.pageId
+          && captured.screenshot.sceneRevision === frozenWorld.sceneRevision
+          && screenshotMarkersMatch(screenshotMarkers, captured.screenshot.markers)) {
+          decisionInput = {
+            ...decisionInput,
+            visualContext: {
+              mimeType: captured.screenshot.imageDataUrl.startsWith("data:image/jpeg;")
+                ? "image/jpeg"
+                : "image/png",
+              imageDataUrl: captured.screenshot.imageDataUrl,
+              pixelWidth: captured.screenshot.pixelWidth,
+              pixelHeight: captured.screenshot.pixelHeight,
+              byteLength: captured.screenshot.byteLength,
+              markedObjects: decisionInput.objectCatalog.objects.map((object) => ({
+                objectId: object.handle,
+                kind: object.kind,
+                bounds: object.bounds,
+              })),
+            },
+          };
+          visualContextTrace = {
+            ...visualContextTrace,
+            visualContextAttached: true,
+          };
+        } else if (captured.status === "CANCELLED" && signal?.aborted) {
+          return this.recordFailure(
+            turn,
+            startedAt,
+            "ABORTED",
+            0,
+            0,
+            0,
+            elapsed(contextAssemblyStartedAt, this.now()),
+            { ...visualContextTrace, visualContextFailureReason: "CANCELLED" },
+          );
+        } else {
+          visualContextTrace = {
+            ...visualContextTrace,
+            visualContextFailureReason: captured.status === "READY"
+              ? captured.screenshot.pageId !== frozenWorld.pageId
+                || captured.screenshot.sceneRevision !== frozenWorld.sceneRevision
+                ? "STALE_SCENE"
+                : "MARKER_MISMATCH"
+              : captured.status,
+          };
+        }
+      } catch {
+        visualContextTrace = {
+          ...visualContextTrace,
+          visualContextCaptureMs: elapsed(visualStartedAt, this.now()),
+          visualContextFailureReason: "CAPTURE_FAILED",
+        };
+      }
+    }
     const contextAssemblyMs = elapsed(contextAssemblyStartedAt, this.now());
     const decisionStartedAt = this.now();
     let decisionTelemetry: Parameters<NonNullable<import("../decision").NoteDecisionProviderOptions["onTelemetry"]>>[0]
@@ -161,6 +245,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
         elapsed(decisionStartedAt, this.now()),
         0,
         contextAssemblyMs,
+        visualContextTrace,
       );
     }
 
@@ -185,6 +270,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       decision,
       ...primaryTool(decisionInput, decision),
       resultStatus: result.status,
+      ...runtimeFailureDiagnostics(result),
       llmCallCount,
       decisionCallCount: llmCallCount,
       toolCallCount: decision.status === "READY"
@@ -197,8 +283,10 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       objectCatalogBuildMs,
       objectCatalogObjectCount,
       objectCatalogSerializedChars,
+      ...visualContextTrace,
       catalogHandles: decisionInput.objectCatalog.objects.map((object) => object.handle),
       ...decisionDiagnostics(decision),
+      ...runtimeGroundingDiagnostics(result),
       legacyPlannerInvoked: false,
       fuzzyObjectSelectorInvoked: false,
       decisionMs: elapsed(decisionStartedAt, runtimeStartedAt),
@@ -243,10 +331,11 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     turn: CompletedVoiceTurn,
     startedAt: number,
     errorCode: string,
-    llmCallCount: 0 | 1 | 2,
+    llmCallCount: 0 | 1,
     decisionMs = 0,
     disambiguationMs = 0,
     contextAssemblyMs = 0,
+    visualContextTrace: VisualContextTrace = NO_VISUAL_CONTEXT,
   ): DirectCommandRouteResult {
     const completedAt = this.now();
     this.traces.record({
@@ -264,6 +353,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       legacyPlannerInvoked: false,
       fuzzyObjectSelectorInvoked: false,
       contextAssemblyMs,
+      ...visualContextTrace,
       decisionMs,
       runtimeMs: 0,
       prepareMs: 0,
@@ -281,6 +371,36 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     });
     return { status: "ERROR", turnId: turn.id, errorCode: directErrorCode(errorCode) };
   }
+}
+
+interface VisualContextTrace {
+  readonly visualContextRequested: boolean;
+  readonly visualContextAttached: boolean;
+  readonly visualContextCaptureMs: number;
+  readonly visualContextFailureReason?: string;
+  readonly markedScreenshotObjectCount?: number;
+  readonly markedScreenshotHandles?: readonly ObjectHandle[];
+}
+
+const NO_VISUAL_CONTEXT: VisualContextTrace = Object.freeze({
+  visualContextRequested: false,
+  visualContextAttached: false,
+  visualContextCaptureMs: 0,
+});
+
+function screenshotMarkersMatch(
+  expected: readonly SpatialScreenshotMarker[],
+  actual: readonly SpatialScreenshotMarker[],
+): boolean {
+  if (expected.length !== actual.length) return false;
+  return expected.every((marker, index) => {
+    const candidate = actual[index];
+    if (candidate === undefined || marker.id !== candidate.id) return false;
+    return marker.bounds.x === candidate.bounds.x
+      && marker.bounds.y === candidate.bounds.y
+      && marker.bounds.width === candidate.bounds.width
+      && marker.bounds.height === candidate.bounds.height;
+  });
 }
 
 function routeResultFor(turnId: string, result: NoteRuntimeResult): DirectCommandRouteResult {
@@ -332,7 +452,7 @@ function routeResultFor(turnId: string, result: NoteRuntimeResult): DirectComman
 
 function primaryTool(
   _input: NoteDecisionInput,
-  decision: Awaited<ReturnType<NoteDecisionCompositionProvider["decide"]>>,
+  decision: Awaited<ReturnType<NoteDecisionProvider["decide"]>>,
 ): { readonly toolId?: NoteToolId } {
   const toolId = decision.status === "CALL"
     ? decision.call.toolId
@@ -342,7 +462,7 @@ function primaryTool(
 }
 
 function decisionDiagnostics(
-  decision: Awaited<ReturnType<NoteDecisionCompositionProvider["decide"]>>,
+  decision: Awaited<ReturnType<NoteDecisionProvider["decide"]>>,
 ): {
   readonly selectedHandle?: `O${number}`;
   readonly decisionStatus: typeof decision.status;
@@ -351,8 +471,8 @@ function decisionDiagnostics(
   readonly decisionRelation?: string;
 } {
   const step = decision.status === "READY" ? decision.steps[0] : undefined;
-  const targetHandle = step?.target?.object;
-  const referenceHandle = step?.destination?.anchor?.object;
+  const targetHandle = step?.target?.object ?? undefined;
+  const referenceHandle = step?.destination?.anchor?.object ?? undefined;
   return {
     decisionStatus: decision.status,
     ...(step === undefined ? {} : { decisionAction: step.action }),
@@ -363,6 +483,28 @@ function decisionDiagnostics(
     ...(step?.destination === null || step?.destination === undefined
       ? {}
       : { decisionRelation: step.destination.relation }),
+  };
+}
+
+function runtimeGroundingDiagnostics(
+  result: NoteRuntimeResult,
+): Pick<
+  import("./note-agent-trace").NoteAgentShadowTrace,
+  "groundingMode" | "resolvedTargetHandle" | "resolvedCanvasBounds" | "finalLocalOperation"
+> {
+  if (result.status !== "SUCCESS") return {};
+  const step = result.steps.find((candidate) => candidate.grounding !== undefined);
+  const grounding = step?.grounding;
+  const finalLocalOperation = result.steps.at(-1)?.toolId;
+  return {
+    ...(grounding === undefined ? {} : {
+      groundingMode: grounding.mode,
+      ...(grounding.objectHandle === undefined
+        ? {}
+        : { resolvedTargetHandle: grounding.objectHandle }),
+      resolvedCanvasBounds: { ...grounding.canvasBounds },
+    }),
+    ...(finalLocalOperation === undefined ? {} : { finalLocalOperation }),
   };
 }
 
@@ -387,6 +529,26 @@ function directErrorCode(value: string): DirectCommandRouteErrorCode {
   return known.includes(value as DirectCommandRouteErrorCode)
     ? value as DirectCommandRouteErrorCode
     : "UNSUPPORTED_COMMAND";
+}
+
+function runtimeFailureDiagnostics(
+  result: NoteRuntimeResult,
+): { readonly errorCode?: string } {
+  switch (result.status) {
+    case "SUCCESS":
+    case "AMBIGUOUS":
+    case "NEEDS_INPUT":
+    case "NO_OP":
+      return {};
+    case "NOT_ALLOWED":
+    case "FAILED":
+    case "UNSUPPORTED":
+      return { errorCode: result.reasonCode };
+    case "NOT_FOUND":
+    case "NO_FEASIBLE_PLACEMENT":
+    case "STALE_SCENE":
+      return { errorCode: result.status };
+  }
 }
 
 function aborted(turnId: string): DirectCommandRouteResult {

@@ -12,6 +12,7 @@ import {
   ShapeUtil,
   T,
   type RecordProps,
+  type SvgExportContext,
   type TLBaseShape,
 } from "tldraw";
 import { createMathPrimitivePathBuilder } from "./math-primitive-path-builder";
@@ -20,6 +21,10 @@ import {
   readMathGraphCreateAnimation,
   type MathGraphStrokeAnimation,
 } from "./math-graph-animation";
+import {
+  readWriteOn,
+  type WriteOnAnimation,
+} from "./write-on-presentation";
 
 export type MathObjectShape = TLBaseShape<
   typeof MATH_TLDRAW_SHAPE_TYPE,
@@ -97,6 +102,11 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
     const strokeAnimationPlan = graphAnimation === undefined
       ? undefined
       : createMathGraphStrokeAnimationPlan(model.primitives, graphAnimation.elapsedMs);
+    const writeOn = shape.props.objectKind === "expression"
+      && model.renderingHint === "hand-drawn"
+      ? readWriteOn(mathWriteOnKey(model.logicalObjectId))
+      : undefined;
+    const writeOnClipId = `ggulnote-math-write-on-${safeSvgId(model.logicalObjectId)}`;
     return (
       <HTMLContainer style={{ pointerEvents: "none" }}>
         <svg
@@ -107,7 +117,9 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
           viewBox={`0 0 ${shape.props.w} ${shape.props.h}`}
           width={shape.props.w}
         >
-          {graphAnimation === undefined ? null : <style>{GRAPH_ANIMATION_STYLES}</style>}
+          {graphAnimation === undefined && writeOn === undefined
+            ? null
+            : <style>{MATH_ANIMATION_STYLES}</style>}
           {model.backgroundColor === "transparent" ? null : (
             <rect
               fill={model.backgroundColor}
@@ -117,15 +129,53 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
               y={0}
             />
           )}
-          {model.primitives.map((primitive) => renderPrimitive(
-            primitive,
-            model.renderingHint,
-            model.logicalObjectId,
-            strokeAnimationPlan?.get(primitive.id),
-            primitive.kind === "text" ? graphAnimation?.remainingMs : undefined,
-          ))}
+          {writeOn === undefined ? null : (
+            <defs>
+              <clipPath id={writeOnClipId}>
+                <rect
+                  className="ggulnote-math-write-on-mask"
+                  height={model.height}
+                  style={writeOnStyle(writeOn)}
+                  width={model.width}
+                  x={0}
+                  y={0}
+                />
+              </clipPath>
+            </defs>
+          )}
+          <g clipPath={writeOn === undefined ? undefined : `url(#${writeOnClipId})`}>
+            {model.primitives.map((primitive) => renderPrimitive(
+              primitive,
+              model.renderingHint,
+              model.logicalObjectId,
+              strokeAnimationPlan?.get(primitive.id),
+              primitive.kind === "text" ? graphAnimation?.remainingMs : undefined,
+            ))}
+          </g>
         </svg>
       </HTMLContainer>
+    );
+  }
+
+  public toSvg(shape: MathObjectShape, _context: SvgExportContext) {
+    const model = toMathShapeVisualModel(shape.props);
+    return (
+      <g>
+        {model.backgroundColor === "transparent" ? null : (
+          <rect
+            fill={model.backgroundColor}
+            height={model.height}
+            width={model.width}
+            x={0}
+            y={0}
+          />
+        )}
+        {model.primitives.map((primitive) => renderPrimitive(
+          primitive,
+          model.renderingHint,
+          model.logicalObjectId,
+        ))}
+      </g>
     );
   }
 
@@ -134,6 +184,26 @@ export class MathObjectShapeUtil extends ShapeUtil<MathObjectShape> {
     path.rect(0, 0, shape.props.w, shape.props.h);
     return path;
   }
+}
+
+export function mathWriteOnKey(logicalObjectId: string): string {
+  return `math-expression:${logicalObjectId}`;
+}
+
+function writeOnStyle(animation: WriteOnAnimation): React.CSSProperties {
+  return {
+    animationDelay: `${-animation.elapsedMs}ms`,
+    animationDuration: `${animation.durationMs}ms`,
+    animationFillMode: "both",
+    animationName: "ggulnoteMathWriteOn",
+    animationTimingFunction: "cubic-bezier(0.2, 0.75, 0.25, 1)",
+    transformBox: "fill-box",
+    transformOrigin: "left center",
+  };
+}
+
+function safeSvgId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/gu, "-");
 }
 
 export const toMathShapeVisualModel = (props: MathObjectShape["props"]) => {
@@ -357,7 +427,7 @@ function renderPrecisePrimitive(
   }
 }
 
-const GRAPH_ANIMATION_STYLES = `
+const MATH_ANIMATION_STYLES = `
 @keyframes ggulnoteMathStrokeDraw {
   from { stroke-dashoffset: 1; }
   to { stroke-dashoffset: 0; }
@@ -365,6 +435,10 @@ const GRAPH_ANIMATION_STYLES = `
 @keyframes ggulnoteMathContentReveal {
   from { visibility: hidden; }
   to { visibility: visible; }
+}
+@keyframes ggulnoteMathWriteOn {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .ggulnote-math-animated-stroke {
@@ -375,6 +449,10 @@ const GRAPH_ANIMATION_STYLES = `
   .ggulnote-math-deferred-content {
     animation: none !important;
     visibility: visible !important;
+  }
+  .ggulnote-math-write-on-mask {
+    animation: none !important;
+    transform: scaleX(1) !important;
   }
 }
 `;

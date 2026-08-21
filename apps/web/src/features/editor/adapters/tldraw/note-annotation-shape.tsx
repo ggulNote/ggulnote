@@ -4,6 +4,7 @@ import {
   ShapeUtil,
   T,
   type RecordProps,
+  type SvgExportContext,
   type TLBaseShape,
 } from "tldraw";
 
@@ -106,6 +107,37 @@ export class NoteAnnotationShapeUtil extends ShapeUtil<NoteAnnotationShape> {
           ))}
         </svg>
       </HTMLContainer>
+    );
+  }
+
+  public toSvg(shape: NoteAnnotationShape, _context: SvgExportContext) {
+    const { annotationType, color, opacity, segments, thickness } = shape.props;
+    return (
+      <g>
+        {segments.map((segment, index) => annotationType === "highlight" ? (
+          <rect
+            key={index}
+            fill={color}
+            height={segment.height}
+            opacity={opacity}
+            width={segment.width}
+            x={segment.x}
+            y={segment.y}
+          />
+        ) : (
+          <line
+            key={index}
+            opacity={opacity}
+            stroke={color}
+            strokeLinecap="round"
+            strokeWidth={thickness}
+            x1={segment.x}
+            x2={segment.x + segment.width}
+            y1={segment.y + segment.height}
+            y2={segment.y + segment.height}
+          />
+        ))}
+      </g>
     );
   }
 

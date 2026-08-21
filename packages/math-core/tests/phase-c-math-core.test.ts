@@ -11,6 +11,7 @@ import {
   evaluateMathGraphFunction,
   executePhaseCMathAction,
   labelMathGraphPoint,
+  resolveMathGraphTangentRequest,
   sampleMathGraphFunctionSegments,
   type MathGraphFunction,
 } from "../src";
@@ -143,6 +144,45 @@ describe("Phase C graph sub-entities", () => {
       functionId: "absolute-1",
       atX: 1,
     })).toThrow("finite tangent does not exist");
+  });
+
+  it("resolves semantic point and quadrant tangent requests before exact differentiation", () => {
+    const graph = createMathGraph({ bounds, viewport, functions: [quadratic] }, "graph-request");
+    const atPoint = resolveMathGraphTangentRequest(graph, {
+      mode: "at-point",
+      x: -1,
+      y: 1,
+    });
+    const exact = addMathGraphTangent(graph, {
+      objectId: graph.id,
+      ...atPoint,
+    });
+    expect(exact.tangents[0]).toMatchObject({
+      point: { x: -1, y: 1 },
+      slope: -2,
+    });
+    const tangent = exact.tangents[0]!;
+    expect(tangent.point.y - tangent.slope * tangent.point.x).toBe(-1);
+
+    const quadrant = resolveMathGraphTangentRequest(graph, {
+      mode: "quadrant",
+      quadrant: 2,
+    });
+    const contactY = evaluateMathGraphFunction(quadratic, quadrant.atX);
+    expect(quadrant.functionId).toBe(quadratic.id);
+    expect(quadrant.atX).toBeLessThan(0);
+    expect(contactY).toBeGreaterThan(0);
+    expect(quadrant.atX).toBeGreaterThan(viewport.xMin);
+    const automatic = resolveMathGraphTangentRequest(graph, { mode: "auto" });
+    expect(automatic.functionId).toBe(quadratic.id);
+    expect(automatic.atX).toBeGreaterThan(viewport.xMin);
+    expect(automatic.atX).toBeLessThan(viewport.xMax);
+    expect(evaluateMathGraphFunction(quadratic, automatic.atX)).toBeDefined();
+    expect(() => resolveMathGraphTangentRequest(graph, {
+      mode: "at-point",
+      x: -1,
+      y: 2,
+    })).toThrow("not on a graph curve");
   });
 
   it("validates helper geometry and renders point, tangent, helper, and labels", () => {

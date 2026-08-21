@@ -1,17 +1,16 @@
-import { parseNoteDisambiguationInput } from "@/features/voice/note-agent/domain";
-import { createDirectCommandAiProviders } from "@/features/voice/server/direct-command-ai-server";
-import {
-  directAiRouteErrorResponse,
-  readDirectAiRouteInput,
-} from "@/features/voice/server/direct-ai-route-response";
-
-export async function POST(request: Request): Promise<Response> {
-  try {
-    const input = parseNoteDisambiguationInput(await readDirectAiRouteInput(request));
-    const { noteDecision } = createDirectCommandAiProviders();
-    const result = await noteDecision.disambiguate(input, { signal: request.signal });
-    return Response.json({ result });
-  } catch (error) {
-    return directAiRouteErrorResponse(error);
-  }
+/**
+ * One Multimodal Decision owns target selection. The former second-pass
+ * disambiguation endpoint remains only as an explicit no-call compatibility
+ * response for stale clients.
+ */
+export function POST(): Response {
+  return Response.json(
+    {
+      error: {
+        code: "ONE_DECISION_REQUIRED",
+        message: "Target disambiguation must be included in the initial Note Decision.",
+      },
+    },
+    { status: 410 },
+  );
 }

@@ -116,6 +116,7 @@ describe("multimodal placement observation", () => {
         imageDataUrl: IMAGE,
         byteLength: 1,
         capturedAt: 2,
+        markers: [],
       },
       anchor: ANCHOR,
       candidates: [
@@ -145,6 +146,7 @@ describe("multimodal placement observation", () => {
         imageDataUrl: IMAGE,
         byteLength: 1,
         capturedAt: 2,
+        markers: [],
       },
       candidates: [
         candidate("a", "S1", { x: 100, y: 200, width: 200, height: 100 }, "START"),
@@ -170,6 +172,7 @@ describe("multimodal placement observation", () => {
         imageDataUrl: IMAGE,
         byteLength: 1,
         capturedAt: 2,
+        markers: [],
       },
       anchor: ANCHOR,
       candidates: [
@@ -201,6 +204,7 @@ describe("multimodal placement observation", () => {
         imageDataUrl: IMAGE,
         byteLength: 1,
         capturedAt: 2,
+        markers: [],
       },
     });
     const render = vi.fn<SpatialObservationImageProcessor["render"]>().mockResolvedValue({

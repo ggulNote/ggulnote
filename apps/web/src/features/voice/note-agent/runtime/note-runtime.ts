@@ -1,10 +1,16 @@
 import {
   NoteAgentValidationError,
+  type ActionTarget,
   type NoteActionPrepareResult,
   type NoteDecision,
   type NoteToolId,
   type NoteToolResult,
 } from "../domain";
+import {
+  ActionTargetResolver,
+  type ActionTargetGroundingMode,
+  type ResolvedActionTarget,
+} from "../world";
 import type {
   NoteTool,
   NoteToolContext,
@@ -18,6 +24,19 @@ export interface NoteRuntimeStepResult {
   readonly stepId: string;
   readonly toolId: NoteToolId;
   readonly result: NoteToolResult;
+  readonly grounding?: NoteRuntimeGroundingTrace;
+}
+
+export interface NoteRuntimeGroundingTrace {
+  readonly mode: ActionTargetGroundingMode;
+  readonly objectHandle?: `O${number}`;
+  readonly canvasBounds: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly canvasPoint: { readonly x: number; readonly y: number };
 }
 
 export type NoteRuntimeResult =
@@ -52,6 +71,14 @@ interface PreparedCall {
   readonly toolId: NoteToolId;
   readonly rawInput: unknown;
   readonly tool: NoteTool;
+  readonly target?: ActionTarget;
+}
+
+interface RuntimeCall {
+  readonly stepId: string;
+  readonly toolId: NoteToolId;
+  readonly input: unknown;
+  readonly target?: ActionTarget;
 }
 
 /**
@@ -66,6 +93,20 @@ export class NoteRuntime {
     decision: NoteDecision,
     context: NoteRuntimeContext,
   ): Promise<NoteRuntimeResult> {
+    if (
+      context.mode === "PRODUCTION"
+      && (
+        decision.status === "CALL"
+        || decision.status === "BATCH"
+        || decision.status === "NEEDS_VISUAL"
+      )
+    ) {
+      return {
+        status: "UNSUPPORTED",
+        reasonCode: "LEGACY_DECISION_FORMAT",
+        commitAttempted: false,
+      };
+    }
     if (decision.status === "NEEDS_CLARIFICATION") {
       return { status: "NEEDS_INPUT", missing: [decision.reason], commitAttempted: false };
     }
@@ -87,7 +128,7 @@ export class NoteRuntime {
       decision.status === "READY"
       && decision.sceneRevision !== context.frozenWorld.sceneRevision
     ) return { status: "STALE_SCENE", commitAttempted: false };
-    const calls = decision.status === "READY"
+    const calls: readonly RuntimeCall[] = decision.status === "READY"
       ? decision.steps.map((step, index) => ({
           stepId: `step-${index + 1}`,
           toolId: step.action,
@@ -96,6 +137,7 @@ export class NoteRuntime {
             ...(step.target === null ? {} : { target: step.target }),
             ...(step.destination === null ? {} : { destination: step.destination }),
           },
+          ...(step.target === null ? {} : { target: step.target }),
         }))
       : decision.status === "CALL" ? [decision.call] : decision.steps;
     const callsToPrepare: PreparedCall[] = [];
@@ -108,14 +150,39 @@ export class NoteRuntime {
         toolId: call.toolId,
         rawInput: call.input,
         tool,
+        ...(call.target === undefined ? {} : { target: call.target }),
       });
     }
 
     const steps: NoteRuntimeStepResult[] = [];
     const values = new Map<string, unknown>();
     const transactionSteps: import("../tools").NoteTransactionStep[] = [];
+    const targetResolver = new ActionTargetResolver({
+      world: context.world,
+      ...(context.handles === undefined ? {} : { handles: context.handles }),
+    });
     for (const call of callsToPrepare) {
       if (isStale(context)) return { status: "STALE_SCENE", commitAttempted: false };
+      const targetStartedAt = context.metrics?.now();
+      const resolvedTarget = call.target === undefined
+        ? undefined
+        : targetResolver.resolve(
+            call.target,
+            context.frozenWorld.pageId,
+            context.frozenWorld.sceneRevision,
+          );
+      if (targetStartedAt !== undefined && call.target !== undefined) {
+        context.metrics?.add("resolverMs", context.metrics.now() - targetStartedAt);
+      }
+      if (resolvedTarget !== undefined && resolvedTarget.status !== "RESOLVED") {
+        if (resolvedTarget.status === "STALE_SCENE") {
+          return { status: "STALE_SCENE", commitAttempted: false };
+        }
+        if (resolvedTarget.status === "NOT_FOUND") {
+          return { status: "NOT_FOUND", commitAttempted: false };
+        }
+        return failed(resolvedTarget.reasonCode);
+      }
       let input: unknown;
       try {
         input = call.tool.inputSchema.parse(
@@ -130,7 +197,7 @@ export class NoteRuntime {
       try {
         prepared = await call.tool.prepare(
           input,
-          prepareContext(context, call.stepId),
+          prepareContext(context, call.stepId, resolvedTarget),
         );
       } catch (error) {
         if (error instanceof NoteAgentValidationError) return failed("INVALID_TOOL_INPUT");
@@ -163,6 +230,7 @@ export class NoteRuntime {
           stepId: call.stepId,
           toolId: call.toolId,
           result: { status: "SUCCESS", data: value },
+          ...(resolvedTarget === undefined ? {} : { grounding: groundingTrace(resolvedTarget) }),
         });
       } else {
         return mapPrepareFailure(call, prepared);
@@ -189,6 +257,7 @@ export class NoteRuntime {
 function prepareContext(
   context: NoteRuntimeContext,
   stepId: string,
+  resolvedTarget: ResolvedActionTarget | undefined,
 ): NoteToolContext {
   return {
     mode: context.mode,
@@ -197,13 +266,11 @@ function prepareContext(
     world: context.world,
     resolver: context.resolver,
     ...(context.handles === undefined ? {} : { handles: context.handles }),
+    ...(resolvedTarget === undefined ? {} : { resolvedTarget }),
     getCurrentSceneRevision: context.getCurrentSceneRevision,
     stepId,
     ...(context.placement === undefined ? {} : { placement: context.placement }),
     ...(context.signal === undefined ? {} : { signal: context.signal }),
-    ...(context.candidateSelection === undefined
-      ? {}
-      : { candidateSelection: context.candidateSelection }),
     ...(context.metrics === undefined ? {} : { metrics: context.metrics }),
     ...(context.productionPlacementAvailable === undefined
       ? {}
@@ -211,6 +278,15 @@ function prepareContext(
     ...(context.preparePlacement === undefined
       ? {}
       : { preparePlacement: context.preparePlacement }),
+  };
+}
+
+function groundingTrace(target: ResolvedActionTarget): NoteRuntimeGroundingTrace {
+  return {
+    mode: target.mode,
+    ...(target.objectHandle === undefined ? {} : { objectHandle: target.objectHandle }),
+    canvasBounds: { ...target.canvasBounds },
+    canvasPoint: { ...target.canvasPoint },
   };
 }
 

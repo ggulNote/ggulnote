@@ -28,7 +28,16 @@ function targetCanvas(onEncode?: () => void) {
     setTransform: vi.fn(),
     fillRect: vi.fn(),
     drawImage: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    strokeRect: vi.fn(),
+    measureText: vi.fn((text: string) => ({ width: text.length * 8 })),
+    fillText: vi.fn(),
     fillStyle: "",
+    strokeStyle: "",
+    font: "",
+    textBaseline: "alphabetic",
+    lineWidth: 1,
   };
   const canvas = {
     width: 0,
@@ -76,6 +85,116 @@ describe("CanvasSpatialScreenshotSource", () => {
     const result = await source.capture({ snapshot: snapshot("BLANK") });
     expect(result.status).toBe("READY");
     expect(target.context.drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("captures an empty blank page as an agent-only white scene", async () => {
+    const target = targetCanvas();
+    const source = new CanvasSpatialScreenshotSource({
+      getBaseCanvas: () => null,
+      getOverlayCanvas: () => null,
+      getCurrentPageId: () => "page-1",
+      getCurrentSceneRevision: () => 7,
+      createCanvas: () => target.canvas,
+    });
+
+    const result = await source.capture({ snapshot: snapshot("BLANK") });
+
+    expect(result.status).toBe("READY");
+    expect(target.context.fillRect).toHaveBeenCalledOnce();
+    expect(target.context.drawImage).not.toHaveBeenCalled();
+  });
+
+  it("draws and returns the exact catalog handle on the offscreen screenshot", async () => {
+    const target = targetCanvas();
+    const source = new CanvasSpatialScreenshotSource({
+      getBaseCanvas: () => sourceCanvas(),
+      getOverlayCanvas: () => null,
+      getCurrentPageId: () => "page-1",
+      getCurrentSceneRevision: () => 7,
+      createCanvas: () => target.canvas,
+    });
+    const marker = {
+      id: "O7",
+      kind: "IMAGE",
+      bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+    } as const;
+
+    const result = await source.capture({ snapshot: snapshot(), markers: [marker] });
+
+    expect(result.status).toBe("READY");
+    if (result.status !== "READY") return;
+    expect(result.screenshot.markers).toEqual([marker]);
+    expect(target.context.strokeRect).toHaveBeenCalledWith(
+      result.screenshot.pixelWidth * 0.1,
+      result.screenshot.pixelHeight * 0.2,
+      result.screenshot.pixelWidth * 0.3,
+      result.screenshot.pixelHeight * 0.4,
+    );
+    expect(target.context.fillText).toHaveBeenCalledWith(
+      "[O7]",
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("composes a full-page tldraw export when the legacy overlay canvas is absent", async () => {
+    const target = targetCanvas();
+    const tldrawImage = { width: 1_000, height: 1_400 } as CanvasImageSource;
+    const source = new CanvasSpatialScreenshotSource({
+      getBaseCanvas: () => null,
+      getOverlayCanvas: () => null,
+      getTldrawOverlay: async () => ({
+        imageDataUrl: IMAGE,
+        pixelWidth: 1_000,
+        pixelHeight: 1_400,
+      }),
+      getCurrentPageId: () => "page-1",
+      getCurrentSceneRevision: () => 7,
+      createCanvas: () => target.canvas,
+      loadImage: async () => tldrawImage,
+    });
+
+    const result = await source.capture({ snapshot: snapshot("BLANK") });
+
+    expect(result.status).toBe("READY");
+    expect(target.context.drawImage).toHaveBeenCalledWith(
+      tldrawImage,
+      0,
+      0,
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it("degrades an unavailable tldraw export without throwing", async () => {
+    const source = new CanvasSpatialScreenshotSource({
+      getBaseCanvas: () => null,
+      getOverlayCanvas: () => null,
+      getTldrawOverlay: async () => {
+        throw new Error("export failed");
+      },
+      getCurrentPageId: () => "page-1",
+      getCurrentSceneRevision: () => 7,
+      createCanvas: () => targetCanvas().canvas,
+    });
+
+    await expect(source.capture({ snapshot: snapshot("BLANK") }))
+      .resolves.toMatchObject({ status: "UNAVAILABLE" });
+  });
+
+  it("bounds a stalled visual export and degrades to unavailable", async () => {
+    const source = new CanvasSpatialScreenshotSource({
+      getBaseCanvas: () => null,
+      getOverlayCanvas: () => null,
+      getTldrawOverlay: () => new Promise(() => undefined),
+      getCurrentPageId: () => "page-1",
+      getCurrentSceneRevision: () => 7,
+      createCanvas: () => targetCanvas().canvas,
+      captureTimeoutMs: 5,
+    });
+
+    await expect(source.capture({ snapshot: snapshot("BLANK") }))
+      .resolves.toMatchObject({ status: "UNAVAILABLE" });
   });
 
   it("does not pretend an overlay-only PDF capture contains the PDF base", async () => {

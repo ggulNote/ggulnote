@@ -271,6 +271,7 @@ export type {
   SpatialObservationImageProcessor,
   SpatialScreenshot,
   SpatialScreenshotCaptureInput,
+  SpatialScreenshotMarker,
   SpatialScreenshotSource,
   SpatialScreenshotSourceResult,
   PreviewValidationDiagnostics,

@@ -3,6 +3,7 @@ import {
   addMathGraphPoint,
   compileMathRenderDelete,
   compileMathRenderUpsert,
+  createMathExpression,
   createMathGraph,
   createMathTable,
   parseMathObject,
@@ -33,6 +34,36 @@ afterEach(() => {
 });
 
 describe("TldrawMathRenderAdapter", () => {
+  it("reveals a newly created expression without storing presentation progress", () => {
+    const { editor, adapter } = createAdapter();
+    const expression = createMathExpression({
+      bounds: { x: 40, y: 50, width: 180, height: 60 },
+      content: { source: "x^2+1", format: "plain" },
+      style: { handDrawn: true },
+    }, "expression-write-on");
+
+    const created = adapter.apply(compileMathRenderUpsert(expression));
+    const shape = editor.getShape<MathObjectShape>(created.shapeId);
+    if (shape === undefined) throw new Error("Expected expression shape.");
+    const rendered = render(new MathObjectShapeUtil(editor).component(shape));
+
+    expect(rendered.container.querySelector(".ggulnote-math-write-on-mask"))
+      .not.toBeNull();
+    expect(rendered.container.querySelector("style")?.textContent)
+      .toContain("prefers-reduced-motion: reduce");
+    expect(JSON.stringify(shape.props)).not.toMatch(/animation|reveal|progress/iu);
+
+    adapter.apply(compileMathRenderUpsert({
+      ...expression,
+      content: { source: "x^2+2", format: "plain" },
+    }));
+    const updated = editor.getShape<MathObjectShape>(created.shapeId);
+    if (updated === undefined) throw new Error("Expected updated expression shape.");
+    rendered.rerender(new MathObjectShapeUtil(editor).component(updated));
+    expect(rendered.container.querySelector(".ggulnote-math-write-on-mask"))
+      .toBeNull();
+  });
+
   it("creates, updates, moves, and deletes one custom shape per logical math object", () => {
     const { editor, adapter } = createAdapter();
     const table = createMathTable({

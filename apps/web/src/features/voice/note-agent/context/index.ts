@@ -15,6 +15,11 @@ export {
   projectObjectDetail,
   projectObjectSummary,
 } from "./object-projection";
+export { PageAgentContextCache } from "./page-agent-context-cache";
+export type {
+  PageAgentContext,
+  PageAgentContextInput,
+} from "./page-agent-context-cache";
 export type {
   ObjectAppearanceSummary,
   ObjectDetail,

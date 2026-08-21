@@ -163,6 +163,7 @@ function harness(options: {
             imageDataUrl: "data:image/png;base64,AA==",
             byteLength: 1,
             capturedAt: 11,
+            markers: [],
           },
         };
       },

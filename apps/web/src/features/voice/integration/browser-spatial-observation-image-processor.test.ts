@@ -70,6 +70,7 @@ describe("BrowserSpatialObservationImageProcessor", () => {
         imageDataUrl: IMAGE,
         byteLength: 1,
         capturedAt: 1,
+        markers: [],
       },
       plan,
     });

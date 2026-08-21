@@ -1,10 +1,8 @@
 import type { Rect } from "@ggulnote/editor-core";
 import {
   generatePlacementCandidates,
+  resolveDeterministicPlacementTie,
   resolveDeterministically,
-  type PreparedSpatialPlacement,
-  type SpatialPlacementPreparationInput,
-  type SpatialPlacementPreparationResolution,
 } from "../../application";
 import type {
   MeasuredDraft,
@@ -35,7 +33,6 @@ export type NotePlacementResult =
   | {
       readonly status: "RESOLVED";
       readonly placement: ResolvedPlacement;
-      readonly preparedSpatial?: PreparedSpatialPlacement;
     }
   | { readonly status: "AMBIGUOUS"; readonly candidates: readonly PlacementCandidate[] }
   | { readonly status: "NO_FEASIBLE_PLACEMENT" }
@@ -49,27 +46,19 @@ export interface NotePlacementInput {
   readonly snapshot: SpatialSceneSnapshot;
   readonly worldContext: FrozenWorldContext;
   readonly anchorRef?: EntityRef;
-  readonly candidateAlias?: `${"C" | "S"}${number}`;
-  readonly instruction?: string;
-  readonly requirePreviewValidation?: boolean;
-}
-
-export interface SpatialPlacementPreparationPort {
-  preparePlacement(
-    input: SpatialPlacementPreparationInput,
-  ): Promise<SpatialPlacementPreparationResolution>;
+  /** Geometry already resolved from the model-owned ActionTarget. */
+  readonly resolvedAnchor?: ResolvedSpatialAnchor;
 }
 
 export interface ExistingPlacementEngineOptions {
   readonly world: UnifiedObjectWorld;
   readonly resolver: ExistingWorldResolver;
   readonly defaultDestination?: Destination;
-  readonly preparation?: SpatialPlacementPreparationPort;
 }
 
 /**
- * Phase 2 facade over the Stage 4 candidate engine. Preview validation and the
- * final commit guard remain owned by the existing production Stage 4 pipeline.
+ * Deterministic facade over candidate generation. The model has already made
+ * the semantic placement decision; this engine only performs geometry/layout.
  */
 export class ExistingPlacementEngine {
   private readonly defaultDestination: Destination;
@@ -98,28 +87,30 @@ export class ExistingPlacementEngine {
     const anchorSelector: EntitySelector = "context" in destination.anchor
       ? { context: destination.anchor.context }
       : destination.anchor;
-    const resolved = input.anchorRef === undefined
+    const resolved = input.resolvedAnchor !== undefined
+      ? undefined
+      : input.anchorRef === undefined
       ? await this.options.resolver.resolve(anchorSelector, input.worldContext)
       : { status: "RESOLVED" as const, ref: input.anchorRef };
-    if (resolved.status !== "RESOLVED") {
+    if (resolved !== undefined && resolved.status !== "RESOLVED") {
       return resolved.status === "UNSUPPORTED" && resolved.reasonCode === "STALE_SCENE"
         ? { status: "STALE_SCENE" }
         : { status: "NO_FEASIBLE_PLACEMENT" };
     }
-    const anchor = resolvedAnchor(resolved.ref, this.options.world);
+    const anchor = input.resolvedAnchor
+      ?? (resolved?.status === "RESOLVED"
+        ? resolvedAnchor(resolved.ref, this.options.world)
+        : undefined);
     if (anchor === undefined) return { status: "NO_FEASIBLE_PLACEMENT" };
 
     if (destination.relation === "BESIDE") {
-      const unvalidatedInput = input.requirePreviewValidation === true
-        ? { ...input, requirePreviewValidation: false }
-        : input;
       const left = await this.resolveQuery(
-        unvalidatedInput,
+        input,
         relativeQuery("LEFT_OF", destination.alignment, destination.distance),
         anchor,
       );
       const right = await this.resolveQuery(
-        unvalidatedInput,
+        input,
         relativeQuery("RIGHT_OF", destination.alignment, destination.distance),
         anchor,
       );
@@ -139,45 +130,6 @@ export class ExistingPlacementEngine {
     query: SpatialPlacementQuery,
     anchor?: ResolvedSpatialAnchor,
   ): Promise<NotePlacementResult> {
-    if (input.requirePreviewValidation === true) {
-      const preparation = this.options.preparation;
-      if (preparation === undefined) {
-        return { status: "FAILED", reasonCode: "PREVIEW_UNAVAILABLE" };
-      }
-      const prepared = await preparation.preparePlacement({
-        snapshot: input.snapshot,
-        query,
-        draft: input.draft,
-        profile: input.profile,
-        instruction: input.instruction ?? "",
-        choicePolicy: input.destination?.kind === "PAGE_REGION"
-          ? "EXPLICIT_REGION"
-          : "SEMANTIC_CONSTRAINT_REQUIRED",
-        ...(anchor === undefined ? {} : { anchor }),
-      });
-      if (prepared.status === "ERROR") {
-        if (prepared.errorCode === "STALE_SCENE") return { status: "STALE_SCENE" };
-        if (prepared.errorCode === "NO_FEASIBLE_PLACEMENT") {
-          return { status: "NO_FEASIBLE_PLACEMENT" };
-        }
-        return { status: "FAILED", reasonCode: prepared.errorCode };
-      }
-      const candidate = prepared.prepared.placement.candidate;
-      return {
-        status: "RESOLVED",
-        placement: {
-          snapshotId: input.snapshot.snapshotId,
-          pageId: input.snapshot.pageId,
-          sceneRevision: input.snapshot.sceneRevision,
-          bounds: { ...prepared.prepared.placement.requestedBounds },
-          relation: query.relation,
-          alignment: candidate.alignment,
-          candidate,
-          ...(anchor === undefined ? {} : { anchor }),
-        },
-        preparedSpatial: prepared.prepared,
-      };
-    }
     const generated = generatePlacementCandidates({
       snapshot: input.snapshot,
       query,
@@ -191,31 +143,17 @@ export class ExistingPlacementEngine {
       candidates: generated.candidates,
       ...(anchor === undefined ? {} : { anchor }),
     });
-    if (result.status === "RESOLVED") {
-      return { status: "RESOLVED", placement: result.placement };
+    const chosen = resolveDeterministicPlacementTie({
+      result,
+      snapshot: input.snapshot,
+      query,
+      ...(anchor === undefined ? {} : { anchor }),
+    });
+    if (chosen.status === "RESOLVED") {
+      return { status: "RESOLVED", placement: chosen.placement };
     }
-    if (result.status === "AMBIGUOUS") {
-      const selected = input.candidateAlias === undefined
-        ? undefined
-        : result.candidates.find((candidate) => candidate.alias === input.candidateAlias);
-      if (selected !== undefined) {
-        return {
-          status: "RESOLVED",
-          placement: {
-            snapshotId: input.snapshot.snapshotId,
-            pageId: input.snapshot.pageId,
-            sceneRevision: input.snapshot.sceneRevision,
-            bounds: { ...selected.bounds },
-            relation: query.relation,
-            alignment: selected.alignment,
-            candidate: selected,
-            ...(anchor === undefined ? {} : { anchor }),
-          },
-        };
-      }
-      return { status: "AMBIGUOUS", candidates: result.candidates };
-    }
-    return result.status === "STALE_SCENE"
+    if (chosen.status === "AMBIGUOUS") return { status: "AMBIGUOUS", candidates: chosen.candidates };
+    return chosen.status === "STALE_SCENE"
       ? { status: "STALE_SCENE" }
       : { status: "NO_FEASIBLE_PLACEMENT" };
   }
@@ -283,7 +221,7 @@ function relativeQuery(
     relation,
     ...(alignment === undefined ? {} : { alignment }),
     ...(distance === undefined ? {} : { distance }),
-    overlayIntent: "NONE",
+    overlayIntent: relation === "INSIDE" ? "EXPLICIT" : "NONE",
   };
 }
 

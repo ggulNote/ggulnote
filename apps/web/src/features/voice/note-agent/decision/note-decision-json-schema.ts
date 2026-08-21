@@ -4,10 +4,15 @@ import {
   type CompactToolSchema,
   type JsonValue,
 } from "../domain";
+import {
+  CONNECTED_MATH_ACTION_IDS,
+  mathActionDefinitionById,
+  type ConnectedMathActionId,
+} from "@ggulnote/math-core";
 
 type JsonSchema = Readonly<Record<string, JsonValue>>;
 
-export const NOTE_DECISION_SCHEMA_VERSION = "phase5-one-decision-v1";
+export const NOTE_DECISION_SCHEMA_VERSION = "multimodal-action-target-v1";
 
 export function buildNoteDecisionJsonSchema(
   tools: readonly CompactToolSchema[],
@@ -16,7 +21,7 @@ export function buildNoteDecisionJsonSchema(
     action: { type: "string", const: tool.id },
     target: actionRequiresTarget(tool.id) ? objectRefSchema() : nullable(objectRefSchema()),
     args: tool.strictArgs ?? strictObject({}, []),
-    destination: actionMutatesExistingObject(tool.id) || tool.id.startsWith("math.")
+    destination: actionMutatesExistingObject(tool.id)
       ? { type: "null" }
       : nullable(destinationSchema()),
   }, ["action", "target", "args", "destination"]));
@@ -29,7 +34,7 @@ export function buildNoteDecisionJsonSchema(
   return Object.freeze(strictObject({
     status: {
       type: "string",
-      enum: ["READY", "NEEDS_VISUAL", "NEEDS_CLARIFICATION", "NOT_ALLOWED"],
+      enum: ["READY", "NEEDS_CLARIFICATION", "NOT_ALLOWED"],
     },
     sceneRevision: { type: "integer", minimum: 0 },
     steps: nullable({
@@ -38,30 +43,18 @@ export function buildNoteDecisionJsonSchema(
       minItems: 1,
       maxItems: 4,
     }),
-    candidateHandles: nullable({
-      type: "array",
-      items: { type: "string", pattern: "^O[1-9][0-9]*$" },
-      minItems: 2,
-      maxItems: 6,
-    }),
-    cropRegion: nullable(strictObject({
-      mode: { type: "string", const: "CANDIDATE_UNION" },
-      padding: { type: "number", minimum: 0 },
-    }, ["mode", "padding"])),
     reason: nullable({ type: "string", minLength: 1 }),
   }, [
     "status",
     "sceneRevision",
     "steps",
-    "candidateHandles",
-    "cropRegion",
     "reason",
   ]));
 }
 
 function objectRefSchema(): JsonSchema {
   return strictObject({
-    object: { type: "string", pattern: "^O[1-9][0-9]*$" },
+    object: nullable({ type: "string", pattern: "^O[1-9][0-9]*$" }),
     part: {
       description: "For a partial text annotation use kind text_range and canonical non-empty startText/endText from this object's catalog text; use null for the whole object.",
       ...nullable(strictObject({
@@ -74,17 +67,41 @@ function objectRefSchema(): JsonSchema {
         endText: nullable({ type: "string", minLength: 1 }),
       }, ["kind", "index", "row", "column", "text", "startText", "endText"])),
     },
-  }, ["object", "part"]);
+    region: {
+      description: "Optional object-local normalized visual region. Runtime transforms it using the current object bounds.",
+      ...nullable(strictObject({
+        x: unitNumber(),
+        y: unitNumber(),
+        width: positiveUnitNumber(),
+        height: positiveUnitNumber(),
+      }, ["x", "y", "width", "height"])),
+    },
+    fallbackPoint: {
+      description: "Optional normalized point selected in this same decision. PAGE remains usable when object lookup fails.",
+      ...nullable(strictObject({
+        x: unitNumber(),
+        y: unitNumber(),
+        coordinateSpace: { type: "string", enum: ["OBJECT_LOCAL", "PAGE"] },
+      }, ["x", "y", "coordinateSpace"])),
+    },
+  }, ["object", "part", "region", "fallbackPoint"]);
 }
 
 function actionMutatesExistingObject(action: string): boolean {
+  if (isConnectedMathAction(action)) {
+    return mathActionDefinitionById(action).target === "existing";
+  }
   return action === "annotation.apply"
-    || action === "text.replace"
-    || action === "math.graph.add_point";
+    || action === "text.replace";
 }
 
 function actionRequiresTarget(action: string): boolean {
-  return action === "math.graph.add_point";
+  return isConnectedMathAction(action)
+    && mathActionDefinitionById(action).target === "existing";
+}
+
+function isConnectedMathAction(action: string): action is ConnectedMathActionId {
+  return (CONNECTED_MATH_ACTION_IDS as readonly string[]).includes(action);
 }
 
 function destinationSchema(): JsonSchema {
@@ -92,7 +109,7 @@ function destinationSchema(): JsonSchema {
     relation: {
       type: "string",
       enum: [
-        "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "INSIDE", "BETWEEN", "CANVAS_REGION",
+        "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "NEAR", "INSIDE", "BETWEEN", "CANVAS_REGION",
       ],
     },
     anchor: nullable(objectRefSchema()),
@@ -102,6 +119,14 @@ function destinationSchema(): JsonSchema {
 
 function nullable(schema: JsonSchema): JsonSchema {
   return { anyOf: [schema, { type: "null" }] };
+}
+
+function unitNumber(): JsonSchema {
+  return { type: "number", minimum: 0, maximum: 1 };
+}
+
+function positiveUnitNumber(): JsonSchema {
+  return { type: "number", exclusiveMinimum: 0, maximum: 1 };
 }
 
 function strictObject(

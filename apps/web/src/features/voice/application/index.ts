@@ -1,4 +1,8 @@
 export { SceneVoiceTurnContextSource, resolveVoiceFocusSnapshot } from "./voice-turn-context-source";
+export {
+  NOTEBOOK_LAYOUT_POLICY,
+  notebookEditableBounds,
+} from "./notebook-layout-policy";
 export type {
   SceneVoiceTurnContextSourceOptions,
   VoiceCurrentSceneReference,
@@ -212,6 +216,7 @@ export type {
 export type {
   SpatialScreenshot,
   SpatialScreenshotCaptureInput,
+  SpatialScreenshotMarker,
   SpatialScreenshotSource,
   SpatialScreenshotSourceResult,
 } from "./spatial-screenshot-source";
@@ -253,6 +258,7 @@ export type {
 export {
   applyPlacementChoicePolicy,
   resolveDelegatedLayoutFallback,
+  resolveDeterministicPlacementTie,
 } from "./placement-choice-policy";
 export type {
   PlacementChoicePolicyInput,
@@ -339,3 +345,8 @@ export type {
   SpatialPlacementEvaluationCase,
   SpatialPlacementEvaluationMetrics,
 } from "./spatial-placement-evaluation";
+export {
+  needsCatalogVisualContext,
+  needsVisualContext,
+  SCENE_VISUAL_CONTEXT_POLICY,
+} from "./scene-visual-context-policy";

@@ -5,6 +5,7 @@ import {
   NoteAgentValidationError,
   type NoteDecision,
 } from "../domain";
+import { NoteObjectHandleMap } from "../context";
 import {
   ExistingWorldResolver,
   type FrozenWorldContext,
@@ -115,6 +116,32 @@ function fakeTool(
   };
 }
 
+function targetAwareTool(
+  prepare: NoteTool<Record<string, unknown>, { prepared: true }>["prepare"],
+): NoteTool<Record<string, unknown>, { prepared: true }> {
+  return {
+    id: "test.target",
+    kind: "COMPUTE",
+    description: "observe deterministic target grounding",
+    examples: [],
+    inputSchema: {
+      compact: {},
+      parse(value, path = "input") {
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+          throw new NoteAgentValidationError(path, "expected an object");
+        }
+        return value as Record<string, unknown>;
+      },
+    },
+    outputSchema: {
+      compact: {},
+      parse: () => ({ prepared: true }),
+    },
+    isAvailable: () => true,
+    prepare,
+  };
+}
+
 describe("NoteToolRegistry", () => {
   it("supports duplicate protection, lookup, availability, and compact schemas", () => {
     const registry = new NoteToolRegistry();
@@ -136,6 +163,50 @@ describe("NoteToolRegistry", () => {
   });
 });
 describe("NoteRuntime shadow boundary", () => {
+  it("continues with the same-decision PAGE fallback when object lookup fails", async () => {
+    const prepare = vi.fn(async (
+      _input: Record<string, unknown>,
+      context: NoteToolContext,
+    ) => ({
+      status: "READY" as const,
+      value: { prepared: true as const },
+      operations: [],
+      observed: context.resolvedTarget,
+    }));
+    const registry = new NoteToolRegistry();
+    registry.register(targetAwareTool(prepare));
+    const result = await new NoteRuntime({ registry }).execute({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "test.target",
+        target: {
+          object: "O99",
+          part: null,
+          fallbackPoint: { x: 0.75, y: 0.25, coordinateSpace: "PAGE" },
+        },
+        args: {},
+        destination: null,
+      }],
+    }, { ...toolContext(), handles: new NoteObjectHandleMap() });
+
+    expect(result).toMatchObject({
+      status: "SUCCESS",
+      steps: [{
+        grounding: {
+          mode: "FALLBACK_POINT",
+          objectHandle: "O99",
+          canvasPoint: { x: 450, y: 200 },
+        },
+      }],
+    });
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(prepare.mock.calls[0]?.[1].resolvedTarget).toMatchObject({
+      mode: "FALLBACK_POINT",
+      anchor: { kind: "PAGE" },
+    });
+  });
+
   it("strictly validates and executes one call without a commit port", async () => {
     const prepare = vi.fn(async (
       input: { value: string },
@@ -200,10 +271,39 @@ describe("NoteRuntime production transaction boundary", () => {
     const registry = new NoteToolRegistry();
     registry.register(fakeTool());
     const result = await new NoteRuntime({ registry }).execute({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{ action: "test.echo", target: null, args: { value: "ok" }, destination: null }],
+    }, { ...toolContext(), mode: "PRODUCTION" });
+    expect(result).toMatchObject({ status: "SUCCESS", commitAttempted: false });
+  });
+
+  it("rejects parser-only legacy call and visual-pass formats in production", async () => {
+    const registry = new NoteToolRegistry();
+    const prepare = vi.fn();
+    registry.register(fakeTool(prepare));
+    const runtime = new NoteRuntime({ registry });
+    const callResult = await runtime.execute({
       status: "CALL",
       call: { stepId: "s1", toolId: "test.echo", input: { value: "ok" } },
     }, { ...toolContext(), mode: "PRODUCTION" });
-    expect(result).toMatchObject({ status: "SUCCESS", commitAttempted: false });
+    expect(callResult).toEqual({
+      status: "UNSUPPORTED",
+      reasonCode: "LEGACY_DECISION_FORMAT",
+      commitAttempted: false,
+    });
+    const visualResult = await runtime.execute({
+      status: "NEEDS_VISUAL",
+      sceneRevision: 7,
+      candidateHandles: ["O1", "O2"],
+      cropRegion: { mode: "CANDIDATE_UNION", padding: 16 },
+    }, { ...toolContext(), mode: "PRODUCTION" });
+    expect(visualResult).toEqual({
+      status: "UNSUPPORTED",
+      reasonCode: "LEGACY_DECISION_FORMAT",
+      commitAttempted: false,
+    });
+    expect(prepare).not.toHaveBeenCalled();
   });
 
   it("prepares one mutation then invokes one transaction", async () => {
@@ -230,8 +330,9 @@ describe("NoteRuntime production transaction boundary", () => {
       commitAttempted: true as const,
     }));
     const result = await new NoteRuntime({ registry }).execute({
-      status: "CALL",
-      call: { stepId: "s1", toolId: "test.echo", input: { value: "ok" } },
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{ action: "test.echo", target: null, args: { value: "ok" }, destination: null }],
     }, {
       ...toolContext(),
       mode: "PRODUCTION",
@@ -269,11 +370,11 @@ describe("NoteRuntime production transaction boundary", () => {
       commitAttempted: true as const,
     }));
     const result = await new NoteRuntime({ registry }).execute({
-      status: "BATCH",
-      atomic: true,
+      status: "READY",
+      sceneRevision: 7,
       steps: [
-        { stepId: "s1", toolId: "test.echo", input: { value: "one" } },
-        { stepId: "s2", toolId: "test.echo", input: { value: "two" } },
+        { action: "test.echo", target: null, args: { value: "one" }, destination: null },
+        { action: "test.echo", target: null, args: { value: "two" }, destination: null },
       ],
     }, {
       ...toolContext(),
@@ -302,11 +403,11 @@ describe("NoteRuntime production transaction boundary", () => {
     registry.register(fakeTool(prepare, true, "MUTATION"));
     const commit = vi.fn();
     const result = await new NoteRuntime({ registry }).execute({
-      status: "BATCH",
-      atomic: true,
+      status: "READY",
+      sceneRevision: 7,
       steps: [
-        { stepId: "s1", toolId: "test.echo", input: { value: "ready" } },
-        { stepId: "s2", toolId: "test.echo", input: { value: "fail" } },
+        { action: "test.echo", target: null, args: { value: "ready" }, destination: null },
+        { action: "test.echo", target: null, args: { value: "fail" }, destination: null },
       ],
     }, {
       ...toolContext(),

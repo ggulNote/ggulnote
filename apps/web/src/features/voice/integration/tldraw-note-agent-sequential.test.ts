@@ -15,6 +15,7 @@ import {
 } from "tldraw";
 import { deserializeMathObject } from "@ggulnote/math-core";
 import {
+  HandwritingTextShapeUtil,
   MathObjectShapeUtil,
   NoteAnnotationShapeUtil,
   TldrawEditorAdapter,
@@ -24,9 +25,8 @@ import type { CompletedVoiceTurn } from "../domain";
 import { FrozenTargetResolver } from "../application";
 import type { DirectCommandPlannerProvider } from "../providers";
 import type {
-  NoteDecisionCompositionProvider,
+  NoteDecisionProvider,
   NoteDecisionInput,
-  NoteDisambiguationChoice,
 } from "../note-agent";
 import { HttpNoteDecisionProvider } from "../note-agent";
 import { buildEditorVoiceContextRead } from "./editor-voice-context";
@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe("tldraw One Decision sequential production flow", () => {
-  it("executes the five connected math actions and updates the same graph shape by handle", async () => {
+  it("executes connected math placement and tangent actions on one logical graph shape", async () => {
     const { editor: tldrawEditor, adapter } = createTldrawAdapter();
     const editorEngine = new EditorEngine();
     editorEngine.setDocument("doc-sequential");
@@ -81,6 +81,8 @@ describe("tldraw One Decision sequential production flow", () => {
       style: { handDrawn: true },
       coordinateSystem: { showAxes: true, showGrid: false },
     });
+    expect(createdGraph!.bounds.x).toBeGreaterThanOrEqual(24);
+    expect(createdGraph!.bounds.y).toBeGreaterThanOrEqual(24);
 
     currentRevision += 1;
     currentScene = projectScene(adapter, currentRevision);
@@ -106,6 +108,24 @@ describe("tldraw One Decision sequential production flow", () => {
       capabilities: expect.arrayContaining(["mathPointAddable"]),
       recent: true,
     });
+
+    currentRevision += 1;
+    currentScene = projectScene(adapter, currentRevision);
+    await expect(composition.noteAgentProduction?.execute(
+      turn("math-turn-tangent", "x제곱 그래프 2사분면 쪽에 접선 하나 그어줘", currentRevision),
+    )).resolves.toMatchObject({ status: "COMMITTED" });
+    const tangentGraph = adapter.getCurrentPageObjects().find((object) =>
+      object.logicalObjectId === graphLogicalId);
+    const tangentObject = deserializeMathObject(tangentGraph!.mathObjectSnapshot!);
+    expect(tangentObject).toMatchObject({
+      kind: "graph",
+      tangents: [{ point: { x: expect.any(Number), y: expect.any(Number) }, slope: expect.any(Number) }],
+    });
+    if (tangentObject.kind !== "graph") throw new Error("Expected graph tangent result.");
+    expect(tangentObject.tangents[0]!.point.x).toBeLessThan(0);
+    expect(tangentObject.tangents[0]!.point.y).toBeGreaterThan(0);
+    expect(tangentObject.tangents[0]!.slope).toBeLessThan(0);
+    expect(tldrawEditor.getCurrentPageShapes()).toHaveLength(1);
 
     currentRevision += 1;
     currentScene = projectScene(adapter, currentRevision);
@@ -143,7 +163,7 @@ describe("tldraw One Decision sequential production flow", () => {
     currentRevision += 1;
     currentScene = projectScene(adapter, currentRevision);
     await expect(composition.noteAgentProduction?.execute(
-      turn("math-turn-5", "x제곱 더하기 2x 더하기 1이라고 써줘", currentRevision),
+      turn("math-turn-5", "x제곱 그래프 밑에 x제곱 더하기 2x 더하기 1이라고 써줘", currentRevision),
     )).resolves.toMatchObject({ status: "COMMITTED" });
     const expression = adapter.getCurrentPageObjects().find((object) =>
       object.mathObjectKind === "expression");
@@ -151,10 +171,12 @@ describe("tldraw One Decision sequential production flow", () => {
       kind: "expression",
       content: { source: "x² + 2x + 1", format: "plain" },
     });
+    expect(expression!.bounds.y).toBeGreaterThanOrEqual(
+      tangentGraph!.bounds.y + tangentGraph!.bounds.height + 16,
+    );
     expect(adapter.getCurrentPageObjects().filter((object) => object.kind === "math"))
       .toHaveLength(4);
-    expect(provider.inputs).toHaveLength(5);
-    expect(provider.disambiguationCallCount).toBe(0);
+    expect(provider.inputs).toHaveLength(6);
 
     composition.dispose();
     tldrawEditor.dispose();
@@ -184,12 +206,16 @@ describe("tldraw One Decision sequential production flow", () => {
               action: "text.create",
               target: null,
               args: { text: "안녕하세요" },
-              destination: {
-                relation: "CANVAS_REGION",
-                anchor: null,
-                region: "TOP_LEFT",
-              },
+              destination: null,
             }],
+          },
+          telemetry: {
+            openaiTtfbMs: 3179.7819,
+            openaiBodyReadMs: 94.5279,
+            decisionJsonParseMs: 0.1791,
+            inputTokens: 8011,
+            cachedInputTokens: 8008,
+            outputTokens: 58,
           },
         });
       }
@@ -224,6 +250,10 @@ describe("tldraw One Decision sequential production flow", () => {
     const legacyPlanner: DirectCommandPlannerProvider = {
       plan: vi.fn(() => Promise.reject(new Error("Legacy planner must not run."))),
     };
+    const placementJudge = {
+      judge: vi.fn(() => Promise.reject(new Error("Placement VLM must not run."))),
+    };
+    const mountPreviewCanvas = vi.fn(() => () => undefined);
     const composition = createEditorDirectCommandComposition({
       editorEngine,
       clock: { now: () => toSessionTimeMs(100) },
@@ -236,7 +266,8 @@ describe("tldraw One Decision sequential production flow", () => {
       spatial: {
         getBaseCanvas: () => ({ width: 600, height: 800 }) as HTMLCanvasElement,
         getOverlayCanvas: () => null,
-        mountPreviewCanvas: () => () => undefined,
+        mountPreviewCanvas,
+        placementJudge,
       },
       noteAgent: {
         mode: "PRODUCTION",
@@ -253,6 +284,19 @@ describe("tldraw One Decision sequential production flow", () => {
         trace: composition.noteAgentProduction?.traces.getAll().at(-1),
       }));
     }
+    const firstObject = adapter.getCurrentPageObjects()[0];
+    expect(firstObject).toMatchObject({ kind: "text", text: "안녕하세요" });
+    expect(firstObject!.bounds.x).toBeGreaterThanOrEqual(24);
+    expect(firstObject!.bounds.y).toBeGreaterThanOrEqual(24);
+    expect(composition.noteAgentProduction?.traces.getAll().at(-1)).toMatchObject({
+      decisionStatus: "READY",
+      decisionAction: "text.create",
+      resultStatus: "SUCCESS",
+      commitAttempted: true,
+      visualCallCount: 0,
+      openaiTtfbMs: 3179.7819,
+      outputTokens: 58,
+    });
     revision = 8;
     scene = projectScene(adapter, revision);
     const result = await composition.noteAgentProduction?.execute(
@@ -266,6 +310,8 @@ describe("tldraw One Decision sequential production flow", () => {
     }
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(legacyPlanner.plan).not.toHaveBeenCalled();
+    expect(placementJudge.judge).not.toHaveBeenCalled();
+    expect(mountPreviewCanvas).not.toHaveBeenCalled();
     const requestBody = requestBodies[1];
     expect(requestBody?.turn.rawFinalTranscript)
       .toBe("안녕하세요 밑에 가나다라라고 써 줘");
@@ -283,7 +329,7 @@ describe("tldraw One Decision sequential production flow", () => {
     const objects = adapter.getCurrentPageObjects();
     expect(objects[1]?.text).toBe("가나다라");
     expect(objects[1]!.bounds.y).toBeGreaterThanOrEqual(
-      objects[0]!.bounds.y + objects[0]!.bounds.height,
+      objects[0]!.bounds.y + objects[0]!.bounds.height + 16,
     );
     expect(composition.noteAgentProduction?.traces.getAll().at(-1)).toMatchObject({
       runtimeOwner: "note-agent-v2",
@@ -346,6 +392,8 @@ describe("tldraw One Decision sequential production flow", () => {
     }
     const firstObject = adapter.getCurrentPageObjects()[0];
     expect(firstObject).toMatchObject({ kind: "text", text: "안녕하세요" });
+    expect(firstObject!.bounds.x).toBeGreaterThanOrEqual(24);
+    expect(firstObject!.bounds.y).toBeGreaterThanOrEqual(24);
 
     currentRevision = 8;
     currentScene = projectScene(adapter, currentRevision);
@@ -356,7 +404,7 @@ describe("tldraw One Decision sequential production flow", () => {
     expect(afterSecond).toHaveLength(2);
     expect(afterSecond[1]).toMatchObject({ kind: "text", text: "가나다라" });
     expect(afterSecond[1]!.bounds.y).toBeGreaterThanOrEqual(
-      firstObject!.bounds.y + firstObject!.bounds.height,
+      firstObject!.bounds.y + firstObject!.bounds.height + 16,
     );
     const secondInput = provider.inputs[1];
     expect(secondInput?.objectCatalog.objects).toEqual([
@@ -372,7 +420,7 @@ describe("tldraw One Decision sequential production flow", () => {
     const secondTrace = composition.noteAgentProduction?.traces.getAll().at(-1);
     expect(secondTrace).toMatchObject({
       runtimeOwner: "note-agent-v2",
-      decisionSchemaVersion: "phase5-one-decision-v1",
+      decisionSchemaVersion: "multimodal-action-target-v1",
       decisionCallCount: 1,
       decisionStatus: "READY",
       decisionAction: "text.create",
@@ -399,7 +447,6 @@ describe("tldraw One Decision sequential production flow", () => {
       expect.objectContaining({ text: "안녕하세요" }),
     ]);
     expect(provider.decisionCallCount).toBe(3);
-    expect(provider.disambiguationCallCount).toBe(0);
 
     currentRevision = 10;
     currentScene = projectScene(adapter, currentRevision);
@@ -427,7 +474,7 @@ describe("tldraw One Decision sequential production flow", () => {
     const recentAnchor = afterRecent.find((object) => object.text === "가나다라");
     const recentOutput = afterRecent.find((object) => object.createdByTurnId === "turn-5");
     expect(recentOutput!.bounds.y).toBeGreaterThanOrEqual(
-      recentAnchor!.bounds.y + recentAnchor!.bounds.height,
+      recentAnchor!.bounds.y + recentAnchor!.bounds.height + 16,
     );
 
     currentRevision = 12;
@@ -461,7 +508,7 @@ describe("tldraw One Decision sequential production flow", () => {
     const rightAnchor = afterRight.find((object) => object.text === "반갑습니다");
     const rightOutput = afterRight.find((object) => object.createdByTurnId === "turn-7");
     expect(rightOutput!.bounds.x).toBeGreaterThanOrEqual(
-      rightAnchor!.bounds.x + rightAnchor!.bounds.width,
+      rightAnchor!.bounds.x + rightAnchor!.bounds.width + 16,
     );
 
     currentRevision = 14;
@@ -486,10 +533,59 @@ describe("tldraw One Decision sequential production flow", () => {
     const selectedOutput = adapter.getCurrentPageObjects()
       .find((object) => object.createdByTurnId === "turn-8");
     expect(selectedOutput!.bounds.y).toBeGreaterThanOrEqual(
-      rightAnchor!.bounds.y + rightAnchor!.bounds.height,
+      rightAnchor!.bounds.y + rightAnchor!.bounds.height + 16,
     );
     expect(legacyPlanner.plan).not.toHaveBeenCalled();
     expect(legacyTargetResolve).not.toHaveBeenCalled();
+
+    composition.dispose();
+    tldrawEditor.dispose();
+    editorEngine.destroy();
+  });
+
+  it("keeps repeated destination-null text creation deterministic past the visual threshold", async () => {
+    const { editor: tldrawEditor, adapter } = createTldrawAdapter();
+    installBrowserCanvas();
+    const editorEngine = new EditorEngine();
+    editorEngine.setDocument("doc-sequential");
+    editorEngine.setActivePage(PAGE_ID, PAGE_SIZE);
+    let revision = 7;
+    let scene = projectScene(adapter, revision);
+    const mountPreviewCanvas = vi.fn(() => () => undefined);
+    const provider = new SequentialDecisionProvider();
+    const composition = createEditorDirectCommandComposition({
+      editorEngine,
+      clock: { now: () => toSessionTimeMs(100) },
+      readCurrentGroundingSnapshot: () => ({ documentId: "doc-sequential", scene }),
+      getCurrentSceneRevision: () => revision,
+      getCurrentPage: () => 1,
+      goToPage: () => undefined,
+      getTldrawAdapter: () => adapter,
+      spatial: {
+        getBaseCanvas: () => null,
+        getOverlayCanvas: () => null,
+        mountPreviewCanvas,
+      },
+      noteAgent: { mode: "PRODUCTION", provider },
+    });
+
+    for (let index = 0; index < 6; index += 1) {
+      await expect(composition.noteAgentProduction?.execute(
+        turn(`turn-repeat-${index + 1}`, "안녕하세요 써줘", revision),
+      )).resolves.toMatchObject({ status: "COMMITTED" });
+      revision += 1;
+      scene = projectScene(adapter, revision);
+    }
+
+    expect(adapter.getCurrentPageObjects()).toHaveLength(6);
+    expect(adapter.getCurrentPageObjects().map((object) => object.text))
+      .toEqual(Array.from({ length: 6 }, () => "안녕하세요"));
+    expect(mountPreviewCanvas).not.toHaveBeenCalled();
+    expect(composition.noteAgentProduction?.traces.getAll().at(-1)).toMatchObject({
+      resultStatus: "SUCCESS",
+      commitAttempted: true,
+      visualCallCount: 0,
+    });
 
     composition.dispose();
     tldrawEditor.dispose();
@@ -511,7 +607,7 @@ describe("tldraw One Decision sequential production flow", () => {
     const revision = 7;
     const scene = projectScene(adapter, revision);
     let decisionInput: NoteDecisionInput | undefined;
-    const provider: NoteDecisionCompositionProvider = {
+    const provider: NoteDecisionProvider = {
       decide: (input) => {
         decisionInput = input;
         return Promise.resolve({
@@ -520,7 +616,6 @@ describe("tldraw One Decision sequential production flow", () => {
           reason: "AMBIGUOUS_OBJECT",
         });
       },
-      disambiguate: () => Promise.reject(new Error("Separate disambiguation is forbidden.")),
     };
     const composition = createEditorDirectCommandComposition({
       editorEngine,
@@ -559,9 +654,8 @@ describe("tldraw One Decision sequential production flow", () => {
   });
 });
 
-class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
+class SequentialDecisionProvider implements NoteDecisionProvider {
   public decisionCallCount = 0;
-  public disambiguationCallCount = 0;
   public readonly inputs: NoteDecisionInput[] = [];
   public readonly references: Array<{
     readonly transcript: string;
@@ -631,15 +725,10 @@ class SequentialDecisionProvider implements NoteDecisionCompositionProvider {
     });
   }
 
-  public disambiguate(): Promise<NoteDisambiguationChoice> {
-    this.disambiguationCallCount += 1;
-    throw new Error("A separate target-selection call is forbidden.");
-  }
 }
 
-class MathSmokeDecisionProvider implements NoteDecisionCompositionProvider {
+class MathSmokeDecisionProvider implements NoteDecisionProvider {
   public readonly inputs: NoteDecisionInput[] = [];
-  public disambiguationCallCount = 0;
   public selectedGraphHandle: string | undefined;
 
   public decide(input: NoteDecisionInput) {
@@ -681,6 +770,37 @@ class MathSmokeDecisionProvider implements NoteDecisionCompositionProvider {
           }],
         });
       }
+      case "x제곱 그래프 2사분면 쪽에 접선 하나 그어줘": {
+        const graph = input.objectCatalog.objects.find((object) => object.kind === "graph");
+        if (graph === undefined) throw new Error("Expected graph tangent target.");
+        return Promise.resolve({
+          status: "READY" as const,
+          sceneRevision,
+          steps: [{
+            action: "math.graph.add_tangent" as const,
+            target: {
+              object: graph.handle,
+              part: {
+                kind: "curve" as const,
+                index: null,
+                row: null,
+                column: null,
+                text: null,
+                startText: null,
+                endText: null,
+              },
+            },
+            args: {
+              mode: "quadrant",
+              x: null,
+              y: null,
+              quadrant: 2,
+              label: null,
+            },
+            destination: null,
+          }],
+        });
+      }
       case "58 곱하기 72 세로셈으로 써줘":
         return Promise.resolve({
           status: "READY" as const,
@@ -703,7 +823,9 @@ class MathSmokeDecisionProvider implements NoteDecisionCompositionProvider {
             destination: null,
           }],
         });
-      case "x제곱 더하기 2x 더하기 1이라고 써줘":
+      case "x제곱 그래프 밑에 x제곱 더하기 2x 더하기 1이라고 써줘": {
+        const graph = input.objectCatalog.objects.find((object) => object.kind === "graph");
+        if (graph === undefined) throw new Error("Expected graph placement anchor.");
         return Promise.resolve({
           status: "READY" as const,
           sceneRevision,
@@ -711,18 +833,19 @@ class MathSmokeDecisionProvider implements NoteDecisionCompositionProvider {
             action: "math.expression.create" as const,
             target: null,
             args: { source: "x² + 2x + 1" },
-            destination: null,
+            destination: {
+              relation: "BELOW" as const,
+              anchor: { object: graph.handle, part: null },
+              region: null,
+            },
           }],
         });
+      }
       default:
         throw new Error(`Unexpected math smoke transcript: ${input.turn.rawFinalTranscript}`);
     }
   }
 
-  public disambiguate(): Promise<NoteDisambiguationChoice> {
-    this.disambiguationCallCount += 1;
-    throw new Error("A separate target-selection call is forbidden.");
-  }
 }
 
 function projectScene(adapter: TldrawEditorAdapter, revision: number): SceneSnapshot {
@@ -788,6 +911,7 @@ function createTldrawAdapter(): { editor: Editor; adapter: TldrawEditorAdapter }
     ...defaultShapeUtils,
     NoteAnnotationShapeUtil,
     MathObjectShapeUtil,
+    HandwritingTextShapeUtil,
   ];
   const editor = new Editor({
     store: createTLStore({ shapeUtils, bindingUtils: defaultBindingUtils }),

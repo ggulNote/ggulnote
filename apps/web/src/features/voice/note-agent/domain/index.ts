@@ -7,6 +7,9 @@ export {
   NOTE_SPATIAL_RELATIONS,
 } from "./note-agent-types";
 export type {
+  ActionTarget,
+  ActionTargetFallbackPoint,
+  ActionTargetRegion,
   CompactToolSchema,
   ClarificationReason,
   CropRequest,
@@ -32,9 +35,7 @@ export type {
   NoteContextPartId,
   NoteDecision,
   NoteDecisionInput,
-  NoteDisambiguationCandidate,
-  NoteDisambiguationChoice,
-  NoteDisambiguationInput,
+  LiveSceneContext,
   NoteObjectPartKind,
   NotePageRegion,
   NoteSpatialRelation,
@@ -42,6 +43,7 @@ export type {
   NoteToolId,
   NoteToolKind,
   ObjectHandle,
+  PageBaseSnapshot,
   StepResultRef,
   SpatialConstraint,
   SpatialReference,
@@ -53,10 +55,10 @@ export type {
 } from "./note-tool-result";
 export {
   NoteAgentValidationError,
+  parseDecisionDestination,
+  parseActionTarget,
   parseDestination,
   parseEntitySelector,
   parseNoteDecision,
   parseNoteDecisionInput,
-  parseNoteDisambiguationChoice,
-  parseNoteDisambiguationInput,
 } from "./note-agent-schema";

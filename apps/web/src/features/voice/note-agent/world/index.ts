@@ -3,6 +3,19 @@ export type { EntityRef } from "./entity-ref";
 export { DeterministicPartResolver } from "./part-resolver";
 export type { PartResolutionResult } from "./part-resolver";
 export {
+  ActionTargetResolver,
+  objectLocalPointToCanvasPoint,
+  objectLocalRegionToCanvasBounds,
+  pageNormalizedPointToCanvasPoint,
+} from "./action-target-resolver";
+export type {
+  ActionTargetGroundingMode,
+  ActionTargetHandleLookup,
+  ActionTargetResolution,
+  ActionTargetResolverOptions,
+  ResolvedActionTarget,
+} from "./action-target-resolver";
+export {
   objectIndexEntryFromSceneObject,
   RebuildableObjectIndex,
 } from "./object-index";

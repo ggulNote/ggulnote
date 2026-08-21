@@ -10,6 +10,7 @@ import type {
   SpatialCommandCapability,
   SpatialPreviewRenderInput,
 } from "../application";
+import { NOTEBOOK_LAYOUT_POLICY } from "../application";
 
 const TEXT_PROFILE = Object.freeze({
   capability: "text",
@@ -21,7 +22,7 @@ const TEXT_PROFILE = Object.freeze({
   compactSize: Object.freeze({ width: 160, height: 64 }),
   maxSize: Object.freeze({ width: 480, height: 240 }),
   resizePolicy: "COMPACT_ONCE",
-  minClearance: 12,
+  minClearance: NOTEBOOK_LAYOUT_POLICY.naturalGap,
   allowedRelations: Object.freeze([
     "ABOVE",
     "BELOW",
@@ -30,7 +31,7 @@ const TEXT_PROFILE = Object.freeze({
     "NEAR",
     "FREE_SPACE",
   ] as const),
-  overlayPolicy: "NEVER",
+  overlayPolicy: "EXPLICIT_ONLY",
   overflowPolicy: "FAIL",
 }) satisfies PlacementProfile;
 

@@ -1,15 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
+import { connectedMathActionDecisionArgsSchema } from "@ggulnote/math-core";
 import type {
+  DirectTextModelContentPart,
   DirectTextModelRequest,
   DirectTextModelTransport,
   DirectTextModelTransportOptions,
 } from "../../providers/direct-text-model-transport";
 import type { NoteDecisionInput } from "../domain";
 import { buildNoteDecisionModelRequest } from "./note-decision-prompt";
-import { buildNoteDisambiguationModelRequest } from "./note-disambiguation-prompt";
 import { FakeNoteDecisionProvider } from "./note-decision-provider";
 import { HttpNoteDecisionProvider } from "./http-note-decision-provider";
 import { LlmNoteDecisionProvider } from "./llm-note-decision-provider";
+
+function readTextContent(
+  content: string | readonly DirectTextModelContentPart[],
+): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((part): part is Extract<DirectTextModelContentPart, { type: "input_text" }> =>
+      part.type === "input_text")
+    .map((part) => part.text)
+    .join("\n");
+}
 
 const INPUT: NoteDecisionInput = {
   turn: {
@@ -35,6 +47,32 @@ const INPUT: NoteDecisionInput = {
       additionalProperties: false,
     },
   }],
+  pageBase: {
+    documentId: "doc-1",
+    pageId: "page-1",
+    baseRevision: "page-1@1",
+    sceneMode: "pdf",
+    objects: [{
+      handle: "O1",
+      source: "tldraw",
+      kind: "text",
+      text: "안녕하세요",
+      bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+      capabilities: ["editable"],
+      selected: false,
+      focused: false,
+      recent: false,
+    }],
+    createdAt: 1,
+  },
+  liveScene: {
+    sceneRevision: 7,
+    createdObjects: [],
+    updatedObjects: [],
+    deletedObjectIds: [],
+    selectedObjectIds: [],
+    recentObjectIds: ["O1"],
+  },
   objectCatalog: {
     objects: [{
       handle: "O1",
@@ -65,48 +103,7 @@ class StubTransport implements DirectTextModelTransport {
   }
 }
 
-class SequenceTransport implements DirectTextModelTransport {
-  public calls: DirectTextModelRequest[] = [];
-
-  public constructor(private readonly outputs: readonly string[]) {}
-
-  public generate(
-    request: DirectTextModelRequest,
-    _options: DirectTextModelTransportOptions = {},
-  ): Promise<string> {
-    this.calls.push(request);
-    const output = this.outputs[this.calls.length - 1];
-    if (output === undefined) return Promise.reject(new Error("unexpected model call"));
-    return Promise.resolve(output);
-  }
-}
-
 describe("One Note Decision provider", () => {
-  it("uses the same provider transport for one alias-only ambiguity choice", async () => {
-    const transport = new StubTransport(JSON.stringify({
-      status: "SELECTED",
-      alias: "C2",
-    }));
-    const provider = new LlmNoteDecisionProvider(transport);
-    await expect(provider.disambiguate({
-      turnId: "turn-1",
-      language: "ko-KR",
-      rawFinalTranscript: "두 번째 것",
-      stepId: "s1",
-      toolId: "text.replace",
-      candidates: [{ alias: "C1" }, { alias: "C2", textPreview: "second" }],
-    })).resolves.toEqual({ status: "SELECTED", alias: "C2" });
-    expect(transport.calls).toHaveLength(1);
-    expect(transport.calls[0]?.maxOutputTokens).toBe(80);
-    expect(JSON.stringify(transport.calls[0])).not.toContain("objectId");
-
-    const request = buildNoteDisambiguationModelRequest({
-      turnId: "turn-1", language: "ko-KR", rawFinalTranscript: "x",
-      stepId: "s1", toolId: "text.replace",
-      candidates: [{ alias: "C1" }, { alias: "C2" }],
-    });
-    expect(request.input).toHaveLength(1);
-  });
   it("uses one compact schema-only model call and validates the selected tool", async () => {
     const transport = new StubTransport(JSON.stringify({
       status: "READY",
@@ -121,8 +118,6 @@ describe("One Note Decision provider", () => {
           region: null,
         },
       }],
-      candidateHandles: null,
-      cropRegion: null,
       reason: null,
     }));
     const result = await new LlmNoteDecisionProvider(transport).decide(INPUT);
@@ -140,7 +135,7 @@ describe("One Note Decision provider", () => {
     expect(transport.calls).toHaveLength(1);
     const request = transport.calls[0];
     expect(request.maxOutputTokens).toBeLessThanOrEqual(700);
-    expect(request.input).toHaveLength(5);
+    expect(request.input).toHaveLength(4);
     expect(request.responseFormat).toMatchObject({
       type: "json_schema",
       name: "note_decision",
@@ -164,31 +159,184 @@ describe("One Note Decision provider", () => {
     expect(request.instructions).toContain("DO NOT choose an object first from general topic similarity");
     expect(request.instructions).toContain("compare it against the supplied text of ALL catalog objects");
     expect(request.instructions).toContain("explicit content reference, strong object-content evidence");
-    const messageContent = request.input.map((message) => message.content).join("\n");
+    expect(request.instructions).toContain("Interpret intent instead of copying the transcript");
+    expect(request.instructions).toContain('args.source="x^2+1"');
+    expect(request.instructions).toContain("math.graph.add_tangent");
+    expect(request.instructions).toContain("computes the exact derivative and tangent");
+    expect(request.instructions).toContain("only visual pass");
+    expect(request.instructions).toContain("VISUAL_UNRESOLVED");
+    expect(request.instructions).not.toContain("Use NEEDS_VISUAL");
+    const messageContent = request.input.map((message) => readTextContent(message.content)).join("\n");
     const serialized = JSON.stringify(request);
-    expect(messageContent).toContain('"section":"OBJECT_CATALOG"');
-    expect(messageContent).toContain('"section":"USER_UTTERANCE"');
+    expect(messageContent).toContain('"section":"PAGE_BASE"');
+    expect(messageContent).toContain('"section":"LIVE_SCENE"');
+    expect(messageContent).toContain('"section":"VOICE_COMMAND"');
     expect(messageContent).toContain("안녕하세요 밑에 가나다라라고 써 줘");
     expect(messageContent).toContain('"handle":"O1"');
     expect(messageContent).toContain("안녕하세요");
     const availableActions = request.input.find((message) =>
-      message.content.includes('"section":"AVAILABLE_ACTIONS"'));
+      readTextContent(message.content).includes('"section":"STATIC_CONTEXT"'));
     expect(availableActions).toBeDefined();
-    expect(JSON.parse(availableActions!.content)).toEqual({
-      section: "AVAILABLE_ACTIONS",
-      data: [{ id: "text.create", description: "create text" }],
+    const availableActionsContent = readTextContent(availableActions!.content);
+    expect(JSON.parse(availableActionsContent)).toEqual({
+      section: "STATIC_CONTEXT",
+      data: {
+        contextOrder: ["STATIC", "PAGE_BASE", "LIVE", "SCREENSHOT", "COMMAND"],
+        availableActions: [{
+          kind: "MUTATION",
+          id: "text.create",
+          description: "create text",
+        }],
+      },
     });
-    expect(availableActions!.content.length).toBeLessThan(JSON.stringify(INPUT.availableTools).length);
-    expect(availableActions!.content).not.toContain("strictArgs");
-    expect(availableActions!.content).not.toContain("examples");
+    expect(availableActionsContent).not.toContain("strictArgs");
+    expect(availableActionsContent).not.toContain("examples");
     expect(serialized).not.toContain("fullScene");
     expect(serialized).not.toContain("shape:persistent");
+    expect(request.input.map((message) =>
+      JSON.parse(readTextContent(message.content)).section)).toEqual([
+      "STATIC_CONTEXT",
+      "PAGE_BASE",
+      "LIVE_SCENE",
+      "VOICE_COMMAND",
+    ]);
+  });
+
+  it("sends Object Catalog and a complex-scene screenshot in the same Decision call", async () => {
+    const transport = new StubTransport(JSON.stringify({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "text.create",
+        target: null,
+        args: { text: "풀이" },
+        destination: {
+          relation: "CANVAS_REGION",
+          anchor: null,
+          region: "BOTTOM_RIGHT",
+        },
+      }],
+      reason: null,
+    }));
+    const input: NoteDecisionInput = {
+      ...INPUT,
+      visualContext: {
+        mimeType: "image/png",
+        imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+        pixelWidth: 960,
+        pixelHeight: 1_280,
+        byteLength: 8,
+        markedObjects: [{
+          objectId: "O1",
+          kind: INPUT.objectCatalog.objects[0]!.kind,
+          bounds: INPUT.objectCatalog.objects[0]!.bounds,
+        }],
+      },
+    };
+
+    await expect(new LlmNoteDecisionProvider(transport).decide(input))
+      .resolves.toMatchObject({ status: "READY" });
+
+    expect(transport.calls).toHaveLength(1);
+    const request = transport.calls[0]!;
+    expect(request.input).toHaveLength(5);
+    expect(request.input.some((message) =>
+      readTextContent(message.content).includes('"section":"PAGE_BASE"'))).toBe(true);
+    const visual = request.input.at(-2)?.content;
+    expect(Array.isArray(visual)).toBe(true);
+    expect(visual).toEqual([
+      {
+        type: "input_text",
+        text: JSON.stringify({
+          section: "CURRENT_CANVAS_IMAGE",
+          data: {
+            purpose: "marked visual meaning and layout evidence",
+            markerCoordinateSpace: "page-normalized",
+            markedObjects: input.visualContext?.markedObjects,
+            pixelWidth: 960,
+            pixelHeight: 1_280,
+          },
+        }),
+      },
+      {
+        type: "input_image",
+        image_url: input.visualContext?.imageDataUrl,
+        detail: "high",
+      },
+    ]);
+    expect(request.instructions).toContain("exact same ObjectHandle O7");
+    expect(request.instructions).toContain("Do not invent object handles or pixel coordinates");
+    expect(readTextContent(request.input.at(-1)!.content)).toContain('"section":"VOICE_COMMAND"');
+  });
+
+  it("accepts semantic tangent x/y fields without treating them as pixel authority", async () => {
+    const transport = new StubTransport(JSON.stringify({
+      status: "READY",
+      sceneRevision: 7,
+      steps: [{
+        action: "math.graph.add_tangent",
+        target: { object: "O1", part: null },
+        args: {
+          mode: "auto",
+          x: null,
+          y: null,
+          quadrant: null,
+          label: null,
+        },
+        destination: null,
+      }],
+      reason: null,
+    }));
+    const tangentInput: NoteDecisionInput = {
+      ...INPUT,
+      turn: { ...INPUT.turn, rawFinalTranscript: "그래프에 접선 그어줘" },
+      availableTools: [{
+        id: "math.graph.add_tangent",
+        kind: "MUTATION",
+        description: "Add a tangent; runtime computes exact geometry.",
+        strictArgs: connectedMathActionDecisionArgsSchema("math.graph.add_tangent"),
+      }],
+      objectCatalog: {
+        objects: [{
+          handle: "O1",
+          source: "tldraw",
+          kind: "graph",
+          summary: "y=x^2 graph",
+          bounds: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 },
+          capabilities: ["mathTangentAddable"],
+          selected: false,
+          focused: false,
+          recent: true,
+        }],
+        truncated: false,
+      },
+    };
+
+    await expect(new LlmNoteDecisionProvider(transport).decide(tangentInput))
+      .resolves.toMatchObject({
+        status: "READY",
+        steps: [{
+          action: "math.graph.add_tangent",
+          args: { mode: "auto", x: null, y: null, quadrant: null },
+        }],
+      });
+    expect(transport.calls).toHaveLength(1);
   });
 
   it("sends full canonical PDF paragraph text instead of a bounded summary", () => {
     const fullText = `${"canonical context ".repeat(14)}rendering HTML into visual webpages. Particularly ...`;
     const request = buildNoteDecisionModelRequest({
       ...INPUT,
+      pageBase: {
+        ...INPUT.pageBase,
+        objects: [{
+          ...INPUT.pageBase.objects[0]!,
+          source: "pdf",
+          kind: "paragraph",
+          text: fullText,
+        }],
+        pageText: fullText,
+      },
       objectCatalog: {
         objects: [{
           ...INPUT.objectCatalog.objects[0]!,
@@ -200,10 +348,11 @@ describe("One Note Decision provider", () => {
       },
     });
     const catalogMessage = request.input.find((message) =>
-      message.content.includes('"section":"OBJECT_CATALOG"'));
-    expect(catalogMessage?.content).toContain(fullText);
-    expect(catalogMessage?.content).toContain("rendering HTML into visual webpages");
-    expect(catalogMessage?.content).not.toContain('"summary"');
+      readTextContent(message.content).includes('"section":"PAGE_BASE"'));
+    const catalogContent = readTextContent(catalogMessage!.content);
+    expect(catalogContent).toContain(fullText);
+    expect(catalogContent).toContain("rendering HTML into visual webpages");
+    expect(catalogContent).not.toContain('"summary"');
   });
 
   it("states that canonical span evidence selects its owning PDF object", () => {
@@ -212,6 +361,25 @@ describe("One Note Decision provider", () => {
       turn: {
         ...INPUT.turn,
         rawFinalTranscript: "브랜드 html부터 웹 페이지스까지 하이라이트",
+      },
+      pageBase: {
+        ...INPUT.pageBase,
+        objects: [
+          {
+            ...INPUT.pageBase.objects[0]!,
+            handle: "O4",
+            source: "pdf",
+            kind: "paragraph",
+            text: "The recent advancement of large language models includes web browsing environments.",
+          },
+          {
+            ...INPUT.pageBase.objects[0]!,
+            handle: "O12",
+            source: "pdf",
+            kind: "paragraph",
+            text: "However, existing approaches overlook browsing: rendering HTML into visual webpages. Particularly, vision capability is crucial.",
+          },
+        ],
       },
       objectCatalog: {
         objects: [
@@ -234,11 +402,13 @@ describe("One Note Decision provider", () => {
       },
     });
     const catalogMessage = request.input.find((message) =>
-      message.content.includes('"section":"OBJECT_CATALOG"'));
+      readTextContent(message.content).includes('"section":"PAGE_BASE"'));
 
-    expect(catalogMessage?.content).toContain('"handle":"O4"');
-    expect(catalogMessage?.content).toContain('"handle":"O12"');
-    expect(catalogMessage?.content).toContain("rendering HTML into visual webpages");
+    const catalogContent = readTextContent(catalogMessage!.content);
+
+    expect(catalogContent).toContain('"handle":"O4"');
+    expect(catalogContent).toContain('"handle":"O12"');
+    expect(catalogContent).toContain("rendering HTML into visual webpages");
     expect(request.instructions).toContain('object=O12');
     expect(request.instructions).toContain('startText="rendering HTML"');
     expect(request.instructions).toContain('endText="webpages."');
@@ -248,7 +418,7 @@ describe("One Note Decision provider", () => {
     expect(request.instructions).toContain('Wrong: startText="However, existing approaches ... rendering HTML"');
   });
 
-  it("repairs only invalid catalog text-range anchors at most once", async () => {
+  it("accepts exact text-range anchors and rejects invalid anchors after one call", async () => {
     const fullText = "However, existing approaches overlook a critical functionality of browsing: rendering HTML into visual webpages. Particularly, vision capability is crucial.";
     const input: NoteDecisionInput = {
       ...INPUT,
@@ -301,8 +471,6 @@ describe("One Note Decision provider", () => {
         args: { annotationType: "UNDERLINE", color: null },
         destination: null,
       }],
-      candidateHandles: null,
-      cropRegion: null,
       reason: null,
     }));
 
@@ -349,69 +517,12 @@ describe("One Note Decision provider", () => {
         args: { annotationType: "UNDERLINE", color: null },
         destination: null,
       }],
-      candidateHandles: null,
-      cropRegion: null,
       reason: null,
     });
-    const repairedAnchors = JSON.stringify({
-      startText: "rendering HTML",
-      endText: "visual webpages",
-    });
-    const repairTransport = new SequenceTransport([invalidDecision, repairedAnchors]);
-
-    await expect(new LlmNoteDecisionProvider(repairTransport).decide(input)).resolves.toEqual({
-      status: "READY",
-      sceneRevision: 7,
-      steps: [{
-        action: "annotation.apply",
-        target: {
-          object: "O12",
-          part: {
-            kind: "text_range",
-            index: null,
-            row: null,
-            column: null,
-            text: null,
-            startText: "rendering HTML",
-            endText: "visual webpages",
-          },
-        },
-        args: { annotationType: "UNDERLINE", color: null },
-        destination: null,
-      }],
-    });
-    expect(repairTransport.calls).toHaveLength(2);
-    expect(repairTransport.calls[1]).toMatchObject({
-      maxOutputTokens: 100,
-      responseFormat: {
-        name: "note_text_range_repair",
-        strict: true,
-      },
-    });
-    const repairPayload = JSON.parse(repairTransport.calls[1]!.input[0]!.content);
-    expect(repairPayload).toEqual({
-      originalUserTranscript: "렌더링 html부터 웹페이지스까지 밑줄 쳐 줘",
-      selectedObject: {
-        handle: "O12",
-        text: fullText,
-      },
-      invalidPreviousAnchors: {
-        startText: "렌더링 HTML",
-        endText: "웹페이지스까지",
-      },
-    });
-    expect(JSON.stringify(repairTransport.calls[1])).not.toContain("objectCatalog");
-
-    const failedRepairTransport = new SequenceTransport([
-      invalidDecision,
-      JSON.stringify({
-        startText: "still invalid",
-        endText: "also invalid",
-      }),
-    ]);
-    await expect(new LlmNoteDecisionProvider(failedRepairTransport).decide(input))
+    const invalidTransport = new StubTransport(invalidDecision);
+    await expect(new LlmNoteDecisionProvider(invalidTransport).decide(input))
       .rejects.toMatchObject({ code: "PLANNER_INVALID_OUTPUT" });
-    expect(failedRepairTransport.calls).toHaveLength(2);
+    expect(invalidTransport.calls).toHaveLength(1);
   });
 
   it("rejects unavailable tools and model-invented runtime authority", async () => {
@@ -456,8 +567,8 @@ describe("One Note Decision provider", () => {
     const serialized = JSON.stringify(request.input);
     expect(serialized).not.toContain("a".repeat(241));
     expect(serialized).not.toContain("objectById");
-    expect(serialized).not.toContain("doc-1");
-    expect(serialized).not.toContain("page-1");
+    expect(serialized).toContain("doc-1");
+    expect(serialized).toContain("page-1");
   });
 
   it("forwards only validated numeric transport telemetry across same-origin HTTP", async () => {

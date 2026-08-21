@@ -1,6 +1,14 @@
 @import "tldraw/tldraw.css";
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Ggulnote Handwriting";
+  src: url("/fonts/nanum-pen-script/NanumPenScript-Regular.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #0f172a;

@@ -1,6 +1,7 @@
 import type { DirectCommandRouteResult } from "../../domain";
 import type { NoteDecision, NoteToolId } from "../domain";
 import type { NoteRuntimeResult } from "./note-runtime";
+import type { ActionTargetGroundingMode } from "../world";
 
 export interface NoteAgentShadowTrace {
   readonly runtimeOwner: "note-agent-v2";
@@ -24,12 +25,27 @@ export interface NoteAgentShadowTrace {
   readonly objectCatalogBuildMs?: number;
   readonly objectCatalogObjectCount?: number;
   readonly objectCatalogSerializedChars?: number;
+  readonly visualContextRequested?: boolean;
+  readonly visualContextAttached?: boolean;
+  readonly visualContextCaptureMs?: number;
+  readonly visualContextFailureReason?: string;
+  readonly markedScreenshotObjectCount?: number;
+  readonly markedScreenshotHandles?: readonly `O${number}`[];
   readonly catalogHandles?: readonly `O${number}`[];
   readonly selectedHandle?: `O${number}`;
   readonly decisionStatus?: NoteDecision["status"];
   readonly decisionAction?: NoteToolId;
   readonly decisionReferenceHandle?: `O${number}`;
   readonly decisionRelation?: string;
+  readonly groundingMode?: ActionTargetGroundingMode;
+  readonly resolvedTargetHandle?: `O${number}`;
+  readonly resolvedCanvasBounds?: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly finalLocalOperation?: NoteToolId;
   readonly legacyPlannerInvoked: false;
   readonly fuzzyObjectSelectorInvoked: false;
   readonly decisionMs: number;

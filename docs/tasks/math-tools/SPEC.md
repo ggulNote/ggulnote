@@ -134,7 +134,87 @@
 - rough.js나 SVG turbulence 같은 별도 손그림 효과 도입
 - Object Catalog handle과 selection/focus lifecycle 소유
 
-## 8. 후속 기능 범위
+## 8. Completed Milestone - M6 (Production flexible placement/tangent integration)
+
+### 포함
+
+- 기존 `VoiceTurnController -> NoteAgentProductionRoute -> NoteRuntime -> tldraw` production path 유지
+- 한 번의 strict Decision에서 ordered `steps[]`를 반환하고 runtime이 순서대로 실행
+- 생성 math action의 공통 nullable destination과 `PAGE_REGION`/`RELATIVE`/`AUTO` 해석
+- 기존 placement engine을 통한 preferred position, collision shift, editable bounds clamp
+- blank canvas의 safe inset과 모든 relative placement의 natural gap을 정의하는 `NotebookLayoutPolicy`
+- `math.graph.add_tangent`의 at-point/at-x/quadrant/auto semantic request
+- typed graph descriptor에서 정확한 접점·analytic derivative·tangent equation·viewport clip 계산
+- quadrant 요청 시 현재 viewport 안의 후보를 deterministic하게 평가하는 visual choice policy
+- tangent를 별도 tldraw shape가 아닌 기존 `GraphObject.tangents[]` child로 저장
+- ordinary text와 canonical math expression을 구분하도록 semantic tool description/few-shot 보강
+- strict JSON schema와 실제 connected tool metadata 정합성, field/action index 중심 parse trace
+
+### 제외
+
+- scene complexity 판정 및 screenshot을 첫 Decision call에 첨부하는 multimodal context
+- text/math expression의 handwriting font 교체와 write-on presentation animation
+- 동일 Decision에서 방금 생성한 object를 후속 action target으로 참조하는 임시 handle
+- 아직 production registry에 연결되지 않은 나머지 catalog capability 전부의 도구화
+
+## 9. Completed Milestone - M6.1 (Blank text.create hotfix)
+
+### 포함
+
+- `destination: null`인 blank/sparse text create를 default notebook region에 deterministic 배치
+- object count, occupied ratio, overlap pair만 사용하는 작은 `needsVisualContext` gate
+- 단순 scene에서는 post-decision preview canvas/VLM을 호출하지 않고 canonical tldraw transaction commit
+- 복잡 scene에서는 기존 preview-validation 경로 유지
+- runtime failure reason과 commit 여부를 development trace에 노출
+
+### 제외
+
+- screenshot을 initial LLM Decision context에 포함하는 M7 multimodal context policy
+- text/math write-on animation
+
+## 10. Completed Milestone - M6.2 (Repeated auto-placement hotfix)
+
+### 포함
+
+- `destination: null` text create를 scene visual threshold와 분리
+- 반복 횟수와 관계없이 동일한 deterministic collision/bounds resolver 사용
+- 명시적 destination이 있고 scene이 복잡할 때만 기존 preview-validation 유지
+- 동일 명령 6회 연속 HTTP/Runtime/tldraw production commit 회귀 검증
+
+### 제외
+
+- initial LLM Decision screenshot context
+- 명시적 복잡 배치의 기존 preview-validation 교체
+
+## 11. Completed Milestone - M7 (Visual Placement + Handwriting UX)
+
+### 포함
+
+- Object Catalog의 normalized bounds만 사용하는 local scene complexity policy
+- object count가 5개 이상이거나 occupied ratio가 0.28을 초과하거나 overlap pair가 2개 이상일 때 visual context 요청
+- complex scene에서 PDF base canvas, legacy annotation overlay, tldraw full-page export를 하나의 흰 배경 PNG로 합성
+- 최대 edge 1280px, OpenAI image detail `low`, current page/revision guard
+- Object Catalog와 screenshot을 같은 strict Decision request에 넣는 ONE multimodal call
+- tangent action의 `x/y`는 pixel placement가 아니라 typed semantic contact request로 검증
+- graph tangent target은 semantic GraphObject가 기준이며, unqualified `curve` part 응답은 같은 부모 object 수정으로 정규화
+- screenshot failure 또는 1.2초 timeout 시 Catalog-only Decision으로 graceful degradation
+- blank/sparse scene의 screenshot 없는 deterministic NotebookLayoutPolicy fallback
+- local OFL Nanum Pen Script와 Latin/common math symbol fallback font stack
+- 신규 text를 `ggulnote-text` canonical shape 하나로 저장하고 fixed glyph layout 위에 horizontal reveal mask 적용
+- 신규 math expression의 full SVG layout 위에 clip mask write-on 적용
+- create-only ephemeral animation state, bounded duration, reduced-motion 즉시 완료
+- undo/persistence/snapshot에는 최종 object만 저장하고 reveal progress는 저장하지 않음
+
+### 제외
+
+- screenshot OCR 또는 screenshot만으로 object identity를 결정하는 흐름
+- 자연어 regex로 visual context 필요 여부를 판단하는 흐름
+- 두 번째 LLM placement call 또는 pixel coordinate 생성
+- graph create animation 확장
+- text replace/update 전체 재필기 animation
+- 실제 OpenAI live eval과 `/canvas` 수동 음성 demo는 실행 환경 부재로 검증하지 않음
+
+## 12. 후속 기능 범위
 
 - 수식: plain/LaTeX/structured content, 분수, 지수·첨자, 루트, 괄호, 식·연립식
 - 표: 일반/함수값/x-y 표, 셀 수정, 행·열 추가
@@ -142,7 +222,7 @@
 - 도형: 점, 선분/직선/반직선, 각, 삼각형/사각형 preset, 원/호/부채꼴/다각형과 라벨·측정 marking
 - 필산: add/subtract/multiply의 operand/carry/partial/result/separator/cursor 기록
 
-## 9. 검증
+## 13. 검증
 
 - TypeScript strict typecheck
 - serialization/action/handler/geometry/render contract 단위 테스트

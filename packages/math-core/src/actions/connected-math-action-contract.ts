@@ -1,13 +1,20 @@
 import type { Rect } from "@ggulnote/shared-types";
 import type { AnyMathAction, MathActionId } from "./math-action";
 import { createMathAction } from "./math-action";
+import type { MathGraph, MathObject } from "../domain/math-object";
+import {
+  resolveMathGraphTangentRequest,
+  type MathGraphTangentRequest,
+} from "../graph/math-graph-handler";
 
 export const CONNECTED_MATH_ACTION_IDS = [
   "math.expression.create",
   "math.graph.create",
   "math.shape.create_rectangle",
+  "math.shape.create_circle",
   "math.arithmetic.setup_vertical_multiply",
   "math.graph.add_point",
+  "math.graph.add_tangent",
 ] as const satisfies readonly MathActionId[];
 
 export type ConnectedMathActionId = (typeof CONNECTED_MATH_ACTION_IDS)[number];
@@ -20,10 +27,11 @@ export type MathActionJsonValue = JsonPrimitive | readonly MathActionJsonValue[]
 export interface ConnectedMathActionContext {
   readonly objectId: string;
   readonly bounds?: Rect;
+  readonly currentObject?: MathObject;
 }
 
 /**
- * Decision-facing schemas for the five editor smoke actions. Keeping them next
+ * Decision-facing schemas for the editor-connected math actions. Keeping them next
  * to MathActionInputMap makes math-core the single source of truth for both the
  * model contract and the typed MathAction produced from it.
  */
@@ -56,6 +64,7 @@ export const connectedMathActionDecisionArgsSchema = (
         },
       }, ["expression", "functionType", "parameters"]);
     case "math.shape.create_rectangle":
+    case "math.shape.create_circle":
       return strictObject({}, []);
     case "math.arithmetic.setup_vertical_multiply":
       return strictObject({
@@ -72,6 +81,14 @@ export const connectedMathActionDecisionArgsSchema = (
         yValue: nullable({ type: "number" }),
         label: nullable({ type: "string" }),
       }, ["xValue", "yValue", "label"]);
+    case "math.graph.add_tangent":
+      return strictObject({
+        mode: { type: "string", enum: ["at-point", "at-x", "quadrant", "auto"] },
+        x: nullable({ type: "number" }),
+        y: nullable({ type: "number" }),
+        quadrant: nullable({ type: "integer", enum: [1, 2, 3, 4] }),
+        label: nullable({ type: "string" }),
+      }, ["mode", "x", "y", "quadrant", "label"]);
   }
 };
 
@@ -140,6 +157,21 @@ export const createConnectedMathAction = (
         },
       });
     }
+    case "math.shape.create_circle": {
+      strictRecord(decisionArgs, "math.shape.create_circle args", []);
+      const bounds = requireBounds(context, actionId);
+      const inset = Math.max(4, Math.min(16, bounds.width / 10, bounds.height / 10));
+      return createMathAction(actionId, {
+        objectId: context.objectId,
+        bounds,
+        shapeType: "circle",
+        geometry: {
+          kind: "circle",
+          center: { x: bounds.width / 2, y: bounds.height / 2 },
+          radius: Math.max(1, Math.min(bounds.width, bounds.height) / 2 - inset),
+        },
+      });
+    }
     case "math.arithmetic.setup_vertical_multiply": {
       const args = strictRecord(
         decisionArgs,
@@ -169,6 +201,26 @@ export const createConnectedMathAction = (
         ...(args.label === null
           ? {}
           : { label: nonEmptyString(args.label, "math.graph.add_point args.label") }),
+      });
+    }
+    case "math.graph.add_tangent": {
+      const args = strictRecord(
+        decisionArgs,
+        "math.graph.add_tangent args",
+        ["mode", "x", "y", "quadrant", "label"],
+      );
+      const graph = requireCurrentGraph(context, actionId);
+      const resolved = resolveMathGraphTangentRequest(
+        graph,
+        tangentRequest(args, "math.graph.add_tangent args"),
+      );
+      return createMathAction(actionId, {
+        objectId: context.objectId,
+        functionId: resolved.functionId,
+        atX: resolved.atX,
+        ...(args.label === null
+          ? {}
+          : { label: nonEmptyString(args.label, "math.graph.add_tangent args.label") }),
       });
     }
   }
@@ -202,6 +254,7 @@ export const parseConnectedMathActionDecisionArgs = (
       });
     }
     case "math.shape.create_rectangle":
+    case "math.shape.create_circle":
       strictRecord(decisionArgs, `${actionId} args`, []);
       return Object.freeze({});
     case "math.arithmetic.setup_vertical_multiply": {
@@ -222,8 +275,73 @@ export const parseConnectedMathActionDecisionArgs = (
           : { label: nonEmptyString(args.label, `${actionId} args.label`) }),
       });
     }
+    case "math.graph.add_tangent": {
+      const args = strictRecord(
+        decisionArgs,
+        `${actionId} args`,
+        ["mode", "x", "y", "quadrant", "label"],
+      );
+      const request = tangentRequest(args, `${actionId} args`);
+      return Object.freeze({
+        mode: request.mode,
+        x: request.mode === "at-point" || request.mode === "at-x" ? request.x : null,
+        y: request.mode === "at-point" ? request.y ?? null : null,
+        quadrant: request.mode === "quadrant" ? request.quadrant : null,
+        ...(args.label === null
+          ? { label: null }
+          : { label: nonEmptyString(args.label, `${actionId} args.label`) }),
+      });
+    }
   }
 };
+
+function tangentRequest(
+  args: Record<string, unknown>,
+  path: string,
+): MathGraphTangentRequest {
+  const mode = enumValue(args.mode, `${path}.mode`, [
+    "at-point", "at-x", "quadrant", "auto",
+  ] as const);
+  const x = nullableFiniteNumber(args.x, `${path}.x`);
+  const y = nullableFiniteNumber(args.y, `${path}.y`);
+  const quadrant = args.quadrant === null
+    ? undefined
+    : enumNumber(args.quadrant, `${path}.quadrant`, [1, 2, 3, 4] as const);
+  if (mode === "at-point") {
+    if (x === undefined) throw new TypeError(`${path}.x is required for at-point.`);
+    if (quadrant !== undefined) throw new TypeError(`${path}.quadrant must be null for at-point.`);
+    return { mode, x, ...(y === undefined ? {} : { y }) };
+  }
+  if (mode === "at-x") {
+    if (x === undefined) throw new TypeError(`${path}.x is required for at-x.`);
+    if (y !== undefined || quadrant !== undefined) {
+      throw new TypeError(`${path}.y and quadrant must be null for at-x.`);
+    }
+    return { mode, x };
+  }
+  if (mode === "quadrant") {
+    if (quadrant === undefined) throw new TypeError(`${path}.quadrant is required.`);
+    if (x !== undefined || y !== undefined) {
+      throw new TypeError(`${path}.x and y must be null for quadrant.`);
+    }
+    return { mode, quadrant };
+  }
+  if (x !== undefined || y !== undefined || quadrant !== undefined) {
+    throw new TypeError(`${path}.x, y, and quadrant must be null for auto.`);
+  }
+  return { mode };
+}
+
+function requireCurrentGraph(
+  context: ConnectedMathActionContext,
+  actionId: ConnectedMathActionId,
+): MathGraph {
+  const object = context.currentObject;
+  if (object?.kind !== "graph" || object.id !== context.objectId) {
+    throw new TypeError(`${actionId} requires the current graph object.`);
+  }
+  return object;
+}
 
 function graphParameters(value: unknown): Readonly<Record<string, number>> {
   if (!Array.isArray(value) || value.length > 8) {
@@ -302,6 +420,17 @@ function enumValue<const TValues extends readonly string[]>(
   values: TValues,
 ): TValues[number] {
   if (typeof value !== "string" || !values.includes(value)) {
+    throw new TypeError(`${path} is not supported.`);
+  }
+  return value as TValues[number];
+}
+
+function enumNumber<const TValues extends readonly number[]>(
+  value: unknown,
+  path: string,
+  values: TValues,
+): TValues[number] {
+  if (typeof value !== "number" || !values.includes(value)) {
     throw new TypeError(`${path} is not supported.`);
   }
   return value as TValues[number];
