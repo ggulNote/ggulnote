@@ -15,6 +15,61 @@ import type {
   TargetStrategyKind,
 } from "./target-grounding-types";
 import type { DirectCommandTarget } from "./target-query";
+import type {
+  SpatialPlacementReason,
+} from "./spatial-placement-types";
+import type { PlacementCandidateAlias } from "./multimodal-placement-types";
+import type {
+  SpatialPreviewResolutionFailureStatus,
+  SpatialPreviewValidationFailureReason,
+} from "./spatial-preview-types";
+import type { SpatialPlacementQuery } from "./spatial-placement-query";
+import type {
+  TextPlacementAutoFlowSource,
+  TextPlacementChoicePolicy,
+  TextPlacementMode,
+  TextPlacementProvenance,
+  TextPlacementRecoveryReason,
+} from "./text-placement-intent";
+
+export interface SpatialCommandExecutionDiagnostics {
+  readonly placementRequested: true;
+  readonly pageId: string;
+  readonly sceneRevision: number;
+  readonly anchorResolution: "RESOLVED" | "ANCHOR_NOT_FOUND" | "STALE_SCENE";
+  readonly rawCandidateCount: number;
+  readonly filteredCandidateCount: number;
+  readonly shortlistCandidateCount: number;
+  readonly deterministicGate: "RESOLVED" | "AMBIGUOUS" | "NO_FEASIBLE_PLACEMENT" | "STALE_SCENE";
+  readonly multimodalUsed: boolean;
+  readonly multimodalCallCount: 0 | 1;
+  readonly multimodalProviderResult:
+    | "NOT_REQUIRED"
+    | PlacementCandidateAlias
+    | "NONE"
+    | "ERROR"
+    | "UNAVAILABLE"
+    | "INVALID"
+    | "CANCELLED"
+    | "STALE";
+  readonly screenshotCallCount: 0 | 1;
+  readonly selectionSource?: "DETERMINISTIC" | "MULTIMODAL" | "VALIDATION_FALLBACK";
+  readonly previewAttemptCount: 0 | 1 | 2;
+  readonly validationResult: "NOT_RUN" | "VALIDATED" | SpatialPreviewResolutionFailureStatus;
+  readonly previewFailureReason?: SpatialPreviewValidationFailureReason;
+  readonly commitGuard: "NOT_RUN" | "PASSED" | "REJECTED";
+  readonly runtimeExecuted: boolean;
+  readonly operationRecorded: boolean;
+  readonly placementChoicePolicy?: TextPlacementChoicePolicy;
+  readonly stableFallbackUsed: boolean;
+  readonly failureReason?: SpatialPlacementReason | DirectCommandRouteErrorCode;
+  readonly anchorResolutionMs: number;
+  readonly candidateGenerationMs: number;
+  readonly multimodalMs: number;
+  readonly previewValidationMs: number;
+  readonly commitMs: number;
+  readonly totalSpatialMs: number;
+}
 
 export interface DirectCommandExecutionTimestamps {
   compileStartedAt?: number;
@@ -28,6 +83,18 @@ export interface DirectCommandPlanningDiagnostics {
   speechRefinerResult?: "SKIPPED" | "UNCHANGED" | "REFINED" | "REJECTED" | "ERROR";
   speechRefinerErrorCode?: string;
   plannerStatus?: DirectPlannerResult["status"];
+  plannerDraftPlacementQuery?: SpatialPlacementQuery;
+  plannerPlacementPresent?: boolean;
+  spatialPhraseEvidenceKind?: "NONE" | "EXPLICIT_REGION" | "CONTEXTUAL_RELATIVE" | "AUTO_FREE_SPACE";
+  spatialPhraseEvidenceTokens?: readonly string[];
+  normalizedPlacementMode?: TextPlacementMode;
+  placementProvenance?: TextPlacementProvenance;
+  placementConflictRecovered?: boolean;
+  plannerOutputRecovered?: boolean;
+  placementRecoveryReason?: TextPlacementRecoveryReason;
+  autoFlowSource?: TextPlacementAutoFlowSource;
+  placementChoicePolicy?: TextPlacementChoicePolicy;
+  effectivePlacementQuery?: SpatialPlacementQuery;
   planId?: string;
   capability?: string;
   operation?: string;
@@ -115,6 +182,18 @@ export interface DirectCommandTrace {
   turnId: string;
   planId?: string;
   plannerStatus?: DirectPlannerResult["status"];
+  plannerDraftPlacementQuery?: SpatialPlacementQuery;
+  plannerPlacementPresent?: boolean;
+  spatialPhraseEvidenceKind?: DirectCommandPlanningDiagnostics["spatialPhraseEvidenceKind"];
+  spatialPhraseEvidenceTokens?: readonly string[];
+  normalizedPlacementMode?: TextPlacementMode;
+  placementProvenance?: TextPlacementProvenance;
+  placementConflictRecovered?: boolean;
+  plannerOutputRecovered?: boolean;
+  placementRecoveryReason?: TextPlacementRecoveryReason;
+  autoFlowSource?: TextPlacementAutoFlowSource;
+  placementChoicePolicy?: TextPlacementChoicePolicy;
+  effectivePlacementQuery?: SpatialPlacementQuery;
   speechRefinerUsed?: boolean;
   speechRefinerResult?: DirectCommandPlanningDiagnostics["speechRefinerResult"];
   speechRefinerErrorCode?: string;
@@ -184,6 +263,7 @@ export interface DirectCommandTrace {
   executionStatus: DirectCommandRouteResult["status"];
   editorOperationId?: string;
   errorCode?: DirectCommandRouteErrorCode;
+  spatial?: SpatialCommandExecutionDiagnostics;
   timestamps: DirectCommandLifecycleTimestamps;
   metrics: DirectCommandLatencyMetrics;
 }

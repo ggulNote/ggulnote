@@ -1,0 +1,604 @@
+# Stage 4 — Candidate-Constrained Multimodal Spatial Placement: CHECKLIST
+
+## 사용법
+
+- `[ ]` 미완료
+- `[x]` 완료
+- 실제 완료된 항목만 체크한다.
+- commit/test/known issue는 `STATUS.md`에 기록한다.
+- 체크 순서는 구현 순서를 의미한다.
+- 한 세션에서 다음 Phase를 선행 구현하지 않는다.
+
+---
+
+# Phase 0. Stage 3.5 Handoff / Branch / Existing Architecture
+
+## 0.1 Git 상태
+
+- [x] 현재 branch가 `feat/stage-3.5-robust-grounding`인지 확인
+- [x] current HEAD / 최근 log 기록
+- [x] `git status --short` 기록
+- [x] `AGENTS.md` 재독
+- [x] Stage 3.5 `DECISIONS.md` 재독
+- [x] Stage 3.5 `SPEC.md` 재독
+- [x] Stage 3.5 `CHECKLIST.md` 실제 완료 상태 확인
+- [x] Stage 3.5 `STATUS.md` 실제 완료 상태 확인
+- [x] Stage 3.5 handoff test/typecheck 재검증
+- [x] 현재 미커밋 변경이 Stage 3.5 관련인지 파일별 확인
+- [x] Stage 3.5 관련 변경은 현재 branch에서 완료/커밋
+- [x] unrelated 변경이 있으면 손대지 않고 명시
+- [x] `reset --hard`, `clean`, 무단 `stash`를 사용하지 않음
+- [x] Stage 3.5 final commit 기록
+- [x] working tree clean 확인
+- [x] `feat/stage-4-multimodal-spatial-placement` 생성
+- [x] Stage 4 base/start HEAD 기록
+
+## 0.2 Existing Planner / Grounding
+
+- [x] `CommandPlan` 실제 타입/validator 경로 확인
+- [x] 기존 `DEFER_SPATIAL` contract와 routing 확인
+- [x] `TargetQuery` 실제 union 확인
+- [x] Target Grounding Router 실제 경로 확인
+- [x] Relative/TextSpan/SemanticUnit/Object resolver 경로 확인
+- [x] Grounded LLM Recovery와 provider pattern 확인
+- [x] Frozen context / sceneRevision 사용 위치 확인
+- [x] Guard / idempotency 사용 위치 확인
+
+## 0.3 Existing Scene / Geometry
+
+- [x] PDF canonical page bounds source 확인
+- [x] PDF semantic object bounds source 확인
+- [x] Canvas object bounds/renderBounds source 확인
+- [x] Annotation bounds source 확인
+- [x] zoom / DPR / rotation transform source 확인
+- [x] current viewport bounds source 확인
+- [x] focus/selection/pointer source 확인
+- [x] Scene object layer/z-index/editability metadata 확인
+- [x] screenshot/composed canvas capture API 확인
+- [x] existing spatial index/collision utility 검색
+- [x] existing debug overlay pattern 확인
+
+## 0.4 Existing Editor / Renderer
+
+- [x] capability registry 실제 경로 확인
+- [x] object size/measurement API 확인
+- [x] preview/scratch/ghost layer 지원 여부 확인
+- [x] create/move operation API 확인
+- [x] compiler/runtime 경로 확인
+- [x] CommandManager / Operation Log / Undo 경로 확인
+- [x] IndexedDB persistence commit boundary 확인
+- [x] existing AI server/provider boundary 확인
+
+완료 조건:
+
+```text
+Stage 3.5 변경이 Stage 4에 섞이지 않은 clean base가 있고,
+Stage 4가 재사용해야 할 실제 Planner/Grounding/Scene/Editor API 목록이
+STATUS.md에 기록되어 있어야 한다.
+```
+
+---
+
+# Phase A. Spatial Contract / Frozen Spatial Scene Foundation
+
+## A1. Planner Contract
+
+- [x] `SpatialReferenceQuery` 정의
+- [x] `SpatialPlacementQuery` 정의
+- [x] existing `CommandPlan`에 optional `placementQuery` 최소 확장
+- [x] create subject 없음 / placement 있음 contract
+- [x] move subject target / placement destination contract
+- [x] relation union 정의
+- [x] regionHint/alignment/distance 정의
+- [x] explicit overlay intent contract 정의
+- [x] existing direct plan compatibility 유지
+- [x] `DEFER_SPATIAL` migration/backward compatibility 결정
+
+## A2. Strict Validation
+
+- [x] valid spatial plan accept
+- [x] valid nested TargetQuery reference accept
+- [x] unknown relation reject
+- [x] unknown field reject
+- [x] x/y reject
+- [x] width/height reject
+- [x] bounds/rect reject
+- [x] arbitrary objectId reject
+- [x] arbitrary candidateId reject
+- [x] prototype pollution / malformed payload 방어
+- [x] `JSON.parse(...) as Type`만으로 신뢰하지 않음
+
+## A3. Domain Contracts
+
+- [x] `PlacementProfile`
+- [x] `MeasuredDraft`
+- [x] `SpatialSceneSnapshot`
+- [x] `SpatialSceneObject`
+- [x] protection policy type
+- [x] `ResolvedSpatialAnchor`
+- [x] `PlacementCandidate`
+- [x] `ResolvedPlacement`
+- [x] `SpatialPlacementResult`
+- [x] error/reason union
+- [x] 기존 PageId/SceneRevision/Rect/Point 타입 재사용
+
+## A4. Spatial Scene Source
+
+- [x] `SpatialSceneSource` interface
+- [x] actual Scene/Semantic adapter
+- [x] pageId/sceneRevision 고정
+- [x] canonical coordinate space 고정
+- [x] page/editable/viewport bounds
+- [x] frozen focus/selection 연결
+- [x] PDF base objects 수집
+- [x] Annotation objects 수집
+- [x] Canvas objects 수집
+- [x] renderBounds 우선순위
+- [x] protection classification 중앙화
+- [x] stale snapshot detection
+- [x] FakeSpatialSceneSource
+
+## A5. Placement Profile / Measurement Boundary
+
+- [x] `PlacementProfileProvider` 또는 기존 capability registry adapter
+- [x] `DraftMeasurementProvider` contract
+- [x] resolver 내부 capability-specific switch 금지
+- [x] preferred/min/compact size contract
+- [x] existing object reposition footprint contract
+- [x] unsupported capability result
+
+## A6. Phase A Tests
+
+- [x] planner valid spatial query
+- [x] planner forbidden coordinate fields
+- [x] direct plan regression
+- [x] PDF snapshot mapping
+- [x] Blank Canvas snapshot mapping
+- [x] zoom/DPR independent canonical geometry
+- [x] sceneRevision freeze
+- [x] protection classification
+- [x] fake scene/profile/measurement provider
+- [x] Stage 3.5 Grounding regression
+- [x] targeted typecheck
+- [x] targeted lint
+- [x] `git diff --check`
+- [x] Phase A STATUS 갱신
+- [x] Phase A implementation/docs commit 기록
+
+완료 조건:
+
+```text
+LLM/network/스크린샷 없이
+typed spatial plan
+→ frozen SpatialSceneSnapshot
+→ generic profile/measurement contract
+까지 테스트할 수 있어야 한다.
+```
+
+---
+
+# Phase B. Deterministic Placement Candidate Engine
+
+## B1. Grounding Orchestrator
+
+- [x] placement route와 direct route 분리
+- [x] anchor `TARGET` → Stage 3.5 Grounder 재사용
+- [x] anchor `FOCUS` → frozen focus
+- [x] anchor `PAGE` → page/editable bounds
+- [x] anchor `VIEWPORT` → frozen viewport
+- [x] create subject 없음 처리
+- [ ] move subject grounding
+- [x] anchor not found
+- [ ] subject unsupported
+- [x] no duplicate Grounder implementation
+
+## B2. SpatialOccupancyIndex
+
+- [x] HARD/SOFT/IGNORE 분리
+- [x] profile clearance inflate
+- [x] editable bounds 검사
+- [x] hard overlap area
+- [x] soft overlap area
+- [x] nearest clearance
+- [x] nearby objects
+- [x] exact Rect geometry 기반 MVP
+- [x] raster/CV 불필요
+- [x] unit tests
+
+## B3. Anchor-relative Slots
+
+- [x] ABOVE start/center/end
+- [x] BELOW start/center/end
+- [x] LEFT_OF start/center/end
+- [x] RIGHT_OF start/center/end
+- [x] INSIDE/AT explicit overlay policy
+- [x] NEAR representative slots
+- [x] bounded directional step search
+- [x] page bounds clamp가 아니라 invalid reject 우선
+- [x] requested relation 보존
+
+## B4. Region / Free-space Candidate
+
+- [x] TOP/BOTTOM/LEFT/RIGHT
+- [x] MARGIN
+- [x] CURRENT_VIEW
+- [x] page/viewport corner seeds
+- [x] object gap seeds
+- [x] coarse grid fallback
+- [x] nearby edge snap
+- [x] preferred size first
+- [x] compact size 최대 한 번
+- [x] overflow/new page는 actual capability가 있을 때만 candidate
+
+## B5. Filter / Prune / Gate
+
+- [x] hard constraint filter
+- [x] min size filter
+- [x] overlay policy filter
+- [x] relation validation
+- [x] near-duplicate dedupe
+- [x] dominance pruning
+- [x] strategy diversity
+- [x] final candidates <= 6
+- [x] 0 → NO_FEASIBLE_PLACEMENT
+- [x] 1 → deterministic RESOLVED
+- [x] dominant top1 → deterministic RESOLVED
+- [x] genuine ambiguity → AMBIGUOUS
+- [x] opaque weighted score 없이 설명 가능한 evidence
+
+## B6. Debug / Diagnostics
+
+- [x] S1...Sn overlay
+- [x] candidate JSON
+- [x] filtered reason
+- [x] deterministic/ambiguous reason
+- [x] hard/soft obstacle debug
+- [x] canonical coordinate display
+- [x] no production mutation
+
+## B7. Phase B Tests
+
+- [x] figure below unique space
+- [x] paragraph right margin
+- [x] dense page no feasible
+- [x] two-column page
+- [x] blank canvas sparse
+- [x] blank canvas dense
+- [x] preferred vs compact
+- [x] duplicate candidates
+- [x] dominance
+- [x] true ambiguity
+- [x] candidate cap 6
+- [x] deterministic path future VLM call 0 contract
+- [x] Stage 3.5 regression
+- [x] typecheck/lint/diff-check
+- [x] Phase B STATUS/commits
+
+이번 세션의 Phase B 완료 범위에서는 순수 후보 엔진까지만 구현했다.
+위에 남은 runtime route/move subject grounding은 Phase E,
+visual `S1...Sn` overlay는 Phase B 완료 시점에는 미구현이었고,
+Phase C observation builder의 local candidate crop에서 구현했다.
+
+완료 조건:
+
+```text
+실제 Frozen Scene geometry만으로
+안전한 S1...Sn을 만들고,
+명확한 경우 VLM 없이 하나를 resolve할 수 있어야 한다.
+```
+
+---
+
+# Phase C. Bounded Multimodal Placement Judge
+
+## C1. Observation Builder
+
+- [x] composed page/canvas screenshot source 재사용
+- [x] global overview 생성
+- [x] anchor/candidates local crop 생성
+- [x] candidate footprint mark
+- [x] alias mark 충돌 방지
+- [x] screenshot pixel과 execution geometry 분리
+- [x] compact draft summary
+- [x] compact anchor summary
+- [x] compact candidate metadata
+- [x] 전체 PDF text 미전송
+- [x] 전체 Scene JSON 미전송
+- [x] actual internal candidate ID 미전송
+
+## C2. Provider Contract
+
+- [x] `MultimodalPlacementJudgeProvider`
+- [x] `FakeMultimodalPlacementJudgeProvider`
+- [x] AbortSignal
+- [x] timeout/error normalization
+- [x] browser secret 노출 없음
+- [x] existing server/AI provider pattern 재사용
+- [x] unit tests에서 network 호출 없음
+
+## C3. Strict Output
+
+- [x] `{ choice: "S1" }`
+- [x] `{ choice: "NONE" }`
+- [x] current alias만 accept
+- [x] stale alias reject
+- [x] unknown alias reject
+- [x] unknown field reject
+- [x] coordinate output reject
+- [x] free text reject
+- [x] confidence를 실행 근거로 사용하지 않음
+
+## C4. Invocation Policy
+
+- [x] AMBIGUOUS에서만 호출
+- [x] deterministic path call 0
+- [x] turn당 call <= 1
+- [x] no candidate일 때 호출하지 않음
+- [x] provider unavailable → no commit
+- [x] provider error → no commit
+- [x] NONE → no commit
+- [x] invalid choice → no commit
+- [x] autonomous retry/tool loop 없음
+
+## C5. Tests
+
+- [x] unique candidate no call
+- [x] dominant candidate no call
+- [x] ambiguous exactly one call
+- [x] valid S* choice
+- [x] NONE
+- [x] invalid alias
+- [x] stale request
+- [x] provider error
+- [x] screenshot/crop mapping
+- [x] metadata redaction
+- [x] typecheck/lint/diff-check
+- [x] Phase C STATUS/commits
+
+완료 조건:
+
+```text
+진짜 ambiguous한 경우에만
+현재 실제 후보가 표시된 이미지와 compact metadata를 보고
+VLM이 S* 또는 NONE 하나만 선택해야 한다.
+```
+
+---
+
+# Phase D. Ghost Preview / Deterministic Validation
+
+## D1. Scratch Preview
+
+- [x] existing renderer 재사용
+- [x] persistent Scene mutation 없음
+- [x] IndexedDB write 없음
+- [x] Operation Log write 없음
+- [x] Undo history write 없음
+- [x] actual render bounds 반환
+- [x] preview lifecycle cleanup
+- [x] cancellation cleanup
+
+## D2. Validator
+
+- [x] sceneRevision
+- [x] page/editable bounds
+- [x] actual hard overlap
+- [x] minimum size
+- [x] requested relation
+- [x] overlay policy
+- [x] draft identity
+- [x] candidate identity
+- [x] render mismatch
+- [x] structured invalid reason
+
+## D3. Retry Policy
+
+- [x] preview invalid 시 no immediate commit
+- [x] 이미 생성된 다음 안전 후보 최대 1회
+- [x] 추가 VLM 호출 없음
+- [x] second invalid → `VALIDATION_FAILED` (typed no-commit result)
+- [x] infinite loop 없음
+
+## D4. Tests
+
+- [x] text wrap height drift
+- [x] table/placeholder size drift
+- [x] out of bounds
+- [x] hard overlap after render
+- [x] relation broken
+- [x] stale scene
+- [x] preview cleanup
+- [x] retry 0/1 bound
+- [x] no persistent mutation assertion
+- [x] typecheck/lint/diff-check
+- [x] Phase D STATUS/commits
+
+완료 조건:
+
+```text
+선택된 placement를 실제 renderer로 미리 검증하기 전에는
+어떤 persistent mutation도 발생하지 않아야 한다.
+```
+
+---
+
+# Phase E. Planner / Compiler / Runtime Integration
+
+## E1. Routing
+
+- [x] placementQuery 없음 → 기존 Direct Route
+- [x] placementQuery 있음 → Spatial Route
+- [x] existing `DEFER_SPATIAL` migration
+- [x] direct command behavior 변경 없음
+- [x] Stage 3.5 Grounder reuse
+- [x] cancel/no-op route
+
+## E2. Compiler / Runtime
+
+- [x] ResolvedPlacement를 existing capability compiler input으로 연결
+- [x] existing create operation 연결
+- [ ] existing move operation은 지원될 때만 연결
+- [x] PDF source mutation 차단
+- [x] one logical operation
+- [x] source turnId 기록
+- [x] duplicate turnId commit 차단
+- [x] commit failure normalize
+- [x] no new runtime/undo stack
+
+## E3. History / Relation
+
+- [x] last successful spatial operation 기록
+- [x] failed/NONE/stale turn이 history를 덮어쓰지 않음
+- [ ] REVISE_LAST compatibility
+- [ ] CONTINUE compatibility
+- [x] undo/redo compatibility
+
+## E4. Integration Tests
+
+- [x] note/text create in unique space
+- [x] anchor-based create
+- [x] free-space create
+- [x] ambiguous multimodal create
+- [x] no feasible → no commit
+- [x] provider NONE → no commit
+- [x] stale → no commit
+- [x] preview invalid → no commit
+- [x] duplicate turn → one commit
+- [x] one operation → one Undo
+- [x] direct underline/highlight regression
+- [x] semantic/text-span grounding regression
+
+완료 조건:
+
+```text
+Validated ResolvedPlacement만 기존 Editor Runtime으로 commit되고,
+성공은 Undo 한 번, 실패는 side effect 0이어야 한다.
+```
+
+---
+
+# Phase F. Diagnostics / Evaluation / Completion
+
+## F1. Diagnostics
+
+- [x] route selection
+- [x] snapshot/page/revision
+- [x] anchor result
+- [x] generated/filtered/final candidate count
+- [x] deterministic vs multimodal
+- [x] multimodal call count
+- [x] provider result
+- [x] preview result
+- [x] final result/error
+- [x] candidate generation latency
+- [x] multimodal latency
+- [x] preview latency
+- [x] commit latency
+- [x] document raw content logging 최소화
+
+## F2. Evaluation
+
+- [x] Placement Validity Rate
+- [x] Hard Overlap Rate
+- [x] Relation Satisfaction
+- [x] Preferred Size Preservation
+- [x] Deterministic Resolution Rate
+- [x] Multimodal Fallback Rate
+- [x] Multimodal Choice Accuracy
+- [x] False Commit Rate
+- [x] No-Commit Precision
+- [x] p50/p95 placement latency
+- [x] Undo integrity
+
+## F3. Full Regression
+
+- [x] Stage 2 Voice Turn
+- [x] Stage 3 Direct Route
+- [x] Stage 3.5 Robust Grounding
+- [x] Editor Core full tests
+- [x] Web full tests
+- [x] typecheck
+- [x] lint
+- [x] `git diff --check`
+- [x] known pre-existing failure 구분
+- [x] unrelated code 변경 없음 확인
+
+## F4. Completion
+
+- [x] `CHECKLIST.md` 실제 완료 항목만 `[x]`
+- [x] `STATUS.md`에 final commits/test/limitations 기록
+- [x] Stage 4 `Status: COMPLETE`
+- [x] next-stage handoff 기록
+- [x] branch clean 또는 의도된 잔여 변경 명시
+
+Stage 4 완료 정의:
+
+```text
+Geometry-first safe candidates
++ deterministic fast path
++ ambiguous-only bounded multimodal choice
++ render-and-validate
++ existing transactional Editor commit
+```
+
+---
+
+# Stage 4 UX Hardening — Natural Text Placement Defaults
+
+## Planner Draft / Effective Plan
+
+- [x] `text.create` missing `placementQuery` draft 수용
+- [x] `text.create`의 nested `command.placementQuery`를 draft 단계에서 top-level로 승격
+- [x] top-level/nested 중복 및 다른 capability의 nested placement strict reject
+- [x] omission 외 unknown/coordinate/bounds/objectId/candidateId strict reject 유지
+- [x] normalization 후 기존 strict executable parser 재검증
+- [x] Planner call exactly once
+- [x] recoverable omission same-origin HTTP 502 제거
+
+## Placement Intent
+
+- [x] `EXPLICIT_REGION`
+- [x] `CONTEXTUAL_RELATIVE`
+- [x] `AUTO_FLOW`
+- [x] `AUTO_FREE_SPACE`
+- [x] explicit transcript evidence 우선 및 conflict diagnostic
+- [x] placement provenance/recovery diagnostic
+- [x] Focus → trusted last text → Page origin 지원
+- [x] deictic reference unresolved 시 typed no-commit
+- [x] content span의 spatial phrase 오인 방지
+
+## Choice / Safety
+
+- [x] AUTO_FLOW layout tie deterministic stable selection
+- [x] EXPLICIT_REGION layout tie deterministic stable selection
+- [x] AUTO_FREE_SPACE provider available 시 bounded Phase C 유지
+- [x] AUTO_FREE_SPACE provider unavailable 시 safe shortlist fallback
+- [x] provider error/NONE/stale fallback 금지
+- [x] 모든 성공 path Preview/Validation/commit guard 통과
+- [x] duplicate turn exactly once
+- [x] Undo/Redo 기존 runtime 재사용
+
+## Verification
+
+- [x] 원래 실패한 네 음성 명령 production composition fixture
+- [x] `"왼쪽 위에 가나다라 써 줘"` nested planner output incident fixture
+- [x] planner-explicit PAGE/TOP/START + A4 blank production commit fixture
+- [x] development trace JSON에 spatial gate/preview/commit diagnostics 포함
+- [x] planner omission/conflict/content negative/context tests
+- [x] targeted 10 files / 92 PASS
+- [x] Web full 122 test files PASS
+- [x] Editor Core 7 files / 52 PASS
+- [x] Web/Editor typecheck PASS
+- [x] Web/Editor lint PASS
+- [x] `git diff --check` PASS
+- [ ] manual microphone/browser smoke — stable CompletedVoiceTurn injection UI가 없어 자동 production composition fixture로 대체
+
+## A4 Ghost Preview Raster Hardening
+
+- [x] actual one-pixel TEXT outline을 production composition fixture에 반영
+- [x] fractional A4 canonical ↔ integer preview raster rounding 회귀 재현
+- [x] 중앙 render tolerance로 stroke/subpixel 오차만 허용
+- [x] 실제 text-wrap/large footprint overflow strict reject 유지
+- [x] preview validation failure reason을 development trace에 노출
+- [x] A4 PAGE/TOP/START text.create Preview/Validation/commit PASS
+- [x] Web full, Editor Core, typecheck, lint, `git diff --check` PASS

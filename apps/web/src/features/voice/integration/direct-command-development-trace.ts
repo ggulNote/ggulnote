@@ -45,6 +45,7 @@ export interface DirectCommandDevelopmentTraceSummary {
   guardStatus: DirectCommandTrace["guardStatus"];
   executionStatus: DirectCommandTrace["executionStatus"];
   errorCode?: DirectCommandTrace["errorCode"];
+  spatial?: DirectCommandTrace["spatial"];
   latencyMs: DirectCommandTrace["metrics"];
 }
 
@@ -181,6 +182,7 @@ export function summarizeDirectCommandTrace(
     guardStatus: trace.guardStatus,
     executionStatus: trace.executionStatus,
     ...(trace.errorCode === undefined ? {} : { errorCode: trace.errorCode }),
+    ...(trace.spatial === undefined ? {} : { spatial: { ...trace.spatial } }),
     latencyMs: { ...trace.metrics },
   };
 }
@@ -189,5 +191,5 @@ function logDevelopmentTrace(
   label: typeof DIRECT_COMMAND_TRACE_LABEL,
   summary: DirectCommandDevelopmentTraceSummary,
 ): void {
-  console.debug(label, summary);
+  console.debug(`${label} ${JSON.stringify(summary)}`);
 }

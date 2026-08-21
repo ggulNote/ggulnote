@@ -1,6 +1,7 @@
 "use client";
 
 import type { EditorEngine } from "@ggulnote/editor-core";
+import type { TldrawEditorAdapter } from "../../editor/adapters/tldraw";
 import { useEffect, useRef, useState } from "react";
 import type { VoiceTurnContextRead } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
@@ -12,7 +13,10 @@ import {
   createBrowserDirectCommandComposition,
   type BrowserDirectCommandComposition,
 } from "./browser-direct-command-composition";
+import type { EditorSpatialPlacementCompositionOptions } from "./editor-direct-command-composition";
 import { subscribeToDevelopmentDirectCommandTraces } from "./direct-command-development-trace";
+import { subscribeToDevelopmentNoteAgentTraces } from "./note-agent-development-trace";
+import { HttpNoteDecisionProvider } from "../note-agent";
 
 export interface OwnedBrowserDirectCommandCompositionOptions {
   editorEngine: EditorEngine;
@@ -21,6 +25,8 @@ export interface OwnedBrowserDirectCommandCompositionOptions {
   getCurrentSceneRevision(): number;
   getCurrentPage(): number;
   goToPage(page: number): void;
+  getTldrawAdapter?(): TldrawEditorAdapter | undefined;
+  spatial?: EditorSpatialPlacementCompositionOptions;
 }
 
 class DirectCommandCompositionReaders {
@@ -42,6 +48,18 @@ class DirectCommandCompositionReaders {
 
   public goToPage = (page: number): void => this.options.goToPage(page);
 
+  public getTldrawAdapter = (): TldrawEditorAdapter | undefined =>
+    this.options.getTldrawAdapter?.();
+
+  public getSpatialBaseCanvas = (): HTMLCanvasElement | null =>
+    this.options.spatial?.getBaseCanvas() ?? null;
+
+  public getSpatialOverlayCanvas = (): HTMLCanvasElement | null =>
+    this.options.spatial?.getOverlayCanvas() ?? null;
+
+  public mountSpatialPreviewCanvas = (canvas: HTMLCanvasElement): void | (() => void) =>
+    this.options.spatial?.mountPreviewCanvas(canvas);
+
   public update(options: OwnedBrowserDirectCommandCompositionOptions): void {
     this.options = options;
   }
@@ -62,8 +80,22 @@ export function useOwnedBrowserDirectCommandComposition(
       getCurrentSceneRevision: readers.getCurrentSceneRevision,
       getCurrentPage: readers.getCurrentPage,
       goToPage: readers.goToPage,
+      getTldrawAdapter: readers.getTldrawAdapter,
       recovery: new HttpGroundedTargetRecoveryProvider(),
       speechRefiner: new HttpSpeechRefinerProvider(),
+      ...noteAgentRoutingOptions(),
+      ...(options.spatial === undefined
+        ? {}
+        : {
+            spatial: {
+              getBaseCanvas: readers.getSpatialBaseCanvas,
+              getOverlayCanvas: readers.getSpatialOverlayCanvas,
+              mountPreviewCanvas: readers.mountSpatialPreviewCanvas,
+              ...(options.spatial.placementJudge === undefined
+                ? {}
+                : { placementJudge: options.spatial.placementJudge }),
+            },
+          }),
     }),
   );
 
@@ -83,10 +115,36 @@ export function useOwnedBrowserDirectCommandComposition(
     };
   }, [composition]);
 
-  useEffect(
-    () => subscribeToDevelopmentDirectCommandTraces(composition.direct.traces),
-    [composition],
-  );
+  useEffect(() => {
+    const unsubscribeDirect = subscribeToDevelopmentDirectCommandTraces(
+      composition.direct.traces,
+    );
+    const productionTraces = composition.direct.noteAgentProduction?.traces;
+    const unsubscribeNoteAgent = productionTraces === undefined
+      ? () => undefined
+      : subscribeToDevelopmentNoteAgentTraces(productionTraces);
+    return () => {
+      unsubscribeDirect();
+      unsubscribeNoteAgent();
+    };
+  }, [composition]);
 
   return composition;
+}
+
+function noteAgentRoutingOptions(): Pick<
+  Parameters<typeof createBrowserDirectCommandComposition>[0],
+  "noteAgent"
+> | Record<string, never> {
+  const configured = process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE;
+  const legacyShadow = process.env.NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE === "1";
+  if (configured === "legacy" && !legacyShadow) {
+    return {};
+  }
+  return {
+    noteAgent: {
+      mode: configured === "shadow" || legacyShadow ? "SHADOW" : "PRODUCTION",
+      provider: new HttpNoteDecisionProvider(),
+    },
+  };
 }

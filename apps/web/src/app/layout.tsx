@@ -13,6 +13,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="h-full">
+      <head>
+        <link
+          rel="preload"
+          href="/fonts/nanum-pen-script/NanumPenScript-Regular.ttf"
+          as="font"
+          type="font/ttf"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
         <div className="min-h-screen w-full">{children}</div>
       </body>

@@ -2,9 +2,9 @@ import {
   DirectAiProviderError,
   DirectPlannerResultValidationError,
   isAbortError,
-  parseDirectPlannerResult,
+  parseDirectPlannerDraftResult,
   type DirectCommandPlannerInput,
-  type DirectPlannerResult,
+  type DirectPlannerDraftResult,
 } from "../domain";
 import type {
   DirectCommandPlannerOptions,
@@ -30,7 +30,7 @@ implements DirectCommandPlannerProvider {
   public async plan(
     input: DirectCommandPlannerInput,
     options: DirectCommandPlannerOptions = {},
-  ): Promise<DirectPlannerResult> {
+  ): Promise<DirectPlannerDraftResult> {
     throwIfAborted(options.signal);
     const planId = this.planIdFactory();
     const request = buildDirectCommandPlannerModelRequest(input, planId);
@@ -51,7 +51,7 @@ implements DirectCommandPlannerProvider {
     }
 
     try {
-      const result = parseDirectPlannerResult(parseDirectModelJsonObject(rawOutput));
+      const result = parseDirectPlannerDraftResult(parseDirectModelJsonObject(rawOutput));
       assertPlannerAuthority(result, input, planId);
       return result;
     } catch (error) {
@@ -94,7 +94,7 @@ function sanitizeDiagnostic(value: string, maxChars: number): string {
 }
 
 function assertPlannerAuthority(
-  result: DirectPlannerResult,
+  result: DirectPlannerDraftResult,
   input: DirectCommandPlannerInput,
   planId: string,
 ): void {

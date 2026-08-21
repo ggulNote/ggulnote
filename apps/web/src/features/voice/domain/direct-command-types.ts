@@ -10,6 +10,7 @@ import type {
   DirectControlTarget,
   TargetQuery,
 } from "./target-query";
+import type { SpatialPlacementQuery } from "./spatial-placement-query";
 import type {
   CompletedVoiceTurn,
   FrozenVoiceTurnContext,
@@ -64,12 +65,22 @@ export type TextReplaceContentDirectCommand = {
   };
 };
 
+export type TextCreateDirectCommand = {
+  capability: "text";
+  operation: "create";
+  target: DirectCurrentPageTargetRef;
+  payload: {
+    text: string;
+  };
+};
+
 export type DirectEditorCommand =
   | AnnotationUnderlineDirectCommand
   | AnnotationHighlightDirectCommand
   | NavigationDirectCommand
   | HistoryUndoDirectCommand
-  | TextReplaceContentDirectCommand;
+  | TextReplaceContentDirectCommand
+  | TextCreateDirectCommand;
 
 type ExistingDirectCapabilityId = Extract<
   CapabilityId,
@@ -86,6 +97,7 @@ export const DIRECT_COMMAND_NAMES = [
   "navigation.previous_page",
   "history.undo",
   "text.replace_content",
+  "text.create",
 ] as const;
 
 export type DirectCommandName = (typeof DIRECT_COMMAND_NAMES)[number];
@@ -158,6 +170,19 @@ export interface ExecutableDirectPlan {
   normalizedIntent: string;
   relation: ExecutableCommandRelation;
   command: DirectEditorCommand;
+  /** Spatial mutation subject. Omitted when placement creates a new draft. */
+  targetQuery?: TargetQuery;
+  placementQuery?: SpatialPlacementQuery;
+}
+
+/**
+ * Strictly parsed planner output before application-owned placement defaults.
+ * Only text.create may temporarily omit placementQuery; every other field is
+ * subject to the same runtime validation as ExecutableDirectPlan.
+ */
+export interface ExecutableDirectPlannerDraft
+extends Omit<ExecutableDirectPlan, "placementQuery"> {
+  placementQuery?: SpatialPlacementQuery;
 }
 
 export interface DeferredSpatialPlan {
@@ -190,6 +215,13 @@ export type DirectPlannerResult =
   | UnsupportedDirectPlan
   | CancelledDirectPlan;
 
+export type DirectPlannerDraftResult =
+  | ExecutableDirectPlannerDraft
+  | DeferredSpatialPlan
+  | NeedsClarificationPlan
+  | UnsupportedDirectPlan
+  | CancelledDirectPlan;
+
 export type DirectCommandRouteErrorCode =
   | "EMPTY_TRANSCRIPT"
   | "PLANNER_ERROR"
@@ -205,6 +237,13 @@ export type DirectCommandRouteErrorCode =
   | "TARGET_KIND_UNSUPPORTED"
   | "STALE_SCENE"
   | "SPATIAL_REQUIRED"
+  | "NO_FEASIBLE_PLACEMENT"
+  | "MULTIMODAL_UNRESOLVED"
+  | "PREVIEW_UNAVAILABLE"
+  | "PREVIEW_RENDER_FAILED"
+  | "VALIDATION_FAILED"
+  | "UNSUPPORTED_CAPABILITY"
+  | "INVALID_SPATIAL_SCENE"
   | "UNSUPPORTED_COMMAND"
   | "DUPLICATE_TURN"
   | "COMPILE_FAILED"
@@ -244,6 +283,12 @@ export type DirectCommandExecutionResult =
 
 export type DirectCommandRouteResult =
   | DirectCommandExecutionResult
+  | {
+      status: "COMPUTED";
+      turnId: DirectCommandTurnId;
+      toolId: string;
+      data: unknown;
+    }
   | {
       status: "REVISED";
       turnId: DirectCommandTurnId;

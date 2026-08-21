@@ -35,6 +35,9 @@ describe("multi-rect local persistence", () => {
         properties: { color: "#facc15", opacity: 0.35 },
         createdAt: 1,
         updatedAt: 1,
+        createdByTurnId: "turn-highlight",
+        creationOrder: 4,
+        targetObjectIds: ["pdf:doc-1:0:paragraph:p-1"],
       }],
     };
 
@@ -47,6 +50,11 @@ describe("multi-rect local persistence", () => {
     });
     const stored = await database.pageSnapshots.get("doc-1:doc-1-page-1");
     expect(stored?.annotations[0]?.rects).toEqual(rects);
+    expect(stored?.annotations[0]).toMatchObject({
+      createdByTurnId: "turn-highlight",
+      creationOrder: 4,
+      targetObjectIds: ["pdf:doc-1:0:paragraph:p-1"],
+    });
 
     const hydrated = new EditorEngine();
     hydrated.setDocument("doc-1");
@@ -55,5 +63,11 @@ describe("multi-rect local persistence", () => {
     hydrated.hydratePage(stored);
     expect(hydrated.exportPageSnapshot("doc-1-page-1").annotations[0]?.rects)
       .toEqual(rects);
+    expect(hydrated.exportPageSnapshot("doc-1-page-1").annotations[0])
+      .toMatchObject({
+        createdByTurnId: "turn-highlight",
+        creationOrder: 4,
+        targetObjectIds: ["pdf:doc-1:0:paragraph:p-1"],
+      });
   });
 });

@@ -1,6 +1,6 @@
 import type { DocumentId } from "@ggulnote/shared-types";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
-import type { EditorOperation } from "../operations/editor-operation";
+import type { EditorOperation, EditorOperationMetadata } from "../operations/editor-operation";
 import { createOperation } from "../operations/editor-operation";
 import { deserializeAnnotation } from "../serialization/annotation-serializer";
 import type { EditorCommand, EditorCommandContext } from "./editor-command";
@@ -11,6 +11,7 @@ export class DeleteAnnotationCommand implements EditorCommand {
   public constructor(
     private readonly snapshot: SerializedAnnotation,
     private readonly documentId: DocumentId,
+    private readonly operationMetadata: EditorOperationMetadata = {},
   ) {}
 
   public execute(context: EditorCommandContext): void {
@@ -30,6 +31,7 @@ export class DeleteAnnotationCommand implements EditorCommand {
       annotationId: this.snapshot.id,
       type: "DELETE_ANNOTATION",
       payload: { annotation: this.snapshot },
+      ...this.operationMetadata,
     });
   }
 

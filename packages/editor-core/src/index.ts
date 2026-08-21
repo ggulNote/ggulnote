@@ -9,6 +9,8 @@ export type { NormalizedPoint, NormalizedRect, Size } from "@ggulnote/shared-typ
 
 export type { Annotation } from "./annotations/annotation";
 export type { AnnotationType, CreateAnnotationInput } from "./annotations/annotation-types";
+export { AnnotationFactory } from "./annotations/annotation-factory";
+export type { AnnotationFactoryOptions } from "./annotations/annotation-factory";
 export {
   DEFAULT_ANNOTATION_STYLE,
   MAX_ANNOTATION_RECT_COUNT,
@@ -36,6 +38,7 @@ export { serializeAnnotation, deserializeAnnotation } from "./serialization/anno
 export type { SerializedAnnotation } from "./serialization/serialized-annotation";
 
 export { CreateAnnotationCommand } from "./commands/create-annotation-command";
+export { CompositeEditorCommand } from "./commands/composite-editor-command";
 export { DeleteAnnotationCommand } from "./commands/delete-annotation-command";
 export { MoveAnnotationCommand } from "./commands/move-annotation-command";
 export { UpdateAnnotationCommand } from "./commands/update-annotation-command";
@@ -46,6 +49,20 @@ export { buildPdfSceneObjects } from './scene-core/pdf-scene-adapter';
 export { buildCanvasSceneObjects, resolveCanvasGroupBounds } from './scene-core/canvas-scene-adapter';
 export { CanvasObjectStore } from './scene-core/canvas-object-store';
 export { buildSceneSnapshot, type SceneSnapshotWithStats } from './scene-core/scene-snapshot';
+export {
+  describeSceneObject,
+  normalizeSceneObjectText,
+  sceneObjectCapabilities,
+  sceneObjectUnifiedSource,
+} from './scene-core/scene-object-metadata';
+export type {
+  SceneObjectCapabilities,
+  SceneObjectMetadataOptions,
+  SceneObjectMetadataView,
+  SceneObjectPartMetadata,
+  UnifiedSceneObjectSource,
+} from './scene-core/scene-object-metadata';
+export type { EditorOperationMetadata } from './operations/editor-operation';
 export { createSceneRevisionTracker } from './scene-core/revision';
 export { buildOccupancyMap } from './scene-core/occupancy';
 export { buildPlacementCandidates } from './scene-core/placement';

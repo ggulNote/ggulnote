@@ -1,4 +1,8 @@
 export { SceneVoiceTurnContextSource, resolveVoiceFocusSnapshot } from "./voice-turn-context-source";
+export {
+  NOTEBOOK_LAYOUT_POLICY,
+  notebookEditableBounds,
+} from "./notebook-layout-policy";
 export type {
   SceneVoiceTurnContextSourceOptions,
   VoiceCurrentSceneReference,
@@ -133,6 +137,145 @@ export type {
   DirectRecentOperationsSource,
   FrozenSceneSnapshotSource,
 } from "./direct-command-context-builder";
+export {
+  classifySpatialProtection,
+  DefaultSpatialProtectionPolicy,
+  ExistingSceneSpatialSceneSource,
+  toSpatialSceneObject,
+} from "./spatial-scene-source";
+export type {
+  ExistingSceneSpatialSceneSourceOptions,
+  FrozenSceneReadSource,
+  FrozenSpatialSceneReference,
+  SpatialSceneSource,
+  SpatialSceneSourceResult,
+} from "./spatial-scene-source";
+export type {
+  DraftMeasurementProvider,
+  DraftMeasurementProviderResult,
+  DraftMeasurementRequest,
+  PlacementProfileProvider,
+  PlacementProfileProviderResult,
+  PlacementProfileRequest,
+} from "./placement-profile-provider";
+export { measureExistingObjectDraft } from "./placement-profile-provider";
+export {
+  RectSpatialOccupancyIndex,
+  SPATIAL_GEOMETRY_EPSILON,
+  isFinitePositiveRect,
+  isRectInside,
+  rectBottom,
+  rectDistance,
+  rectIntersectionArea,
+  rectRight,
+} from "./spatial-occupancy-index";
+export type {
+  RectSpatialOccupancyIndexOptions,
+  SpatialOccupancyIndex,
+} from "./spatial-occupancy-index";
+export { resolveSpatialAnchor } from "./spatial-anchor-resolver";
+export type {
+  ResolveSpatialAnchorInput,
+  SpatialAnchorResolutionResult,
+} from "./spatial-anchor-resolver";
+export {
+  MAX_FINAL_PLACEMENT_CANDIDATES,
+  dedupePlacementCandidates,
+  dominatesPlacementCandidate,
+  generatePlacementCandidates,
+  pruneDominatedPlacementCandidates,
+  resolveDeterministically,
+  satisfiesSpatialPlacementRelation,
+} from "./placement-candidate-engine";
+export {
+  InMemorySpatialPreviewRendererRegistry,
+  SpatialPreviewUnavailableError,
+} from "./spatial-preview-renderer";
+export type {
+  SpatialPreviewRenderInput,
+  SpatialPreviewRenderer,
+  SpatialPreviewRendererRegistry,
+  SpatialPreviewSession,
+} from "./spatial-preview-renderer";
+export {
+  SPATIAL_PREVIEW_RENDER_TOLERANCE,
+  validateSpatialPreview,
+} from "./spatial-preview-validator";
+export type { SpatialPreviewValidationInput } from "./spatial-preview-validator";
+export {
+  PreviewValidationOrchestrator,
+  selectedSpatialPlacementFromResult,
+} from "./preview-validation-orchestrator";
+export type {
+  PreviewValidationDiagnostics,
+  PreviewValidationInput,
+  PreviewValidationOrchestratorOptions,
+  PreviewValidationResolution,
+  SpatialPreviewAttemptDiagnostics,
+} from "./preview-validation-orchestrator";
+export type {
+  SpatialScreenshot,
+  SpatialScreenshotCaptureInput,
+  SpatialScreenshotMarker,
+  SpatialScreenshotSource,
+  SpatialScreenshotSourceResult,
+} from "./spatial-screenshot-source";
+export {
+  MULTIMODAL_OBSERVATION_CONFIG,
+  MultimodalPlacementObservationBuilder,
+  buildMultimodalPlacementRenderPlan,
+  canonicalRectToScreenshotPixels,
+} from "./multimodal-placement-observation";
+export { BoundedMultimodalPlacementResolver } from "./bounded-multimodal-placement-resolver";
+export type {
+  BoundedMultimodalPlacementDiagnostics,
+  BoundedMultimodalPlacementInput,
+  BoundedMultimodalPlacementResolution,
+  BoundedMultimodalPlacementResolverOptions,
+  CurrentSpatialSceneReference,
+  CurrentSpatialSceneReferenceSource,
+  MultimodalPlacementProviderDiagnostic,
+} from "./bounded-multimodal-placement-resolver";
+export type {
+  MultimodalPlacementObservation,
+  MultimodalPlacementObservationBuildResult,
+  MultimodalPlacementObservationBuilderOptions,
+  MultimodalPlacementObservationDiagnostics,
+  MultimodalPlacementObservationInput,
+  MultimodalPlacementRenderPlan,
+  PlacementCandidateMark,
+  SpatialEncodedImage,
+  SpatialObservationImageProcessor,
+} from "./multimodal-placement-observation";
+export type {
+  DeterministicPlacementGateInput,
+  PlacementCandidateFilterReason,
+  PlacementCandidateGenerationDiagnostics,
+  PlacementCandidateGenerationInput,
+  PlacementCandidateGenerationResult,
+  PlacementObstacleDiagnostic,
+} from "./placement-candidate-engine";
+export {
+  applyPlacementChoicePolicy,
+  resolveDelegatedLayoutFallback,
+  resolveDeterministicPlacementTie,
+} from "./placement-choice-policy";
+export type {
+  PlacementChoicePolicyInput,
+  PlacementChoicePolicyResolution,
+} from "./placement-choice-policy";
+export { extractSpatialPhraseEvidence } from "./spatial-phrase-evidence";
+export type {
+  HorizontalPlacementEvidence,
+  SpatialPhraseEvidence,
+  SpatialPhraseEvidenceInput,
+  VerticalPlacementEvidence,
+} from "./spatial-phrase-evidence";
+export { normalizeTextPlacementIntent } from "./text-placement-intent-normalizer";
+export type {
+  TextPlacementIntentNormalizationInput,
+  TextPlacementIntentNormalizationResult,
+} from "./text-placement-intent-normalizer";
 export { DirectCommandPlanningPipeline } from "./direct-command-planning-pipeline";
 export type {
   DirectCommandPlanningOptions,
@@ -147,7 +290,24 @@ export type {
 export {
   compileDirectCommandCapability,
   compileDirectCommandRevision,
+  compileValidatedSpatialCommand,
 } from "./direct-command-capability-compiler";
+export {
+  InMemorySpatialCommandCapabilityRegistry,
+} from "./spatial-command-capability";
+export type {
+  SpatialCommandCapability,
+  SpatialCommandCapabilitySource,
+} from "./spatial-command-capability";
+export { SpatialPlacementExecutionPipeline } from "./spatial-placement-execution";
+export type {
+  PreparedSpatialPlacement,
+  SpatialPlacementPreparationInput,
+  SpatialPlacementPreparationResolution,
+  SpatialPlacementExecutionPipelineOptions,
+  SpatialPlacementExecutionResolution,
+  ValidatedSpatialPlacementExecutionPort,
+} from "./spatial-placement-execution";
 export { DirectCommandHistoryContext } from "./direct-command-history-context";
 export type {
   DirectCommandHistoryContextOptions,
@@ -169,6 +329,7 @@ export type {
   DirectCommandPlanningPort,
   DirectCommandRouteExecuteOptions,
   DirectCommandRouteOptions,
+  SpatialCommandExecutionPort,
 } from "./direct-command-route";
 export type {
   DirectCommandCompileContext,
@@ -179,3 +340,13 @@ export type {
   GroundingEvaluationCategory,
   GroundingEvaluationMetrics,
 } from "./grounding-evaluation";
+export { evaluateSpatialPlacementCases } from "./spatial-placement-evaluation";
+export type {
+  SpatialPlacementEvaluationCase,
+  SpatialPlacementEvaluationMetrics,
+} from "./spatial-placement-evaluation";
+export {
+  needsCatalogVisualContext,
+  needsVisualContext,
+  SCENE_VISUAL_CONTEXT_POLICY,
+} from "./scene-visual-context-policy";

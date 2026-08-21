@@ -2,9 +2,9 @@ import {
   DirectAiProviderError,
   DirectPlannerResultValidationError,
   parseDirectCommandPlannerInput,
-  parseDirectPlannerResult,
+  parseDirectPlannerDraftResult,
   type DirectCommandPlannerInput,
-  type DirectPlannerResult,
+  type DirectPlannerDraftResult,
 } from "../domain";
 import type {
   DirectCommandPlannerOptions,
@@ -33,7 +33,7 @@ implements DirectCommandPlannerProvider {
   public async plan(
     input: DirectCommandPlannerInput,
     options: DirectCommandPlannerOptions = {},
-  ): Promise<DirectPlannerResult> {
+  ): Promise<DirectPlannerDraftResult> {
     const safeInput = parseDirectCommandPlannerInput(input);
     const value = await postDirectAiRequest(
       this.endpoint,
@@ -42,7 +42,7 @@ implements DirectCommandPlannerProvider {
       options.signal,
     );
     try {
-      const result = parseDirectPlannerResult(value);
+      const result = parseDirectPlannerDraftResult(value);
       if (
         result.turnId !== safeInput.turn.turnId
         || (

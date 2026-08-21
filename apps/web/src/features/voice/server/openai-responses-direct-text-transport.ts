@@ -15,10 +15,19 @@ export type OpenAiResponsesFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type OpenAiReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export interface OpenAiResponsesDirectTextTransportOptions {
   apiKey: string;
   model: string;
   timeoutMs: number;
+  reasoningEffort?: OpenAiReasoningEffort;
   fetch?: OpenAiResponsesFetch;
 }
 
@@ -65,6 +74,7 @@ implements DirectTextModelTransport {
     }, this.options.timeoutMs);
 
     try {
+      const requestStartedAt = monotonicNow();
       const response = await this.fetchImpl(OPENAI_RESPONSES_ENDPOINT, {
         method: "POST",
         headers: {
@@ -81,12 +91,16 @@ implements DirectTextModelTransport {
             },
             ...request.input,
           ],
-          text: { format: { type: "json_object" } },
+          text: { format: request.responseFormat ?? { type: "json_object" } },
+          ...(this.options.reasoningEffort === undefined
+            ? {}
+            : { reasoning: { effort: this.options.reasoningEffort } }),
           max_output_tokens: request.maxOutputTokens,
           store: false,
         }),
         signal: controller.signal,
       });
+      const responseStartedAt = monotonicNow();
       if (callerAborted || options.signal?.aborted) {
         throw new DirectAiProviderError("ABORTED", "ABORTED");
       }
@@ -106,6 +120,12 @@ implements DirectTextModelTransport {
         );
       }
       const payload = await readResponseJson(response);
+      const bodyReadAt = monotonicNow();
+      options.onTelemetry?.({
+        openaiTtfbMs: Math.max(0, responseStartedAt - requestStartedAt),
+        openaiBodyReadMs: Math.max(0, bodyReadAt - responseStartedAt),
+        ...readUsage(payload),
+      });
       const outputText = extractOpenAiOutputText(payload);
       if (outputText.trim().length === 0) {
         throw new DirectAiProviderError(
@@ -139,6 +159,34 @@ implements DirectTextModelTransport {
       options.signal?.removeEventListener("abort", abortFromCaller);
     }
   }
+}
+
+function readUsage(value: unknown): {
+  readonly inputTokens?: number;
+  readonly cachedInputTokens?: number;
+  readonly outputTokens?: number;
+} {
+  if (!isRecord(value) || !isRecord(value.usage)) return {};
+  const usage = value.usage;
+  const inputDetails = isRecord(usage.input_tokens_details)
+    ? usage.input_tokens_details
+    : undefined;
+  return {
+    ...optionalMetric("inputTokens", usage.input_tokens),
+    ...optionalMetric("cachedInputTokens", inputDetails?.cached_tokens),
+    ...optionalMetric("outputTokens", usage.output_tokens),
+  };
+}
+
+function optionalMetric(
+  name: "inputTokens" | "cachedInputTokens" | "outputTokens",
+  value: unknown,
+): Partial<Record<"inputTokens" | "cachedInputTokens" | "outputTokens", number>> {
+  return typeof value === "number" && Number.isFinite(value) ? { [name]: value } : {};
+}
+
+function monotonicNow(): number {
+  return globalThis.performance?.now() ?? Date.now();
 }
 
 async function readResponseJson(response: Response): Promise<unknown> {

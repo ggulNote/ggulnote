@@ -339,7 +339,8 @@ function plannerResult(
   };
 }
 
-function createProductionHarness(fetchMock: typeof fetch) {
+function createLegacyHarness(fetchMock: typeof fetch) {
+  vi.stubEnv("NEXT_PUBLIC_NOTE_AGENT_ROUTE", "legacy");
   vi.stubGlobal("fetch", fetchMock);
   const editorEngine = new EditorEngine({ idGenerator: () => "production-highlight" });
   editorEngine.setDocument("doc-production");
@@ -361,6 +362,37 @@ function createProductionHarness(fetchMock: typeof fetch) {
 }
 
 describe("useOwnedBrowserDirectCommandComposition", () => {
+  it("uses the Phase 5 Note Agent as the default production owner", () => {
+    const editorEngine = new EditorEngine();
+    const { result } = renderHook(() => useOwnedBrowserDirectCommandComposition({
+      editorEngine,
+      readCurrentVoiceContext: () => {
+        throw new Error("Context is not read before speech-start.");
+      },
+      readCurrentGroundingSnapshot: () => undefined,
+      getCurrentSceneRevision: () => 1,
+      getCurrentPage: () => 1,
+      goToPage: () => undefined,
+    }));
+    expect(result.current.direct.noteAgentProduction).toBeDefined();
+    expect(result.current.direct.noteAgentShadow).toBeUndefined();
+  });
+  it("keeps legacy planning behind an explicit rollback flag", () => {
+    vi.stubEnv("NEXT_PUBLIC_NOTE_AGENT_ROUTE", "legacy");
+    const editorEngine = new EditorEngine();
+    const { result } = renderHook(() => useOwnedBrowserDirectCommandComposition({
+      editorEngine,
+      readCurrentVoiceContext: () => {
+        throw new Error("Context is not read before speech-start.");
+      },
+      readCurrentGroundingSnapshot: () => undefined,
+      getCurrentSceneRevision: () => 1,
+      getCurrentPage: () => 1,
+      goToPage: () => undefined,
+    }));
+    expect(result.current.direct.noteAgentProduction).toBeUndefined();
+    expect(result.current.direct.noteAgentShadow).toBeUndefined();
+  });
   it("keeps one session composition through Strict Mode and disposes route on unmount", async () => {
     const editorEngine = new EditorEngine();
     const { result, rerender, unmount } = renderHook(
@@ -406,7 +438,7 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       }
       throw new Error(`Unexpected endpoint: ${url}`);
     });
-    const harness = createProductionHarness(fetchMock);
+    const harness = createLegacyHarness(fetchMock);
 
     let routeResult;
     await act(async () => {
@@ -433,16 +465,12 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       executionStatus: "COMMITTED",
     });
     expect(consoleDebug).toHaveBeenCalledWith(
-      "[voice/direct-command]",
-      expect.objectContaining({
-        turnId: turn.id,
-        targetQueryKind: "text_span",
-        initialResolutionStatus: "RESOLVED",
-        targetRecoveryUsed: false,
-        finalResolutionStatus: "RESOLVED",
-        guardStatus: "PASSED",
-        executionStatus: "COMMITTED",
-      }),
+      expect.stringContaining(
+        `"turnId":"${turn.id}"`,
+      ),
+    );
+    expect(consoleDebug).toHaveBeenCalledWith(
+      expect.stringContaining('"executionStatus":"COMMITTED"'),
     );
   });
 
@@ -469,7 +497,7 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       }
       throw new Error("Unexpected endpoint: " + url);
     });
-    const harness = createProductionHarness(fetchMock);
+    const harness = createLegacyHarness(fetchMock);
 
     await act(async () => {
       await expect(harness.result.current.direct.route.execute(turn))
@@ -504,7 +532,7 @@ describe("useOwnedBrowserDirectCommandComposition", () => {
       }
       return Response.json({ result: plannerResult(turn.id, "online", "finish") });
     });
-    const harness = createProductionHarness(fetchMock);
+    const harness = createLegacyHarness(fetchMock);
 
     await act(async () => {
       await expect(harness.result.current.direct.route.execute(turn))

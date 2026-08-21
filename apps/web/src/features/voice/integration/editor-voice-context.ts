@@ -14,6 +14,12 @@ import {
   buildSceneSnapshot,
   normalizedToCanonicalRect,
 } from "@ggulnote/editor-core";
+import {
+  deserializeMathObject,
+  getMathExpressionDisplayText,
+  type MathObject,
+  type MathObjectKind,
+} from "@ggulnote/math-core";
 import type {
   PageSemanticModel,
   SemanticCandidate,
@@ -23,6 +29,7 @@ import type {
   VoiceFocusCandidates,
   VoiceTurnContextRead,
 } from "../application";
+import type { TldrawObjectProjection } from "../../editor/adapters/tldraw";
 
 export interface EditorVoiceContextInput {
   documentId: string;
@@ -32,6 +39,7 @@ export interface EditorVoiceContextInput {
   pageSize: Size;
   sceneRevision: number;
   pageSnapshot: PageSceneSnapshot;
+  tldrawObjects?: readonly TldrawObjectProjection[];
   semanticModel?: PageSemanticModel;
   selectedAnnotationId?: string;
   recentSemanticCandidate?: SemanticCandidate;
@@ -41,13 +49,17 @@ export function buildEditorVoiceContextRead(
   input: EditorVoiceContextInput,
 ): VoiceTurnContextRead {
   assertPageSize(input.pageSize);
-  const canvasObjects = input.pageSnapshot.annotations.map((annotation) =>
-    annotationToSceneObject(
-      annotation,
-      input.pageSize,
-      input.pageSnapshot.revision,
-    ),
-  );
+  const canvasObjects = input.tldrawObjects === undefined
+    ? input.pageSnapshot.annotations.map((annotation) =>
+        annotationToSceneObject(
+          annotation,
+          input.pageSize,
+          input.pageSnapshot.revision,
+        ))
+    : input.tldrawObjects.flatMap((object, index) => {
+        const projected = tldrawProjectionToSceneObject(object, input, index);
+        return projected === undefined ? [] : [projected];
+      });
   const pdfObjects = input.mode === "pdf" && input.semanticModel
     ? buildPdfSceneObjects({
         documentId: input.documentId,
@@ -90,21 +102,25 @@ export function editorAnnotationSceneId(
   return `canvas:${sanitizeId(annotation.pageId)}:${kind}:${sanitizeId(annotation.id)}`;
 }
 
+export function editorMathSceneId(
+  pageId: string,
+  logicalObjectId: string,
+  kind: MathObjectKind,
+): string {
+  const sceneKind = kind === "graph" || kind === "shape" || kind === "table"
+    ? kind
+    : "math";
+  return `canvas:${sanitizeId(pageId)}:${sceneKind}:${sanitizeId(logicalObjectId)}`;
+}
+
 function buildFocusCandidates(
   input: EditorVoiceContextInput,
   scene: SceneSnapshot,
   canvasObjects: readonly CanvasSceneObject[],
 ): VoiceFocusCandidates {
-  const selectedAnnotation = input.selectedAnnotationId
-    ? input.pageSnapshot.annotations.find(
-        (annotation) => annotation.id === input.selectedAnnotationId,
-      )
-    : undefined;
-  const selected = selectedAnnotation
-    ? canvasObjects.find(
-        (object) => object.id === editorAnnotationSceneId(selectedAnnotation),
-      )
-    : undefined;
+  const selected = input.selectedAnnotationId === undefined
+    ? undefined
+    : canvasObjects.find((object) => object.sourceObjectId === input.selectedAnnotationId);
   const selection = selected
     ? toFocusCandidate(
         "selection",
@@ -126,6 +142,157 @@ function buildFocusCandidates(
     ...(recentFocus ? { recentFocus } : {}),
     page,
   };
+}
+
+function tldrawProjectionToSceneObject(
+  projection: TldrawObjectProjection,
+  input: EditorVoiceContextInput,
+  zIndex: number,
+): CanvasSceneObject | undefined {
+  if (projection.kind === "math") {
+    const snapshot = projection.mathObjectSnapshot;
+    if (snapshot === undefined) return undefined;
+    let object: MathObject;
+    try {
+      object = deserializeMathObject(snapshot);
+    } catch {
+      return undefined;
+    }
+    return mathObjectToSceneObject(object, projection, input, zIndex);
+  }
+  const base = {
+    id: projection.kind === "text"
+      ? editorAnnotationSceneId({ id: projection.objectId, pageId: input.pageId, type: "TEXT" })
+      : editorAnnotationSceneId({
+          id: projection.objectId,
+          pageId: input.pageId,
+          type: projection.annotationType === "highlight" ? "HIGHLIGHT" : "UNDERLINE",
+        }),
+    sourceObjectId: projection.objectId,
+    pageId: input.pageId,
+    source: "canvas" as const,
+    bounds: { ...projection.bounds },
+    zIndex,
+    visible: true,
+    locked: false,
+    objectRevision: Math.max(1, Math.floor(input.sceneRevision)),
+    renderBounds: { ...projection.bounds },
+    ...(projection.createdAt === undefined ? {} : { createdAt: projection.createdAt }),
+    ...(projection.updatedAt === undefined ? {} : { updatedAt: projection.updatedAt }),
+    ...(projection.createdByTurnId === undefined
+      ? {}
+      : { createdByTurnId: projection.createdByTurnId }),
+    creationOrder: zIndex + 1,
+  };
+  if (projection.kind === "text") {
+    return {
+      ...base,
+      kind: "text",
+      text: projection.text ?? "",
+      style: { fontFamily: "Arial", fontSize: 18, fontWeight: "normal" },
+    };
+  }
+  return {
+    ...base,
+    kind: "annotation",
+    annotationType: projection.annotationType ?? "underline",
+    targetObjectIds: [...(projection.targetObjectIds ?? [])],
+    ...(projection.rects === undefined ? {} : { rects: projection.rects.map((rect) => ({ ...rect })) }),
+    style: projection.annotationType === "highlight"
+      ? { color: "#facc15", opacity: 0.35 }
+      : { color: "#1f2937", thickness: 2 },
+  };
+}
+
+function mathObjectToSceneObject(
+  object: MathObject,
+  projection: TldrawObjectProjection,
+  input: EditorVoiceContextInput,
+  zIndex: number,
+): CanvasSceneObject {
+  const base = {
+    id: editorMathSceneId(input.pageId, object.id, object.kind),
+    sourceObjectId: projection.objectId,
+    pageId: input.pageId,
+    source: "canvas" as const,
+    bounds: { ...object.bounds },
+    zIndex,
+    visible: true,
+    locked: false,
+    objectRevision: Math.max(1, Math.floor(input.sceneRevision)),
+    renderBounds: { ...object.bounds },
+    mathObjectSnapshot: projection.mathObjectSnapshot,
+    ...(projection.createdAt === undefined ? {} : { createdAt: projection.createdAt }),
+    ...(projection.updatedAt === undefined ? {} : { updatedAt: projection.updatedAt }),
+    ...(projection.createdByTurnId === undefined
+      ? {}
+      : { createdByTurnId: projection.createdByTurnId }),
+    creationOrder: zIndex + 1,
+  };
+  switch (object.kind) {
+    case "expression":
+      return {
+        ...base,
+        kind: "math",
+        latex: getMathExpressionDisplayText(object),
+        mathJson: projection.mathObjectSnapshot,
+        layout: object.displayMode === "equation_stack" ? "equation-stack" : "display",
+      };
+    case "arithmetic_layout":
+      return {
+        ...base,
+        kind: "math",
+        latex: object.operands.join(object.arithmeticType === "multiply" ? " × " : " "),
+        mathJson: projection.mathObjectSnapshot,
+        layout: "long-multiplication",
+      };
+    case "graph":
+      return {
+        ...base,
+        kind: "graph",
+        expressions: object.functions.map((fn) => ({ id: fn.id, expression: fn.expression })),
+        viewport: {
+          xMin: object.coordinateSystem.xMin,
+          xMax: object.coordinateSystem.xMax,
+          yMin: object.coordinateSystem.yMin,
+          yMax: object.coordinateSystem.yMax,
+        },
+        showAxes: object.coordinateSystem.showAxes,
+        showGrid: object.coordinateSystem.showGrid,
+      };
+    case "table":
+      return {
+        ...base,
+        kind: "table",
+        rows: object.rowCount,
+        columns: object.columnCount,
+        cells: object.cells.flat().map((cell) => ({
+          id: cell.id,
+          row: cell.row,
+          column: cell.column,
+          text: cell.value,
+        })),
+      };
+    case "shape":
+      return {
+        ...base,
+        kind: "shape",
+        shapeType: "rectangle",
+        geometry: {
+          kind: "rectangle",
+          x: object.bounds.x,
+          y: object.bounds.y,
+          width: object.bounds.width,
+          height: object.bounds.height,
+        },
+        style: {
+          strokeWidth: object.style.strokeWidth,
+          stroke: object.style.strokeColor ?? object.style.color,
+          fill: object.style.backgroundColor ?? "transparent",
+          opacity: object.style.opacity,
+        },
+      };
+  }
 }
 
 function semanticCandidateToFocus(
@@ -187,6 +354,7 @@ function annotationToSceneObject(
   const bounds = normalizedToCanonicalRect(annotation.bounds, pageSize);
   const base = {
     id: editorAnnotationSceneId(annotation),
+    sourceObjectId: annotation.id,
     pageId: annotation.pageId,
     source: "canvas" as const,
     bounds,
@@ -196,6 +364,13 @@ function annotationToSceneObject(
     objectRevision: Math.max(1, Math.floor(pageRevision)),
     createdAt: annotation.createdAt,
     updatedAt: annotation.updatedAt,
+    ...(annotation.createdByTurnId === undefined
+      ? {}
+      : { createdByTurnId: annotation.createdByTurnId }),
+    ...(annotation.creationOrder === undefined
+      ? {}
+      : { creationOrder: annotation.creationOrder }),
+    renderBounds: bounds,
   };
 
   switch (annotation.type) {
@@ -225,7 +400,13 @@ function annotationToSceneObject(
         ...base,
         kind: "annotation",
         annotationType: "underline",
-        targetObjectIds: [],
+        targetObjectIds: [...(annotation.targetObjectIds ?? [])],
+        ...(annotation.rects === undefined
+          ? {}
+          : {
+              rects: annotation.rects.map((rect) =>
+                normalizedToCanonicalRect(rect, pageSize)),
+            }),
         style: {
           color: readString(annotation.properties, "color", "#1f2937"),
           thickness: readNumber(annotation.properties, "thickness", 2),
@@ -236,7 +417,13 @@ function annotationToSceneObject(
         ...base,
         kind: "annotation",
         annotationType: "highlight",
-        targetObjectIds: [],
+        targetObjectIds: [...(annotation.targetObjectIds ?? [])],
+        ...(annotation.rects === undefined
+          ? {}
+          : {
+              rects: annotation.rects.map((rect) =>
+                normalizedToCanonicalRect(rect, pageSize)),
+            }),
         style: {
           color: readString(annotation.properties, "color", "#facc15"),
           opacity: readNumber(annotation.properties, "opacity", 0.35),

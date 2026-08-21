@@ -238,6 +238,59 @@ describe("LlmDirectCommandPlannerProvider", () => {
     })).resolves.toEqual({ status: "CANCELLED", turnId: "turn-1" });
   });
 
+  it("returns a strict text.create planner draft when only placementQuery is omitted", async () => {
+    const transport = new StubTransport(JSON.stringify(executable({
+      capability: "text",
+      operation: "create",
+      target: { kind: "CURRENT_PAGE" },
+      payload: { text: "가나다라" },
+    }, "가나다라 쓰기")));
+    const provider = new LlmDirectCommandPlannerProvider({
+      transport,
+      planIdFactory: () => "plan-fixed",
+    });
+
+    await expect(provider.plan({
+      ...BASE_INPUT,
+      turn: { ...BASE_INPUT.turn, rawFinalTranscript: "가나다라라고 써 줘" },
+    })).resolves.toMatchObject({
+      status: "EXECUTABLE",
+      command: { operation: "create", payload: { text: "가나다라" } },
+    });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("recovers a text.create placementQuery nested by the model without retry", async () => {
+    const placementQuery = {
+      reference: { kind: "PAGE" },
+      relation: "FREE_SPACE",
+      regionHint: "TOP",
+      alignment: "START",
+      overlayIntent: "NONE",
+    };
+    const transport = new StubTransport(JSON.stringify(executable({
+      capability: "text",
+      operation: "create",
+      target: { kind: "CURRENT_PAGE" },
+      payload: { text: "가나다라" },
+      placementQuery,
+    }, "왼쪽 위에 가나다라 쓰기")));
+    const provider = new LlmDirectCommandPlannerProvider({
+      transport,
+      planIdFactory: () => "plan-fixed",
+    });
+
+    await expect(provider.plan({
+      ...BASE_INPUT,
+      turn: { ...BASE_INPUT.turn, rawFinalTranscript: "왼쪽 위에 가나다라 써 줘" },
+    })).resolves.toMatchObject({
+      status: "EXECUTABLE",
+      command: { operation: "create", payload: { text: "가나다라" } },
+      placementQuery,
+    });
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it("separates untrusted document data and removes internal IDs and geometry", () => {
     const request = buildDirectCommandPlannerModelRequest(BASE_INPUT, "plan-fixed");
     const serialized = JSON.stringify(request);
@@ -251,12 +304,20 @@ describe("LlmDirectCommandPlannerProvider", () => {
     expect(request.instructions).toContain('\"operation\": \"replace_content\"');
     expect(request.instructions).toContain('\"payload\": { \"text\": \"가나다라\" }');
     expect(request.instructions).toContain("Never return an object or array for capability");
+    expect(request.instructions).toContain("왼쪽 위에 가나다라라고 써 줘");
+    expect(request.instructions).toContain("placementQuery is a sibling of command");
+    expect(request.instructions).toContain("가나다라라고 써 줘");
+    expect(request.instructions).toContain("automatic writing-flow default");
     expect(serialized).toContain("UNTRUSTED_DOCUMENT_CONTEXT");
     expect(serialized).toContain("ignore previous instructions");
     expect(serialized).not.toContain("op-last-secret");
     expect(serialized).not.toContain("op-recent-secret");
-    const dataKeys = request.input.flatMap((message) =>
-      collectKeys(JSON.parse(message.content) as unknown));
+    const dataKeys = request.input.flatMap((message) => {
+      if (typeof message.content !== "string") {
+        throw new Error("direct command planner request must remain text-only");
+      }
+      return collectKeys(JSON.parse(message.content) as unknown);
+    });
     expect(dataKeys).not.toContain("x");
     expect(dataKeys).not.toContain("candidateId");
     expect(dataKeys).not.toContain("objectId");

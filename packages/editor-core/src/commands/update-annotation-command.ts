@@ -1,6 +1,6 @@
 import type { DocumentId } from "@ggulnote/shared-types";
 import type { SerializedAnnotation } from "../serialization/serialized-annotation";
-import type { EditorOperation } from "../operations/editor-operation";
+import type { EditorOperation, EditorOperationMetadata } from "../operations/editor-operation";
 import { createOperation } from "../operations/editor-operation";
 import { deserializeAnnotation } from "../serialization/annotation-serializer";
 import type { EditorCommand, EditorCommandContext } from "./editor-command";
@@ -12,6 +12,7 @@ export class UpdateAnnotationCommand implements EditorCommand {
     private readonly before: SerializedAnnotation,
     private readonly after: SerializedAnnotation,
     private readonly documentId: DocumentId,
+    private readonly operationMetadata: EditorOperationMetadata = {},
   ) {}
 
   public execute(context: EditorCommandContext): void {
@@ -27,6 +28,7 @@ export class UpdateAnnotationCommand implements EditorCommand {
         before: this.before,
         after: this.after,
       },
+      ...this.operationMetadata,
     });
   }
 

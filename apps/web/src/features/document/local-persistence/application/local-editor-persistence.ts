@@ -5,7 +5,7 @@ import { DocumentRepository, type CreateBlankDocumentInput, type CreatePdfDocume
 import { OperationRepository } from "../repositories/operation-repository";
 import { PageSnapshotRepository } from "../repositories/page-snapshot-repository";
 import { SemanticPageRepository, type SemanticPageQueryOptions, type SaveSemanticPageInput } from "../repositories/semantic-page-repository";
-import { ANNOTATION_SCHEMA_VERSION, type CreateDocumentInput, type PersistedAppStateRecord, type PersistedDocumentRecord, type PersistedDocumentFileRecord, type PersistedOperationRecord, type PersistedPageSnapshotRecord, type PersistedSemanticPageRecord, type DocumentRecordViewState } from "../types";
+import { ANNOTATION_SCHEMA_VERSION, TLDRAW_CANVAS_STORE_VERSION, type CreateDocumentInput, type PersistedAppStateRecord, type PersistedDocumentRecord, type PersistedDocumentFileRecord, type PersistedOperationRecord, type PersistedPageSnapshotRecord, type PersistedSemanticPageRecord, type DocumentRecordViewState } from "../types";
 import { openLocalDatabase, type OpenDatabaseOptions } from "../database";
 import { IndexedDbEmbeddingStore } from "../repositories/indexed-db-embedding-store";
 
@@ -47,6 +47,14 @@ export interface SaveEditorOperationInput {
 export interface GetSemanticPageInput extends SemanticPageQueryOptions {
   extractorVersion?: string;
   semanticSchemaVersion?: number;
+}
+
+export interface SaveTldrawPageSnapshotInput {
+  documentId: DocumentId;
+  pageId: PageId;
+  pageNumber: number;
+  snapshot: unknown;
+  annotations: PageSceneSnapshot["annotations"];
 }
 
 export class LocalEditorPersistence {
@@ -139,6 +147,34 @@ export class LocalEditorPersistence {
     pageId: PageId,
   ): Promise<PersistedPageSnapshotRecord | null> {
     return this.snapshotRepository.getPageSnapshot(documentId, pageId);
+  }
+
+  /**
+   * Persists the TLStore in the existing pageSnapshots record. The annotations
+   * projection is compatibility data only; once loaded, TLStore owns canvas state.
+   */
+  public async saveTldrawPageSnapshot(
+    input: SaveTldrawPageSnapshotInput,
+  ): Promise<PersistedPageSnapshotRecord> {
+    const db = await openLocalDatabase(this.options);
+    const id = createPageSnapshotId(input.documentId, input.pageId);
+    const existing = await db.pageSnapshots.get(id);
+    const now = Date.now();
+    const record: PersistedPageSnapshotRecord = {
+      id,
+      documentId: input.documentId,
+      pageId: input.pageId,
+      pageNumber: input.pageNumber,
+      revision: (existing?.revision ?? 0) + 1,
+      annotations: input.annotations,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      annotationSchemaVersion: ANNOTATION_SCHEMA_VERSION,
+      tldrawCanvasStoreVersion: TLDRAW_CANVAS_STORE_VERSION,
+      tldrawSnapshot: input.snapshot,
+    };
+    await db.pageSnapshots.put(record);
+    return record;
   }
 
   public async listDocumentSnapshots(documentId: DocumentId): Promise<PersistedPageSnapshotRecord[]> {

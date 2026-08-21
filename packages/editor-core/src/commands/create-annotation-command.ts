@@ -1,5 +1,5 @@
 import type { DocumentId, AnnotationId, PageId } from "@ggulnote/shared-types";
-import type { EditorOperation } from "../operations/editor-operation";
+import type { EditorOperation, EditorOperationMetadata } from "../operations/editor-operation";
 import { createOperation } from "../operations/editor-operation";
 import type { EditorCommand, EditorCommandContext } from "./editor-command";
 import type { Annotation } from "../annotations/annotation";
@@ -10,6 +10,7 @@ export class CreateAnnotationCommand implements EditorCommand {
   public constructor(
     private readonly annotation: Annotation,
     private readonly documentId: DocumentId,
+    private readonly operationMetadata: EditorOperationMetadata = {},
   ) {}
 
   public execute(context: EditorCommandContext): void {
@@ -23,6 +24,7 @@ export class CreateAnnotationCommand implements EditorCommand {
       annotationId: this.annotation.id,
       type: "CREATE_ANNOTATION",
       payload: { annotation: this.annotation.serialize() },
+      ...this.operationMetadata,
     });
   }
 

@@ -483,6 +483,53 @@ describe("Scene Core: PDF Scene Adapter", () => {
     }
   });
 
+  it("projects reconstructed canonical paragraph text while retaining word geometry objects", () => {
+    const baseModel = makeSemanticModel();
+    const items = baseModel.getAllByReadingOrder();
+    const sourceParagraph = items.find((item) => item.type === "PARAGRAPH");
+    if (sourceParagraph?.type !== "PARAGRAPH") throw new Error("Expected paragraph fixture.");
+    const rawParagraph = {
+      ...sourceParagraph,
+      text: "render- ing HTML into visual webpages",
+      normalizedText: "render- ing HTML into visual webpages",
+      sentenceIds: ["sentence-canonical"],
+    };
+    const canonicalSentence = {
+      ...sourceParagraph,
+      id: "sentence-canonical",
+      type: "SENTENCE" as const,
+      text: "rendering HTML into visual webpages",
+      normalizedText: "rendering HTML into visual webpages",
+      paragraphId: sourceParagraph.id,
+      wordIds: ["word-1", "word-2", "word-3"],
+      lineIds: ["line-1"],
+      startWordId: "word-1",
+      endWordId: "word-3",
+    };
+    const semanticModel = {
+      getAllByReadingOrder: () => [
+        rawParagraph,
+        canonicalSentence,
+        ...items.filter((item) => item.type !== "PARAGRAPH"),
+      ],
+      getLayoutRegions: () => [],
+    } as unknown as PageSemanticModel;
+
+    const objects = buildPdfSceneObjects({
+      documentId: DOCUMENT_ID,
+      pageId: PAGE_ID,
+      pageIndex: 0,
+      pageWidth: PAGE.width,
+      pageHeight: PAGE.height,
+      semanticModel,
+    }).objects;
+
+    expect(objects.find((object) => object.kind === "paragraph")).toMatchObject({
+      text: "rendering HTML into visual webpages",
+    });
+    expect(objects.filter((object) => object.kind === "word")).toHaveLength(3);
+  });
+
   it("keeps original semantic ID namespace stable", () => {
     const model = makeSemanticModel();
     const first = buildPdfSceneObjects({

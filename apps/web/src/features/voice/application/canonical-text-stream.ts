@@ -263,8 +263,15 @@ function buildPairMatchResult(
   stream: CanonicalTextStream,
   pairs: readonly TextSpanRange[],
 ): TextSpanRangeResolution {
-  if (pairs.length === 1) {
-    const range = pairs[0];
+  const startIndexes = new Set(pairs.map((pair) => pair.startIndex));
+  const nearestEndIndex = startIndexes.size === 1
+    ? Math.min(...pairs.map((pair) => pair.endIndex))
+    : undefined;
+  const nearestPairs = nearestEndIndex === undefined
+    ? pairs
+    : pairs.filter((pair) => pair.endIndex === nearestEndIndex);
+  if (nearestPairs.length === 1) {
+    const range = nearestPairs[0];
     if (range === undefined) {
       return {
         status: "NOT_FOUND",

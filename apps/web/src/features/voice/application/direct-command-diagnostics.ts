@@ -97,11 +97,39 @@ function cloneTrace(trace: DirectCommandTrace): DirectCommandTrace {
   return {
     ...trace,
     ...(trace.command === undefined ? {} : { command: { ...trace.command } }),
+    ...(trace.plannerDraftPlacementQuery === undefined
+      ? {}
+      : {
+          plannerDraftPlacementQuery: clonePlacementQuery(
+            trace.plannerDraftPlacementQuery,
+          ),
+        }),
+    ...(trace.effectivePlacementQuery === undefined
+      ? {}
+      : {
+          effectivePlacementQuery: clonePlacementQuery(
+            trace.effectivePlacementQuery,
+          ),
+        }),
     ...(trace.evidenceUsed === undefined
       ? {}
       : { evidenceUsed: { ...trace.evidenceUsed } }),
+    ...(trace.spatial === undefined
+      ? {}
+      : { spatial: { ...trace.spatial } }),
     timestamps: { ...trace.timestamps },
     metrics: { ...trace.metrics },
+  };
+}
+
+function clonePlacementQuery(
+  query: NonNullable<DirectCommandTrace["effectivePlacementQuery"]>,
+): NonNullable<DirectCommandTrace["effectivePlacementQuery"]> {
+  return {
+    ...query,
+    reference: query.reference.kind === "TARGET"
+      ? { ...query.reference, query: { ...query.reference.query } }
+      : { ...query.reference },
   };
 }
 

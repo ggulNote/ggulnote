@@ -29,6 +29,12 @@ export interface AnnotationStyleDefaults {
   highlightOpacity: number;
 }
 
+export interface AnnotationObjectMetadata {
+  createdByTurnId?: string;
+  creationOrder?: number;
+  targetObjectIds?: readonly string[];
+}
+
 export const DEFAULT_ANNOTATION_STYLE_PROPS: AnnotationStyleDefaults = {
   strokeColor: "#1f2937",
   fillColor: "rgba(250, 204, 21, 0.25)",
@@ -44,7 +50,7 @@ export const DEFAULT_ANNOTATION_STYLE_PROPS: AnnotationStyleDefaults = {
   highlightOpacity: 0.35,
 };
 
-export type CreateAnnotationInput =
+export type CreateAnnotationInput = AnnotationObjectMetadata & (
   | {
       type: "TEXT";
       pageId: PageId;
@@ -120,4 +126,5 @@ export type CreateAnnotationInput =
       columns: number;
       strokeColor?: string;
       strokeWidth?: number;
-    };
+    }
+);

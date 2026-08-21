@@ -3,6 +3,7 @@ import type {
   PageSemanticModel,
   SemanticLine,
   SemanticParagraph,
+  SemanticSentence,
   SemanticWord,
 } from "@ggulnote/document-core";
 import type { PageId, Rect } from "@ggulnote/shared-types";
@@ -51,6 +52,8 @@ export const buildPdfSceneObjects = (input: PdfSceneAdapterInput): PdfSceneAdapt
   );
 
   const semanticItems = input.semanticModel.getAllByReadingOrder();
+  const sentenceById = new Map(semanticItems.flatMap((item) =>
+    item.type === "SENTENCE" ? [[item.id, item] as const] : []));
   const includeTables = input.includeTables ?? true;
   const includeImages = input.includeImages ?? true;
   const includePdfRegions = input.includePdfRegions ?? true;
@@ -58,7 +61,7 @@ export const buildPdfSceneObjects = (input: PdfSceneAdapterInput): PdfSceneAdapt
 
   for (const item of semanticItems) {
     if (item.type === "PARAGRAPH") {
-      objects.push(paragraphToSceneObject(input, item, pageBounds));
+      objects.push(paragraphToSceneObject(input, item, pageBounds, sentenceById));
       continue;
     }
 
@@ -95,6 +98,7 @@ const paragraphToSceneObject = (
   input: PdfSceneAdapterInput,
   item: SemanticParagraph,
   pageBounds: { width: number; height: number },
+  sentenceById: ReadonlyMap<string, SemanticSentence>,
 ): ParagraphSceneObject => {
   return {
     id: pdfObjectId(input.documentId, input.pageIndex, "paragraph", item.id),
@@ -107,7 +111,7 @@ const paragraphToSceneObject = (
     locked: false,
     objectRevision: 1,
     sourceObjectId: item.id,
-    text: item.text,
+    text: canonicalParagraphText(item, sentenceById),
     readingOrder: item.readingOrder,
     childLineIds: item.lineIds.map((lineId) => pdfObjectId(input.documentId, input.pageIndex, "line", lineId)),
     regionId: item.regionId,
@@ -115,6 +119,23 @@ const paragraphToSceneObject = (
     updatedAt: undefined,
   };
 };
+
+function canonicalParagraphText(
+  paragraph: SemanticParagraph,
+  sentenceById: ReadonlyMap<string, SemanticSentence>,
+): string {
+  const sentenceText = paragraph.sentenceIds
+    .map((sentenceId) => sentenceById.get(sentenceId)?.text)
+    .filter((text): text is string => text !== undefined)
+    .map(normalizeCanonicalText)
+    .filter((text) => text.length > 0)
+    .join(" ");
+  return sentenceText || normalizeCanonicalText(paragraph.normalizedText || paragraph.text);
+}
+
+function normalizeCanonicalText(value: string): string {
+  return value.normalize("NFKC").replace(/\u00a0/gu, " ").replace(/\s+/gu, " ").trim();
+}
 
 const lineToSceneObject = (
   input: PdfSceneAdapterInput,

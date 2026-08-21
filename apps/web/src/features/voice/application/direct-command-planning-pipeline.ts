@@ -9,7 +9,9 @@ import {
   type DirectCommandPlanningTimestamps,
   type DirectEditorCommand,
   type DirectPlannerResult,
+  type DirectPlannerDraftResult,
   type ExecutableDirectPlan,
+  type NormalizedTextPlacement,
   type SpeechRefinementEvidence,
   type TargetQuery,
   type TargetResolutionInput,
@@ -28,6 +30,7 @@ import {
   type GroundedTargetRecoveryPort,
 } from "./grounded-target-recovery";
 import type { BoundedSpeechRefinerPort } from "./bounded-speech-refiner";
+import { normalizeTextPlacementIntent } from "./text-placement-intent-normalizer";
 
 export interface DirectCommandPlanningOptions {
   signal?: AbortSignal;
@@ -105,10 +108,10 @@ export class DirectCommandPlanningPipeline {
       }
     }
 
-    let plannerResult: DirectPlannerResult;
+    let plannerDraft: DirectPlannerDraftResult;
     timestamps.plannerRequestedAt = this.now();
     try {
-      plannerResult = await this.options.planner.plan(
+      plannerDraft = await this.options.planner.plan(
         context.plannerContext,
         options,
       );
@@ -123,7 +126,44 @@ export class DirectCommandPlanningPipeline {
       );
     }
     timestamps.plannerCompletedAt = this.now();
-    diagnostics.plannerStatus = plannerResult.status;
+    diagnostics.plannerStatus = plannerDraft.status;
+    if (plannerDraft.status === "EXECUTABLE" && plannerDraft.placementQuery !== undefined) {
+      diagnostics.plannerDraftPlacementQuery = plannerDraft.placementQuery;
+    }
+
+    let plannerResult: DirectPlannerResult;
+    let textPlacement: NormalizedTextPlacement | undefined;
+    try {
+      const normalized = normalizeTextPlacementIntent({
+        draft: plannerDraft,
+        context,
+      });
+      plannerResult = normalized.result;
+      textPlacement = normalized.placement;
+    } catch {
+      return {
+        status: "ERROR",
+        turnId: turn.id,
+        errorCode: "PLANNER_INVALID_OUTPUT",
+        timestamps,
+        diagnostics,
+      };
+    }
+    if (textPlacement !== undefined) {
+      Object.assign(diagnostics, {
+        plannerPlacementPresent: textPlacement.plannerPlacementPresent,
+        spatialPhraseEvidenceKind: textPlacement.evidenceKind,
+        spatialPhraseEvidenceTokens: textPlacement.evidenceTokens,
+        normalizedPlacementMode: textPlacement.mode,
+        placementProvenance: textPlacement.provenance,
+        placementConflictRecovered: textPlacement.conflictRecovered,
+        plannerOutputRecovered: textPlacement.recoveryApplied,
+        placementRecoveryReason: textPlacement.recoveryReason,
+        autoFlowSource: textPlacement.autoFlowSource,
+        placementChoicePolicy: textPlacement.choicePolicy,
+        effectivePlacementQuery: textPlacement.effectiveQuery,
+      });
+    }
 
     if (plannerResult.status !== "EXECUTABLE") {
       const terminal = terminalPlannerResult(
@@ -144,19 +184,30 @@ export class DirectCommandPlanningPipeline {
       relation: plan.relation,
       targetQueryKind: plan.command.target.kind,
     });
-    if (isControlCommand(plan.command)) {
+    const spatialAnchorQuery = plan.placementQuery?.reference.kind === "TARGET"
+      ? plan.placementQuery.reference.query
+      : undefined;
+    const resolutionQuery = plan.placementQuery === undefined
+      ? directTargetQuery(plan.command)
+      : spatialAnchorQuery;
+    const resolutionRole = plan.placementQuery === undefined
+      ? "DIRECT_TARGET" as const
+      : "SPATIAL_ANCHOR" as const;
+    if (resolutionQuery === undefined) {
       return this.guardReady(
         context,
         plan,
         undefined,
+        resolutionRole,
         false,
         timestamps,
         diagnostics,
+        textPlacement,
       );
     }
 
     const speechGroundingEvidence = this.options.contextBuilder
-      .buildSpeechGroundingEvidence(context, plan.command.target, refinement);
+      .buildSpeechGroundingEvidence(context, resolutionQuery, refinement);
     if (speechGroundingEvidence !== undefined) {
       context = { ...context, speechGroundingEvidence };
       Object.assign(diagnostics, {
@@ -176,7 +227,7 @@ export class DirectCommandPlanningPipeline {
       });
     }
 
-    const resolutionInput = toResolutionInput(context, plan.command.target);
+    const resolutionInput = toResolutionInput(context, resolutionQuery);
     timestamps.resolverStartedAt = this.now();
     let resolution = await this.options.resolver.resolveAsync(resolutionInput, {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -273,7 +324,7 @@ export class DirectCommandPlanningPipeline {
       const disambiguation = buildDirectTargetDisambiguationContext(
         context,
         plan,
-        plan.command.target,
+        resolutionQuery,
         resolution.candidates,
       );
       timestamps.disambiguatorRequestedAt = this.now();
@@ -341,9 +392,11 @@ export class DirectCommandPlanningPipeline {
       context,
       plan,
       resolution,
+      resolutionRole,
       disambiguationUsed,
       timestamps,
       diagnostics,
+      textPlacement,
     );
   }
 
@@ -351,9 +404,11 @@ export class DirectCommandPlanningPipeline {
     context: DirectCommandContext,
     plan: ExecutableDirectPlan,
     resolution: TargetResolutionResult | undefined,
+    resolutionRole: "DIRECT_TARGET" | "SPATIAL_ANCHOR",
     disambiguationUsed: boolean,
     timestamps: DirectCommandPlanningTimestamps,
     diagnostics: DirectCommandPlanningDiagnostics,
+    textPlacement?: NormalizedTextPlacement,
   ): DirectCommandPlanningResult {
     timestamps.validationStartedAt = this.now();
     const guarded = guardDirectCommandPlan({
@@ -363,6 +418,9 @@ export class DirectCommandPlanningPipeline {
       catalog: context.pageTargetCatalog,
       currentSceneRevision: this.options.getCurrentSceneRevision(),
       ...(resolution === undefined ? {} : { resolution }),
+      ...(resolution === undefined || resolutionRole !== "SPATIAL_ANCHOR"
+        ? {}
+        : { spatialAnchorResolution: resolution }),
       allowedCommands: context.plannerContext.allowedCommands,
     });
     timestamps.validatedAt = this.now();
@@ -383,6 +441,10 @@ export class DirectCommandPlanningPipeline {
       context,
       plan: guarded.plan,
       ...(guarded.target === undefined ? {} : { target: guarded.target }),
+      ...(guarded.spatialAnchorTarget === undefined
+        ? {}
+        : { spatialAnchorTarget: guarded.spatialAnchorTarget }),
+      ...(textPlacement === undefined ? {} : { textPlacement }),
       disambiguationUsed,
       timestamps,
       diagnostics,
@@ -476,4 +538,14 @@ function isControlCommand(
   { capability: "navigation" | "history" }
 > {
   return command.capability === "navigation" || command.capability === "history";
+}
+
+function directTargetQuery(
+  command: DirectEditorCommand,
+): TargetQuery | undefined {
+  if (isControlCommand(command)) return undefined;
+  if (command.capability === "text" && command.operation === "create") {
+    return undefined;
+  }
+  return command.target;
 }

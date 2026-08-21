@@ -53,6 +53,15 @@ implements DirectRecentOperationsSource {
       annotationId: event.operation.annotationId,
       createdAt: event.operation.createdAt,
       historyAction: event.historyAction,
+      ...(event.operation.sourceTurnId === undefined
+        ? {}
+        : { sourceTurnId: event.operation.sourceTurnId }),
+      ...(event.operation.toolId === undefined
+        ? {}
+        : { toolId: event.operation.toolId }),
+      ...(event.operation.undoGroupId === undefined
+        ? {}
+        : { undoGroupId: event.operation.undoGroupId }),
       ...(targetSceneObjectId === undefined
         ? {}
         : { targetSceneObjectId }),

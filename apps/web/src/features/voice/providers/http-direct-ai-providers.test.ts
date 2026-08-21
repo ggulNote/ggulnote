@@ -99,6 +99,36 @@ describe("same-origin direct AI providers", () => {
     expect(body).not.toContain("DIRECT_COMMAND_MODEL");
   });
 
+  it("accepts a recoverable text.create draft without turning it into an HTTP failure", async () => {
+    const fetchMock = vi.fn(async () => Response.json({
+      result: {
+        status: "EXECUTABLE",
+        planId: "plan-text-create",
+        turnId: "turn-1",
+        sceneRevision: 7,
+        normalizedIntent: "가나다라 텍스트 생성",
+        relation: "NEW",
+        command: {
+          capability: "text",
+          operation: "create",
+          target: { kind: "CURRENT_PAGE" },
+          payload: { text: "가나다라" },
+        },
+      },
+    }));
+    const provider = new HttpDirectCommandPlannerProvider({ fetch: fetchMock });
+
+    await expect(provider.plan(PLANNER_INPUT)).resolves.toMatchObject({
+      status: "EXECUTABLE",
+      command: {
+        capability: "text",
+        operation: "create",
+        payload: { text: "가나다라" },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("maps selected labels and normalized server errors", async () => {
     const selectedProvider = new HttpDirectTargetDisambiguatorProvider({
       fetch: async () => Response.json({

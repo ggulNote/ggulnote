@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { NativeCanvasRenderer } from "../../editor/adapters/canvas/canvas-2d-renderer";
 import { AnnotationCanvasLayer, type AnnotationCanvasHandle } from "../../editor/components/annotation-canvas-layer";
+import type { TldrawEditorAdapter } from "../../editor/adapters/tldraw";
 import { EditorDebugPanel } from "../../editor/components/editor-debug-panel";
 import { EditorDevelopmentToolbar } from "../../editor/components/editor-development-toolbar";
 import { DEFAULT_INTERACTION_MODE, type EditorInteractionMode } from "../../editor/interaction/interaction-mode";
@@ -39,6 +40,7 @@ import { DocumentDebugPanel } from "./document-debug-panel";
 import { DocumentSidebar } from "./document-sidebar";
 import { DocumentStage } from "./document-stage";
 import { DocumentToolbar } from "./document-toolbar";
+import { TldrawCanvasLayer } from "./tldraw-canvas-layer";
 import { PdfTextLayerDebug } from "./pdf-text-layer-debug";
 import { isPageTextResultForPage } from "../text/page-text-request";
 import {
@@ -53,12 +55,16 @@ import {
 import { LayoutDetectionDebugPanel } from "./layout-detection-debug-panel";
 import {
   buildEditorVoiceContextRead,
+  HttpMultimodalPlacementJudgeProvider,
   useOwnedBrowserDirectCommandComposition,
   VoiceLensOverlay,
   VoiceTriggerControl,
 } from "../../voice";
 
 const ZOOM_STEP = 25;
+const TLDRAW_PRODUCTION_ROUTE = process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE !== "legacy"
+  && process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE !== "shadow"
+  && process.env.NEXT_PUBLIC_NOTE_AGENT_SHADOW_MODE !== "1";
 const DRAG_CREATE_THRESHOLD_PX = 4;
 const LAYOUT_MODEL_STORAGE_KEY = "ggulnote:layout-detection:model-id";
 const INITIAL_LAYOUT_DETECTION_STATE: LayoutDetectionViewState = {
@@ -390,7 +396,12 @@ export function DocumentWorkspace({
 
   const [editorEngine] = useState(() => new EditorEngine());
   const [voiceSceneRevision] = useState(() => createSceneRevisionTracker());
+  const [placementJudge] = useState(
+    () => new HttpMultimodalPlacementJudgeProvider(),
+  );
   const annotationCanvasRef = useRef<AnnotationCanvasHandle | null>(null);
+  const tldrawAdapterRef = useRef<TldrawEditorAdapter | null>(null);
+  const [, setTldrawSceneRevision] = useState(0);
   const rendererRef = useRef(new NativeCanvasRenderer());
   const activeDragRef = useRef<DragDraft | null>(null);
   const renderFrameRef = useRef<number | null>(null);
@@ -938,7 +949,7 @@ export function DocumentWorkspace({
     state.status,
   ]);
   useEffect(() => {
-    if (state.document && state.status === "ready") {
+    if (!TLDRAW_PRODUCTION_ROUTE && state.document && state.status === "ready") {
       persistenceCoordinator.start(state.document.id);
       return;
     }
@@ -1011,6 +1022,16 @@ export function DocumentWorkspace({
       throw new Error("The current editor page is unavailable.");
     }
 
+    const tldrawAdapter = TLDRAW_PRODUCTION_ROUTE
+      ? tldrawAdapterRef.current
+      : null;
+    if (TLDRAW_PRODUCTION_ROUTE && tldrawAdapter === null) {
+      throw new Error("The tldraw canvas runtime is unavailable.");
+    }
+    const selectedTldrawObject = tldrawAdapter
+      ?.getCurrentPageObjects()
+      .find((object) => object.selected || object.focused);
+
     return buildEditorVoiceContextRead({
       documentId: document.id,
       mode: document.kind,
@@ -1018,12 +1039,16 @@ export function DocumentWorkspace({
       pageIndex: Math.max(0, state.currentPage - 1),
       pageSize: { width: page.width, height: page.height },
       sceneRevision: voiceSceneRevision.get(),
-      pageSnapshot: editorEngine.exportPageSnapshot(activePageId),
+      pageSnapshot: tldrawAdapter?.exportPageProjection()
+        ?? editorEngine.exportPageSnapshot(activePageId),
+      ...(tldrawAdapter === null
+        ? {}
+        : { tldrawObjects: tldrawAdapter.getCurrentPageObjects() }),
       ...(document.kind === "pdf" && visiblePageText && semanticDebugModel
         ? { semanticModel: semanticDebugModel }
         : {}),
-      ...(editorSnapshot.selectedAnnotationId
-        ? { selectedAnnotationId: editorSnapshot.selectedAnnotationId }
+      ...(selectedTldrawObject?.objectId ?? editorSnapshot.selectedAnnotationId
+        ? { selectedAnnotationId: selectedTldrawObject?.objectId ?? editorSnapshot.selectedAnnotationId! }
         : {}),
       ...(semanticCandidates[0]
         ? { recentSemanticCandidate: semanticCandidates[0] }
@@ -1064,6 +1089,20 @@ export function DocumentWorkspace({
       getCurrentSceneRevision: () => voiceSceneRevision.get(),
       getCurrentPage: () => state.currentPage,
       goToPage,
+      getTldrawAdapter: () => tldrawAdapterRef.current ?? undefined,
+      spatial: {
+        getBaseCanvas: () => canvas,
+        getOverlayCanvas: () => annotationCanvasRef.current?.getCanvas() ?? null,
+        placementJudge,
+        mountPreviewCanvas: (previewCanvas) => {
+          const stage = stageElementRef.current;
+          if (stage === null) {
+            throw new Error("The document stage is unavailable for spatial preview.");
+          }
+          stage.appendChild(previewCanvas);
+          return () => previewCanvas.remove();
+        },
+      },
     });
   const voiceTurnController = voiceDirectCommandComposition.voice.controller;
   const voiceLensPage = useMemo(() => {
@@ -1226,6 +1265,8 @@ export function DocumentWorkspace({
   }, [activePageId, editorEngine, stageSize, state.renderedHeight, state.renderedWidth, state.status]);
   useEffect(() => {
     if (
+      TLDRAW_PRODUCTION_ROUTE
+      ||
       state.status !== "ready"
       || !activePageId
       || !state.document
@@ -2503,11 +2544,11 @@ export function DocumentWorkspace({
           mode={state.status}
           statusMessage={state.status === "error" ? state.errorMessage : loadingMessage}
           canvasRef={setCanvas}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMoveLegacy}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
-          onPointerLeave={handlePointerLeave}
+          onPointerDown={TLDRAW_PRODUCTION_ROUTE ? () => undefined : handlePointerDown}
+          onPointerMove={TLDRAW_PRODUCTION_ROUTE ? () => undefined : handlePointerMoveLegacy}
+          onPointerUp={TLDRAW_PRODUCTION_ROUTE ? () => undefined : handlePointerUp}
+          onPointerCancel={TLDRAW_PRODUCTION_ROUTE ? () => undefined : handlePointerCancel}
+          onPointerLeave={TLDRAW_PRODUCTION_ROUTE ? () => undefined : handlePointerLeave}
           stageRef={stageRef}
           pointer={state.pointer}
         >
@@ -2519,24 +2560,48 @@ export function DocumentWorkspace({
               zoom={state.zoom}
             />
           ) : null}
-          <AnnotationCanvasLayer
-            ref={annotationCanvasRef}
-            hidden={!hasDocument || state.status !== "ready"}
-            width={Math.max(1, stageSize.width)}
-            height={Math.max(1, stageSize.height)}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
-            onPointerLeave={handlePointerLeave}
-          />
-          {dragPreview}
+          {TLDRAW_PRODUCTION_ROUTE && state.document && activePageId && state.page ? (
+            <TldrawCanvasLayer
+              key={`${state.document.id}:${activePageId}:tldraw`}
+              documentId={state.document.id}
+              pageId={activePageId}
+              pageNumber={state.currentPage}
+              pageSize={{ width: state.page.width, height: state.page.height }}
+              renderedSize={{
+                width: Math.max(1, stageSize.width),
+                height: Math.max(1, stageSize.height),
+              }}
+              persistence={localPersistence}
+              hidden={!hasDocument || state.status !== "ready"}
+              onAdapterReady={(adapter) => {
+                tldrawAdapterRef.current = adapter;
+                voiceSceneRevision.next();
+              }}
+              onSceneChange={(revision) => {
+                voiceSceneRevision.next();
+                setTldrawSceneRevision(revision);
+              }}
+            />
+          ) : (
+            <AnnotationCanvasLayer
+              ref={annotationCanvasRef}
+              hidden={!hasDocument || state.status !== "ready"}
+              width={Math.max(1, stageSize.width)}
+              height={Math.max(1, stageSize.height)}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+              onPointerLeave={handlePointerLeave}
+            />
+          )}
+          {TLDRAW_PRODUCTION_ROUTE ? null : dragPreview}
           {semanticDebugLayerNodes}
           {layoutDetectionOverlayNodes}
         </DocumentStage>
 
         <div className="space-y-4">
-          <EditorDevelopmentToolbar
+          {TLDRAW_PRODUCTION_ROUTE ? null : <EditorDevelopmentToolbar
             mode={interactionMode}
             onModeChange={(mode: EditorInteractionMode) => {
               setInteractionMode(mode);
@@ -2627,8 +2692,8 @@ export function DocumentWorkspace({
             canRedo={editorSnapshot.canRedo}
             canDelete={Boolean(editorSnapshot.selectedAnnotationId)}
             hasDocument={hasDocument}
-          />
-          <EditorDebugPanel
+          />}
+          {TLDRAW_PRODUCTION_ROUTE ? null : <EditorDebugPanel
             editorSnapshot={editorSnapshot}
             interactionMode={interactionMode}
             pageSize={{
@@ -2642,7 +2707,7 @@ export function DocumentWorkspace({
             selectedAnnotation={selectedSerializedAnnotation}
             undoStackSize={undoStackSize}
             redoStackSize={redoStackSize}
-          />
+          />}
 
           <DocumentDebugPanel
             state={state}

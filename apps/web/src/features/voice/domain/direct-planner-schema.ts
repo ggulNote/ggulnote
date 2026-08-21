@@ -2,10 +2,12 @@ import type {
   AnnotationHighlightDirectCommand,
   AnnotationUnderlineDirectCommand,
   DirectEditorCommand,
+  DirectPlannerDraftResult,
   DirectPlannerResult,
   ExecutableCommandRelation,
   HistoryUndoDirectCommand,
   NavigationDirectCommand,
+  TextCreateDirectCommand,
   TextReplaceContentDirectCommand,
 } from "./direct-command-types";
 import {
@@ -15,6 +17,18 @@ import {
   type DirectTargetObjectType,
   type TargetQuery,
 } from "./target-query";
+import {
+  SPATIAL_ALIGNMENTS,
+  SPATIAL_PLACEMENT_RELATIONS,
+  SPATIAL_REGION_HINTS,
+  type SpatialAlignment,
+  type SpatialDistance,
+  type SpatialOverlayIntent,
+  type SpatialPlacementQuery,
+  type SpatialPlacementRelation,
+  type SpatialReferenceQuery,
+  type SpatialRegionHint,
+} from "./spatial-placement-query";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -35,6 +49,44 @@ export type SafeDirectPlannerResultParse =
   | { success: false; error: DirectPlannerResultValidationError };
 
 export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
+  return parsePlannerResult(value, false) as DirectPlannerResult;
+}
+
+export function parseDirectPlannerDraftResult(
+  value: unknown,
+): DirectPlannerDraftResult {
+  return parsePlannerResult(liftNestedTextCreatePlacement(value), true);
+}
+
+function liftNestedTextCreatePlacement(value: unknown): unknown {
+  const result = readRecord(value, "result");
+  if (result.status !== "EXECUTABLE") return value;
+  const command = readRecord(result.command, "result.command");
+  if (
+    command.capability !== "text"
+    || command.operation !== "create"
+    || command.placementQuery === undefined
+  ) {
+    return value;
+  }
+  if (Object.prototype.hasOwnProperty.call(result, "placementQuery")) {
+    return fail(
+      "result.command.placementQuery",
+      "placementQuery must appear exactly once at result.placementQuery",
+    );
+  }
+  const { placementQuery, ...strictCommand } = command;
+  return {
+    ...result,
+    command: strictCommand,
+    placementQuery,
+  };
+}
+
+function parsePlannerResult(
+  value: unknown,
+  allowMissingTextCreatePlacement: boolean,
+): DirectPlannerDraftResult {
   const result = readRecord(value, "result");
   const status = readString(result.status, "result.status");
 
@@ -48,7 +100,36 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
         "normalizedIntent",
         "relation",
         "command",
+        "targetQuery",
+        "placementQuery",
       ], "result");
+      const targetQuery = result.targetQuery === undefined
+        ? undefined
+        : parseTargetQuery(result.targetQuery, "result.targetQuery");
+      const placementQuery = result.placementQuery === undefined
+        ? undefined
+        : parseSpatialPlacementQuery(
+            result.placementQuery,
+            "result.placementQuery",
+          );
+      if (targetQuery !== undefined && placementQuery === undefined) {
+        return fail(
+          "result.targetQuery",
+          "spatial subject requires placementQuery",
+        );
+      }
+      const command = parseDirectEditorCommand(result.command, "result.command");
+      if (
+        command.capability === "text"
+        && command.operation === "create"
+        && placementQuery === undefined
+        && !allowMissingTextCreatePlacement
+      ) {
+        return fail(
+          "result.placementQuery",
+          "text.create requires a spatial placement query",
+        );
+      }
       return {
         status,
         planId: readNonEmptyString(result.planId, "result.planId"),
@@ -59,7 +140,9 @@ export function parseDirectPlannerResult(value: unknown): DirectPlannerResult {
           "result.normalizedIntent",
         ),
         relation: readExecutableRelation(result.relation, "result.relation"),
-        command: parseDirectEditorCommand(result.command, "result.command"),
+        command,
+        ...(targetQuery === undefined ? {} : { targetQuery }),
+        ...(placementQuery === undefined ? {} : { placementQuery }),
       };
     case "DEFER_SPATIAL":
     case "NEEDS_CLARIFICATION":
@@ -121,6 +204,9 @@ export function parseDirectEditorCommand(
       }
       return fail(`${path}.operation`, `unsupported history operation: ${operation}`);
     case "text":
+      if (operation === "create") {
+        return parseTextCreateCommand(command, path);
+      }
       if (operation === "replace_content") {
         return parseTextReplaceCommand(command, path);
       }
@@ -130,11 +216,67 @@ export function parseDirectEditorCommand(
   }
 }
 
+function parseTextCreateCommand(
+  command: UnknownRecord,
+  path: string,
+): TextCreateDirectCommand {
+  const payload = readRecord(command.payload, `${path}.payload`);
+  assertOnlyKeys(payload, ["text"], `${path}.payload`);
+  return {
+    capability: "text",
+    operation: "create",
+    target: readSingleTarget(command.target, "CURRENT_PAGE", `${path}.target`),
+    payload: {
+      text: readNonEmptyString(payload.text, `${path}.payload.text`),
+    },
+  };
+}
+
 export function parseTargetQuery(
   value: unknown,
   path = "target",
 ): TargetQuery {
   return readTargetQuery(value, path, 0);
+}
+
+export function parseSpatialPlacementQuery(
+  value: unknown,
+  path = "placementQuery",
+): SpatialPlacementQuery {
+  const placement = readRecord(value, path);
+  assertOnlyKeys(placement, [
+    "reference",
+    "relation",
+    "regionHint",
+    "alignment",
+    "distance",
+    "overlayIntent",
+  ], path);
+
+  const regionHint = placement.regionHint === undefined
+    ? undefined
+    : readSpatialRegionHint(placement.regionHint, `${path}.regionHint`);
+  const alignment = placement.alignment === undefined
+    ? undefined
+    : readSpatialAlignment(placement.alignment, `${path}.alignment`);
+  const distance = placement.distance === undefined
+    ? undefined
+    : readSpatialDistance(placement.distance, `${path}.distance`);
+  const overlayIntent = placement.overlayIntent === undefined
+    ? undefined
+    : readSpatialOverlayIntent(
+        placement.overlayIntent,
+        `${path}.overlayIntent`,
+      );
+
+  return {
+    reference: readSpatialReference(placement.reference, `${path}.reference`),
+    relation: readSpatialPlacementRelation(placement.relation, `${path}.relation`),
+    ...(regionHint === undefined ? {} : { regionHint }),
+    ...(alignment === undefined ? {} : { alignment }),
+    ...(distance === undefined ? {} : { distance }),
+    ...(overlayIntent === undefined ? {} : { overlayIntent }),
+  };
 }
 
 function parseUnderlineCommand(
@@ -310,6 +452,85 @@ function readSemanticUnit(value: unknown, path: string): DirectSemanticUnit {
   return fail(path, `unsupported semantic unit: ${unit}`);
 }
 
+function readSpatialReference(
+  value: unknown,
+  path: string,
+): SpatialReferenceQuery {
+  const reference = readRecord(value, path);
+  const kind = readString(reference.kind, `${path}.kind`);
+
+  switch (kind) {
+    case "TARGET":
+      assertOnlyKeys(reference, ["kind", "query"], path);
+      return {
+        kind,
+        query: readTargetQuery(reference.query, `${path}.query`, 0),
+      };
+    case "FOCUS":
+    case "PAGE":
+    case "VIEWPORT":
+      assertOnlyKeys(reference, ["kind"], path);
+      return { kind };
+    default:
+      return fail(`${path}.kind`, `unsupported spatial reference: ${kind}`);
+  }
+}
+
+function readSpatialPlacementRelation(
+  value: unknown,
+  path: string,
+): SpatialPlacementRelation {
+  return readStringUnion(
+    value,
+    path,
+    SPATIAL_PLACEMENT_RELATIONS,
+    "spatial relation",
+  );
+}
+
+function readSpatialRegionHint(
+  value: unknown,
+  path: string,
+): SpatialRegionHint {
+  return readStringUnion(value, path, SPATIAL_REGION_HINTS, "spatial region hint");
+}
+
+function readSpatialAlignment(
+  value: unknown,
+  path: string,
+): SpatialAlignment {
+  return readStringUnion(value, path, SPATIAL_ALIGNMENTS, "spatial alignment");
+}
+
+function readSpatialDistance(value: unknown, path: string): SpatialDistance {
+  return readStringUnion(value, path, ["NEAR", "NORMAL"] as const, "spatial distance");
+}
+
+function readSpatialOverlayIntent(
+  value: unknown,
+  path: string,
+): SpatialOverlayIntent {
+  return readStringUnion(
+    value,
+    path,
+    ["NONE", "EXPLICIT"] as const,
+    "spatial overlay intent",
+  );
+}
+
+function readStringUnion<const TValues extends readonly string[]>(
+  value: unknown,
+  path: string,
+  allowedValues: TValues,
+  description: string,
+): TValues[number] {
+  const candidate = readString(value, path);
+  if ((allowedValues as readonly string[]).includes(candidate)) {
+    return candidate as TValues[number];
+  }
+  return fail(path, `unsupported ${description}: ${candidate}`);
+}
+
 function readObjectType(value: unknown, path: string): DirectTargetObjectType {
   const objectType = readString(value, path);
   if ((DIRECT_TARGET_OBJECT_TYPES as readonly string[]).includes(objectType)) {
@@ -381,6 +602,10 @@ function readSceneRevision(value: unknown, path: string): number {
 function readRecord(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return fail(path, "expected an object");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return fail(path, "expected a plain object");
   }
   return value as UnknownRecord;
 }

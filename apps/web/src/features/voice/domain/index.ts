@@ -110,10 +110,12 @@ export type {
   DirectFocusTargetRef,
   DirectLastOperationTargetRef,
   DirectPlannerResult,
+  DirectPlannerDraftResult,
   DirectTargetRef,
   EmptyDirectCommandPayload,
   ExecutableCommandRelation,
   ExecutableDirectPlan,
+  ExecutableDirectPlannerDraft,
   HistoryUndoDirectCommand,
   NavigationDirectCommand,
   NeedsClarificationPlan,
@@ -121,6 +123,14 @@ export type {
   UnsupportedDirectPlan,
 } from "./direct-command-types";
 export { DIRECT_COMMAND_NAMES } from "./direct-command-types";
+export type {
+  NormalizedTextPlacement,
+  TextPlacementAutoFlowSource,
+  TextPlacementChoicePolicy,
+  TextPlacementMode,
+  TextPlacementProvenance,
+  TextPlacementRecoveryReason,
+} from "./text-placement-intent";
 export type {
   DirectCommandHistorySnapshot,
   DirectOperationRecord,
@@ -180,6 +190,69 @@ export type {
   TargetQuery,
   TextSpanTargetQuery,
 } from "./target-query";
+export {
+  SPATIAL_ALIGNMENTS,
+  SPATIAL_PLACEMENT_RELATIONS,
+  SPATIAL_REGION_HINTS,
+} from "./spatial-placement-query";
+export type {
+  SpatialAlignment,
+  SpatialDistance,
+  SpatialOverlayIntent,
+  SpatialPlacementQuery,
+  SpatialPlacementRelation,
+  SpatialReferenceQuery,
+  SpatialRegionHint,
+} from "./spatial-placement-query";
+export type {
+  FrozenSpatialFocus,
+  FrozenSpatialSelection,
+  MeasuredDraft,
+  PlacementCandidate,
+  PlacementOverflowPolicy,
+  PlacementOverlayPolicy,
+  PlacementProfile,
+  PlacementResizePolicy,
+  ProtectionPolicy,
+  ResolvedPlacement,
+  ResolvedSpatialAnchor,
+  SpatialPlacementError,
+  SpatialPlacementReason,
+  SpatialPlacementResult,
+  SpatialProtection,
+  SpatialSceneMode,
+  SpatialSceneObject,
+  SpatialSceneSnapshot,
+  SpatialSemanticRole,
+  SpatialSourceLayer,
+} from "./spatial-placement-types";
+export type {
+  SelectedSpatialPlacement,
+  SpatialPlacementSelectionSource,
+  SpatialPreviewResolutionFailureStatus,
+  SpatialPreviewValidationEvidence,
+  SpatialPreviewValidationFailureReason,
+  SpatialPreviewValidationResult,
+  ValidatedSpatialPlacement,
+} from "./spatial-preview-types";
+export {
+  MULTIMODAL_PLACEMENT_LIMITS,
+  parseMultimodalPlacementChoice,
+  parseMultimodalPlacementRequest,
+} from "./multimodal-placement-schema";
+export {
+  MultimodalPlacementValidationError,
+} from "./multimodal-placement-types";
+export type {
+  MultimodalClearanceCategory,
+  MultimodalPlacementAnchorSummary,
+  MultimodalPlacementCandidateSummary,
+  MultimodalPlacementChoice,
+  MultimodalPlacementDraftSummary,
+  MultimodalPlacementRequest,
+  MultimodalSoftOverlapCategory,
+  PlacementCandidateAlias,
+} from "./multimodal-placement-types";
 export { DEFAULT_TARGET_RESOLUTION_POLICY } from "./target-grounding-types";
 export type {
   CandidateEvidence,
@@ -207,7 +280,9 @@ export type {
 export {
   DirectPlannerResultValidationError,
   parseDirectEditorCommand,
+  parseDirectPlannerDraftResult,
   parseDirectPlannerResult,
+  parseSpatialPlacementQuery,
   parseTargetQuery,
   safeParseDirectPlannerResult,
 } from "./direct-planner-schema";
@@ -241,4 +316,5 @@ export type {
   DirectCommandPlanningDiagnostics,
   DirectCommandTrace,
   DirectCommandTraceDiagnostics,
+  SpatialCommandExecutionDiagnostics,
 } from "./direct-command-diagnostics-types";

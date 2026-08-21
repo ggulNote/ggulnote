@@ -4,7 +4,7 @@ import {
   type SerializedAnnotation,
 } from "@ggulnote/editor-core";
 import { toSessionTimeMs } from "@ggulnote/interaction-core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   CommandRelation,
   CompletedVoiceTurn,
@@ -13,6 +13,7 @@ import type {
   DirectEditorCommand,
   ReadyForDirectCommandExecution,
   ResolvedTarget,
+  SpatialCommandExecutionDiagnostics,
 } from "../domain";
 import {
   EditorDirectCommandExecutor,
@@ -20,6 +21,7 @@ import {
 } from "../integration/editor-direct-command-executor";
 import { editorAnnotationSceneId } from "../integration/editor-voice-context";
 import { DirectCommandExecutionRegistry } from "./direct-command-execution-registry";
+import { DirectCommandTraceStore } from "./direct-command-diagnostics";
 import { DirectCommandHistoryContext } from "./direct-command-history-context";
 import {
   DirectCommandRoute,
@@ -77,6 +79,38 @@ function turn(
       finalSegmentCount: 1,
       providerRestartCount: 0,
     },
+  };
+}
+
+function spatialDiagnostics(
+  readyValue: ReadyForDirectCommandExecution,
+): SpatialCommandExecutionDiagnostics {
+  return {
+    placementRequested: true,
+    pageId: readyValue.context.frozenContext.pageId,
+    sceneRevision: readyValue.context.frozenContext.sceneRevision,
+    anchorResolution: "RESOLVED",
+    rawCandidateCount: 1,
+    filteredCandidateCount: 0,
+    shortlistCandidateCount: 1,
+    deterministicGate: "RESOLVED",
+    multimodalUsed: false,
+    multimodalCallCount: 0,
+    multimodalProviderResult: "NOT_REQUIRED",
+    screenshotCallCount: 0,
+    selectionSource: "DETERMINISTIC",
+    previewAttemptCount: 1,
+    validationResult: "VALIDATED",
+    commitGuard: "PASSED",
+    runtimeExecuted: true,
+    operationRecorded: true,
+    stableFallbackUsed: false,
+    anchorResolutionMs: 1,
+    candidateGenerationMs: 1,
+    multimodalMs: 0,
+    previewValidationMs: 1,
+    commitMs: 1,
+    totalSpatialMs: 4,
   };
 }
 
@@ -761,6 +795,82 @@ describe("DirectCommandRoute Phase E", () => {
     expect(route.getLastOperation()?.turnId).toBe(first.id);
   });
 });
+
+describe("DirectCommandRoute spatial boundary", () => {
+  it("routes only placement plans to spatial execution and deduplicates the turn", async () => {
+    const voiceTurn = turn("turn-spatial-once", 7);
+    const base = ready(voiceTurn, "NEW", {
+      capability: "text",
+      operation: "create",
+      target: { kind: "CURRENT_PAGE" },
+      payload: { text: "메모" },
+    });
+    const spatialReady: ReadyForDirectCommandExecution = {
+      ...base,
+      plan: {
+        ...base.plan,
+        placementQuery: {
+          reference: { kind: "PAGE" },
+          relation: "FREE_SPACE",
+        },
+      },
+    };
+    const planning = new SequencePlanningPort([spatialReady]);
+    const executeSpatial = vi.fn(async () => ({
+      result: {
+        status: "COMMITTED" as const,
+        turnId: voiceTurn.id,
+        planId: spatialReady.plan.planId,
+        operationId: "operation-spatial-once",
+        annotationId: "annotation-spatial-once",
+      },
+      diagnostics: spatialDiagnostics(spatialReady),
+    }));
+    const editor = createEngineForSpatialRouteTest();
+    const traces = new DirectCommandTraceStore();
+    const route = new DirectCommandRoute({
+      planning,
+      executor: new EditorDirectCommandExecutor({
+        editorEngine: editor,
+        navigation: new FakeNavigation(),
+        getCurrentSceneRevision: () => 7,
+        clock: { now: () => toSessionTimeMs(100) },
+      }),
+      spatial: { execute: executeSpatial },
+      history: new DirectCommandHistoryContext(),
+      clock: { now: () => toSessionTimeMs(100) },
+      diagnostics: traces,
+    });
+
+    const [first, duplicate] = await Promise.all([
+      route.execute(voiceTurn),
+      route.execute(voiceTurn),
+    ]);
+    expect(first).toEqual(duplicate);
+    expect(first).toMatchObject({ status: "COMMITTED" });
+    expect(executeSpatial).toHaveBeenCalledTimes(1);
+    expect(planning.calls).toHaveLength(1);
+    expect(traces.getSnapshot()).toMatchObject([{
+      spatial: {
+        rawCandidateCount: 1,
+        shortlistCandidateCount: 1,
+        multimodalCallCount: 0,
+        screenshotCallCount: 0,
+        previewAttemptCount: 1,
+        runtimeExecuted: true,
+        operationRecorded: true,
+      },
+    }]);
+    expect(JSON.stringify(traces.getSnapshot())).not.toContain("data:image");
+  });
+});
+
+function createEngineForSpatialRouteTest(): EditorEngine {
+  const editor = new EditorEngine({ idGenerator: () => "unused" });
+  editor.setDocument("doc-1");
+  editor.setActivePage(PAGE_ID, PAGE_SIZE);
+  return editor;
+}
 
 describe("DirectCommandRoute Phase F lifecycle", () => {
   it("aborts an in-flight planner on dispose and ignores a late READY result", async () => {

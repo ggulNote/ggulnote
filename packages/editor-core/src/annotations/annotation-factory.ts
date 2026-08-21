@@ -1,4 +1,4 @@
-import { LineKind, ShapeKind, type CreateAnnotationInput, DEFAULT_ANNOTATION_STYLE_PROPS, TextFontWeight } from "./annotation-types";
+import { LineKind, ShapeKind, type AnnotationObjectMetadata, type CreateAnnotationInput, DEFAULT_ANNOTATION_STYLE_PROPS, TextFontWeight } from "./annotation-types";
 import { LineAnnotation } from "./line-annotation";
 import { HighlightAnnotation } from "./highlight-annotation";
 import { ShapeAnnotation } from "./shape-annotation";
@@ -73,6 +73,30 @@ const normalizeColorWithAlpha = (value: unknown, fallback: string): string => {
   return typeof value === "string" && value.trim().length > 0 ? value : fallback;
 };
 
+const normalizeObjectMetadata = (
+  input: CreateAnnotationInput,
+  defaultCreationOrder: number,
+): AnnotationObjectMetadata => {
+  const createdByTurnId = input.createdByTurnId?.trim();
+  const creationOrder = input.creationOrder ?? defaultCreationOrder;
+  if (!Number.isFinite(creationOrder) || creationOrder < 0) {
+    throw new Error("Invalid creationOrder");
+  }
+  const targetObjectIds = input.targetObjectIds === undefined
+    ? undefined
+    : [...new Set(input.targetObjectIds.map((value) => value.trim()))]
+      .filter((value) => value.length > 0);
+  return {
+    ...(createdByTurnId === undefined || createdByTurnId.length === 0
+      ? {}
+      : { createdByTurnId }),
+    creationOrder,
+    ...(targetObjectIds === undefined || targetObjectIds.length === 0
+      ? {}
+      : { targetObjectIds }),
+  };
+};
+
 export interface AnnotationFactoryOptions {
   idGenerator?: () => AnnotationId;
   now?: () => number;
@@ -81,6 +105,7 @@ export interface AnnotationFactoryOptions {
 export class AnnotationFactory {
   private readonly idGenerator: () => AnnotationId;
   private readonly now: () => number;
+  private creationSequence = 0;
 
   public constructor(options: AnnotationFactoryOptions = {}) {
     this.idGenerator = options.idGenerator ?? makeId;
@@ -94,6 +119,9 @@ export class AnnotationFactory {
     }
 
     const id = this.idGenerator();
+    const defaultCreationOrder = timestamp * 1_000 + this.creationSequence;
+    this.creationSequence += 1;
+    const objectMetadata = normalizeObjectMetadata(input, defaultCreationOrder);
     const base = {
       id,
       pageId: input.pageId,
@@ -119,6 +147,7 @@ export class AnnotationFactory {
           ensureTextColor(input.textColor, DEFAULT_ANNOTATION_STYLE_PROPS.textColor),
           ensureFontFamily(input.textFontFamily, DEFAULT_ANNOTATION_STYLE_PROPS.textFontFamily),
           ensureFontWeight(input.textFontWeight, DEFAULT_ANNOTATION_STYLE_PROPS.textFontWeight),
+          objectMetadata,
         );
       }
 
@@ -141,6 +170,7 @@ export class AnnotationFactory {
           ensureLineStyle(input.lineStyle),
           normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
           rects,
+          objectMetadata,
         );
       }
 
@@ -162,6 +192,7 @@ export class AnnotationFactory {
           ensureOpacity(input.opacity, DEFAULT_ANNOTATION_STYLE_PROPS.highlightOpacity),
           normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.highlightColor),
           rects,
+          objectMetadata,
         );
       }
 
@@ -184,6 +215,7 @@ export class AnnotationFactory {
           input.filled ?? false,
           normalizeColorWithAlpha(input.strokeColor, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
           normalizeColorWithAlpha(input.fillColor, DEFAULT_ANNOTATION_STYLE_PROPS.fillColor),
+          objectMetadata,
         );
       }
 
@@ -202,6 +234,7 @@ export class AnnotationFactory {
           input.lineKind === "arrow" ? "arrow" : "line",
           Math.max(1, Math.round(ensureNumber(input.strokeWidth ?? DEFAULT_ANNOTATION_STYLE_PROPS.lineStrokeWidth, "line.strokeWidth"))),
           normalizeColorWithAlpha(input.color, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
+          objectMetadata,
         );
       }
 
@@ -219,6 +252,7 @@ export class AnnotationFactory {
           ensureRowsColumns(input.columns, "columns"),
           normalizeColorWithAlpha(input.strokeColor, DEFAULT_ANNOTATION_STYLE_PROPS.strokeColor),
           Math.max(1, Math.round(ensureNumber(input.strokeWidth ?? DEFAULT_ANNOTATION_STYLE_PROPS.tableStrokeWidth, "table.strokeWidth"))),
+          objectMetadata,
         );
       }
 

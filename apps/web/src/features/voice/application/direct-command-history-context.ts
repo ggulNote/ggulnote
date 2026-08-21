@@ -178,12 +178,19 @@ function cloneCommand(command: DirectEditorCommand): DirectEditorCommand {
               : { color: command.payload.color },
           };
     case "text":
-      return {
-        capability: "text",
-        operation: "replace_content",
-        target: cloneTargetQuery(command.target),
-        payload: { text: command.payload.text },
-      };
+      return command.operation === "create"
+        ? {
+            capability: "text",
+            operation: "create",
+            target: { kind: "CURRENT_PAGE" },
+            payload: { text: command.payload.text },
+          }
+        : {
+            capability: "text",
+            operation: "replace_content",
+            target: cloneTargetQuery(command.target),
+            payload: { text: command.payload.text },
+          };
     case "navigation":
       return {
         capability: "navigation",

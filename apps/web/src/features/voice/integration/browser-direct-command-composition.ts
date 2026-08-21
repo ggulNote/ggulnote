@@ -1,4 +1,5 @@
 import type { EditorEngine } from "@ggulnote/editor-core";
+import type { TldrawEditorAdapter } from "../../editor/adapters/tldraw";
 import { InteractionClock } from "@ggulnote/interaction-core";
 import type { FrozenTargetResolver, VoiceTurnContextRead } from "../application";
 import type { FrozenPageGroundingSnapshot } from "../domain";
@@ -15,8 +16,13 @@ import {
 import {
   createEditorDirectCommandComposition,
   type EditorDirectCommandComposition,
+  type EditorDirectCommandCompositionOptions,
+  type EditorSpatialPlacementCompositionOptions,
 } from "./editor-direct-command-composition";
-import { DirectCommandVoiceTurnBridge } from "./direct-command-voice-turn-bridge";
+import {
+  DirectCommandVoiceTurnBridge,
+  type CompletedVoiceTurnRoute,
+} from "./direct-command-voice-turn-bridge";
 
 export interface BrowserDirectCommandCompositionOptions {
   editorEngine: EditorEngine;
@@ -25,6 +31,7 @@ export interface BrowserDirectCommandCompositionOptions {
   getCurrentSceneRevision(): number;
   getCurrentPage(): number;
   goToPage(page: number): void;
+  getTldrawAdapter?(): TldrawEditorAdapter | undefined;
   timeProvider?: () => number;
   createTurnId?: () => string;
   planner?: DirectCommandPlannerProvider;
@@ -32,6 +39,9 @@ export interface BrowserDirectCommandCompositionOptions {
   recovery?: GroundedTargetRecoveryProvider;
   speechRefiner?: SpeechRefinerProvider;
   targetResolver?: FrozenTargetResolver;
+  spatial?: EditorSpatialPlacementCompositionOptions;
+  noteAgentShadow?: EditorDirectCommandCompositionOptions["noteAgentShadow"];
+  noteAgent?: EditorDirectCommandCompositionOptions["noteAgent"];
 }
 
 export interface BrowserDirectCommandComposition {
@@ -60,6 +70,9 @@ export function createBrowserDirectCommandComposition(
     getCurrentSceneRevision: options.getCurrentSceneRevision,
     getCurrentPage: options.getCurrentPage,
     goToPage: options.goToPage,
+    ...(options.getTldrawAdapter === undefined
+      ? {}
+      : { getTldrawAdapter: options.getTldrawAdapter }),
     ...(options.planner === undefined ? {} : { planner: options.planner }),
     ...(options.disambiguator === undefined
       ? {}
@@ -71,10 +84,26 @@ export function createBrowserDirectCommandComposition(
     ...(options.targetResolver === undefined
       ? {}
       : { targetResolver: options.targetResolver }),
+    ...(options.spatial === undefined ? {} : { spatial: options.spatial }),
+    ...(options.noteAgentShadow === undefined
+      ? {}
+      : { noteAgentShadow: options.noteAgentShadow }),
+    ...(options.noteAgent === undefined ? {} : { noteAgent: options.noteAgent }),
   });
+  const route: CompletedVoiceTurnRoute = direct.noteAgentProduction
+    ?? (direct.noteAgentShadow === undefined
+      ? direct.route
+      : {
+        execute: (turn, executeOptions) =>
+          direct.noteAgentShadow?.executeAlongside(
+            turn,
+            direct.route,
+            executeOptions,
+          ) ?? direct.route.execute(turn, executeOptions),
+      });
   const bridge = new DirectCommandVoiceTurnBridge({
     controller: voice.controller,
-    route: direct.route,
+    route,
   });
 
   let disposed = false;

@@ -5,6 +5,7 @@ import { DeleteAnnotationCommand } from "../src/commands/delete-annotation-comma
 import { MoveAnnotationCommand } from "../src/commands/move-annotation-command";
 import { UpdateAnnotationCommand } from "../src/commands/update-annotation-command";
 import { CommandManager } from "../src/commands/command-manager";
+import { CompositeEditorCommand } from "../src/commands/composite-editor-command";
 import { SceneStore } from "../src/scene/scene-store";
 import type { EditorCommandContext, EditorCommand } from "../src/commands/editor-command";
 import { deserializeAnnotation } from "../src/serialization/annotation-serializer";
@@ -195,6 +196,34 @@ describe("CommandManager and commands", () => {
 
     expect(() => commandManager.execute(failCommand)).toThrow("fail");
     expect(commandManager.canUndo()).toBe(false);
+    expect(commandManager.getUndoStackSize()).toBe(0);
+  });
+
+  it("rolls back prepared children when an atomic batch fails", () => {
+    const sceneStore = new SceneStore();
+    const context = baseContext(sceneStore);
+    const commandManager = new CommandManager(() => context, { historyLimit: 2 });
+    const annotation = createFactory().create({
+      type: "TEXT",
+      pageId: "page-1",
+      bounds: { x: 0, y: 0, width: 0.1, height: 0.1 },
+      text: "must roll back",
+    });
+    const create = new CreateAnnotationCommand(annotation, "doc-1");
+    const failCommand: EditorCommand = {
+      execute: () => {
+        throw new Error("second child failed");
+      },
+      undo: () => undefined,
+      toOperation: () => {
+        throw new Error("not reached");
+      },
+    };
+
+    expect(() => commandManager.execute(
+      new CompositeEditorCommand([create, failCommand]),
+    )).toThrow("second child failed");
+    expect(sceneStore.getPage("page-1")?.get(annotation.id)).toBeNull();
     expect(commandManager.getUndoStackSize()).toBe(0);
   });
 });

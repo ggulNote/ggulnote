@@ -8,6 +8,7 @@ export const GGULNOTE_DATABASE_NAME = "ggulnote-local";
 export const GGULNOTE_DATABASE_VERSION = 1;
 
 export const ANNOTATION_SCHEMA_VERSION = 1;
+export const TLDRAW_CANVAS_STORE_VERSION = 1;
 export const PERSISTENCE_SCHEMA_VERSION = 1;
 export const SEMANTIC_SCHEMA_VERSION = 3;
 export const SEMANTIC_EXTRACTOR_VERSION = "8";
@@ -56,6 +57,9 @@ export interface PersistedPageSnapshotRecord {
   createdAt: number;
   updatedAt: number;
   annotationSchemaVersion: number;
+  /** Versioned TLStore snapshot. Added without creating a second database. */
+  tldrawCanvasStoreVersion?: number;
+  tldrawSnapshot?: unknown;
 }
 
 export interface PersistedOperationRecord {

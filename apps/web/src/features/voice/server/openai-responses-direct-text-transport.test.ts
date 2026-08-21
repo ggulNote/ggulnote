@@ -72,6 +72,7 @@ describe("OpenAiResponsesDirectTextTransport", () => {
       apiKey: "server-secret",
       model: "configured-model",
       timeoutMs: 1_000,
+      reasoningEffort: "low",
       fetch: fetchMock,
     });
 
@@ -94,10 +95,50 @@ describe("OpenAiResponsesDirectTextTransport", () => {
         ...REQUEST.input,
       ],
       text: { format: { type: "json_object" } },
+      reasoning: { effort: "low" },
       store: false,
       max_output_tokens: 200,
     });
     expect(body).not.toHaveProperty("tools");
+  });
+
+  it("forwards text and a low-detail canvas image in one Responses request", async () => {
+    const fetchMock = vi.fn(async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => openAiResponse('{"status":"NONE"}'));
+    const transport = new OpenAiResponsesDirectTextTransport({
+      apiKey: "server-secret",
+      model: "configured-model",
+      timeoutMs: 1_000,
+      fetch: fetchMock,
+    });
+    const visualRequest: DirectTextModelRequest = {
+      ...REQUEST,
+      input: [
+        ...REQUEST.input,
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: '{"section":"CURRENT_CANVAS_IMAGE"}' },
+            {
+              type: "input_image",
+              image_url: "data:image/png;base64,iVBORw0KGgo=",
+              detail: "low",
+            },
+          ],
+        },
+      ],
+    };
+
+    await expect(transport.generate(visualRequest)).resolves.toBe('{"status":"NONE"}');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly input: readonly { readonly role: string; readonly content: unknown }[];
+    };
+    expect(body.input).toHaveLength(3);
+    expect(body.input.at(-1)).toEqual(visualRequest.input.at(-1));
   });
 
   it("normalizes network, HTTP, empty output, and timeout failures", async () => {
@@ -198,9 +239,19 @@ describe("direct command AI server configuration", () => {
     expect(() => readDirectCommandAiServerConfig({
       OPENAI_API_KEY: "secret",
     })).toThrowError(/configuration is unavailable/u);
+    expect(() => readDirectCommandAiServerConfig({
+      OPENAI_API_KEY: "secret",
+      DIRECT_COMMAND_MODEL: "configured-model",
+      DIRECT_COMMAND_REASONING_EFFORT: "invalid",
+    })).toThrowError(/configuration is unavailable/u);
+    expect(readDirectCommandAiServerConfig({
+      OPENAI_API_KEY: "secret",
+      DIRECT_COMMAND_MODEL: "configured-model",
+      DIRECT_COMMAND_REASONING_EFFORT: "low",
+    })).toMatchObject({ reasoningEffort: "low" });
   });
 
-  it("creates planner/disambiguator providers without external network calls", () => {
+  it("creates text and multimodal providers without external network calls", () => {
     const providers = createDirectCommandAiProviders({
       OPENAI_API_KEY: "secret",
       DIRECT_COMMAND_MODEL: "configured-model",
@@ -208,5 +259,6 @@ describe("direct command AI server configuration", () => {
     }, async () => openAiResponse('{\"status\":\"NONE\"}'));
     expect(providers.planner).toBeDefined();
     expect(providers.disambiguator).toBeDefined();
+    expect(providers.placementJudge).toBeDefined();
   });
 });

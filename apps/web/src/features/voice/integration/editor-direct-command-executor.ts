@@ -10,11 +10,14 @@ import type {
   DirectCommandRuntimeInstruction,
   DirectOperationRecord,
   ReadyForDirectCommandExecution,
+  ValidatedSpatialPlacement,
 } from "../domain";
 import {
   compileDirectCommandCapability,
   compileDirectCommandRevision,
+  compileValidatedSpatialCommand,
 } from "../application/direct-command-capability-compiler";
+import type { SpatialCommandCapabilitySource } from "../application/spatial-command-capability";
 import { editorAnnotationSceneId } from "./editor-voice-context";
 
 export interface DirectCommandExecutor {
@@ -51,6 +54,7 @@ export interface EditorDirectCommandExecutorOptions {
   navigation: DirectCommandNavigationPort;
   getCurrentSceneRevision(): number;
   clock: Pick<InteractionClock, "now">;
+  spatialCapabilities?: SpatialCommandCapabilitySource;
 }
 
 export class EditorDirectCommandExecutor implements DirectCommandExecutor {
@@ -150,6 +154,53 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
     }
   }
 
+  public async executeSpatial(
+    ready: ReadyForDirectCommandExecution,
+    placement: ValidatedSpatialPlacement,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<DirectCommandExecutionResult> {
+    const timestamps: DirectCommandExecutionTimestamps = {
+      compileStartedAt: this.now(),
+    };
+    if (options.signal?.aborted) {
+      return this.error(ready, "ABORTED", timestamps);
+    }
+    const capabilities = this.options.spatialCapabilities;
+    if (capabilities === undefined) {
+      return this.error(ready, "UNSUPPORTED_CAPABILITY", timestamps);
+    }
+    const compiled = compileValidatedSpatialCommand(ready, placement, {
+      pageSize: this.options.editorEngine.getActivePageSize() ?? undefined,
+      capabilities,
+    });
+    timestamps.compiledAt = this.now();
+    if (compiled.status === "ERROR") {
+      return this.error(ready, compiled.errorCode, timestamps);
+    }
+    if (
+      compiled.instruction.kind !== "CREATE_ANNOTATION"
+      || options.signal?.aborted
+    ) {
+      return this.error(
+        ready,
+        options.signal?.aborted ? "ABORTED" : "COMPILE_FAILED",
+        timestamps,
+      );
+    }
+    if (!this.canCommitValidatedSpatial(ready, placement)) {
+      return this.error(ready, "STALE_SCENE", timestamps);
+    }
+
+    timestamps.commitStartedAt = this.now();
+    try {
+      const result = this.createAnnotation(ready, compiled.instruction);
+      if (result.status !== "ERROR") timestamps.committedAt = this.now();
+      return withExecutionTimestamps(result, timestamps);
+    } catch {
+      return this.error(ready, "COMMIT_FAILED", timestamps);
+    }
+  }
+
   private createAnnotation(
     ready: ReadyForDirectCommandExecution,
     instruction: Extract<
@@ -157,8 +208,18 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
       { kind: "CREATE_ANNOTATION" }
     >,
   ): DirectCommandExecutionResult {
+    const targetObjectIds = ready.target?.objectId === undefined
+      ? undefined
+      : [ready.target.objectId];
     const captured = this.captureOperation(() =>
-      this.options.editorEngine.createAnnotation(instruction.input));
+      this.options.editorEngine.createAnnotation({
+        ...instruction.input,
+        createdByTurnId: ready.turnId,
+        ...(targetObjectIds === undefined ? {} : { targetObjectIds }),
+      }, {
+        sourceTurnId: ready.turnId,
+        toolId: `${ready.plan.command.capability}.${ready.plan.command.operation}`,
+      }));
     if (
       captured.event?.historyAction !== "execute"
       || captured.event.operation.type !== "CREATE_ANNOTATION"
@@ -206,7 +267,10 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
     };
     this.options.editorEngine.select(target.id);
     const captured = this.captureOperation(() =>
-      this.options.editorEngine.updateSelected(updated));
+      this.options.editorEngine.updateSelected(updated, {
+        sourceTurnId: ready.turnId,
+        toolId: `${ready.plan.command.capability}.${ready.plan.command.operation}`,
+      }));
     if (
       captured.event?.historyAction !== "execute"
       || captured.event.operation.type !== "UPDATE_ANNOTATION"
@@ -252,7 +316,10 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
     };
     this.options.editorEngine.select(target.id);
     const captured = this.captureOperation(() =>
-      this.options.editorEngine.updateSelected(updated));
+      this.options.editorEngine.updateSelected(updated, {
+        sourceTurnId: ready.turnId,
+        toolId: `${ready.plan.command.capability}.${ready.plan.command.operation}`,
+      }));
     if (
       captured.event?.historyAction !== "execute"
       || captured.event.operation.type !== "UPDATE_ANNOTATION"
@@ -314,6 +381,18 @@ export class EditorDirectCommandExecutor implements DirectCommandExecutor {
       === ready.context.frozenContext.sceneRevision
       && this.options.editorEngine.getActivePageId()
         === ready.context.frozenContext.pageId;
+  }
+
+  private canCommitValidatedSpatial(
+    ready: ReadyForDirectCommandExecution,
+    placement: ValidatedSpatialPlacement,
+  ): boolean {
+    return placement.pageId === ready.context.frozenContext.pageId
+      && placement.sceneRevision === ready.context.frozenContext.sceneRevision
+      && placement.snapshotId === placement.candidate.snapshotId
+      && placement.candidateInternalId === placement.candidate.internalId
+      && this.options.getCurrentSceneRevision() === placement.sceneRevision
+      && this.options.editorEngine.getActivePageId() === placement.pageId;
   }
 
   private captureOperation<T>(action: () => T): {

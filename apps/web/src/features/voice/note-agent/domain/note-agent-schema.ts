@@ -1,0 +1,1034 @@
+import type { SceneObjectKind } from "@ggulnote/editor-core";
+import { DIRECT_TARGET_OBJECT_TYPES } from "../../domain";
+import {
+  NOTE_DECISION_MAX_BATCH_STEPS,
+  NOTE_OBJECT_PART_KINDS,
+  NOTE_PAGE_REGIONS,
+  NOTE_SELECTOR_MAX_DEPTH,
+  NOTE_SPATIAL_RELATIONS,
+  type CompactToolSchema,
+  type Destination,
+  type DecisionDestination,
+  type DecisionObjectPartRef,
+  type DecisionObjectRef,
+  type DecisionStep,
+  type EntitySelector,
+  type EntitySelectorContext,
+  type JsonValue,
+  type NoteAlignment,
+  type NoteDecision,
+  type NoteDecisionInput,
+  type NoteCatalogObject,
+  type NotePageRegion,
+  type NoteSpatialRelation,
+  type NoteToolCall,
+  type NoteToolId,
+  type SpatialConstraint,
+  type SpatialReference,
+} from "./note-agent-types";
+
+type UnknownRecord = Record<string, unknown>;
+
+const FORBIDDEN_AUTHORITY_FIELDS = new Set([
+  "objectid", "sceneobjectid", "candidateid", "rangeid", "partid",
+  "annotationid", "tokenid", "x", "y", "left", "top", "right",
+  "bottom", "width", "height", "bounds", "rect", "rects", "offset",
+  "textoffset", "coordinate", "coordinates", "point",
+]);
+const MAX_TOOL_INPUT_JSON_DEPTH = 20;
+
+export class NoteAgentValidationError extends Error {
+  public constructor(public readonly path: string, message: string) {
+    super(`${path}: ${message}`);
+    this.name = "NoteAgentValidationError";
+  }
+}
+
+export function parseEntitySelector(value: unknown, path = "selector"): EntitySelector {
+  assertNoAuthorityFields(value, path);
+  return readEntitySelector(value, path, 0);
+}
+
+export function parseDestination(value: unknown, path = "destination"): Destination {
+  assertNoAuthorityFields(value, path);
+  const destination = readRecord(value, path);
+  const kind = readString(destination.kind, `${path}.kind`);
+  if (kind === "PAGE_REGION") {
+    assertOnlyKeys(destination, ["kind", "region", "alignment", "avoidOverlap"], path);
+    return {
+      kind,
+      region: readPageRegion(destination.region, `${path}.region`),
+      ...optionalAlignment(destination.alignment, `${path}.alignment`),
+      ...optionalBoolean(destination.avoidOverlap, `${path}.avoidOverlap`),
+    };
+  }
+  if (kind === "RELATIVE") {
+    assertOnlyKeys(destination, [
+      "kind", "relation", "anchor", "alignment", "distance", "avoidOverlap",
+    ], path);
+    const anchor = readRecord(destination.anchor, `${path}.anchor`);
+    const anchorValue = Object.keys(anchor).length === 1 && anchor.context !== undefined
+      ? { context: readContext(anchor.context, `${path}.anchor.context`) }
+      : readEntitySelector(anchor, `${path}.anchor`, 0);
+    return {
+      kind,
+      relation: readSpatialRelation(destination.relation, `${path}.relation`),
+      anchor: anchorValue,
+      ...optionalAlignment(destination.alignment, `${path}.alignment`),
+      ...(destination.distance === undefined
+        ? {}
+        : { distance: readUnion(destination.distance, `${path}.distance`, ["NEAR", "NORMAL"] as const) }),
+      ...optionalBoolean(destination.avoidOverlap, `${path}.avoidOverlap`),
+    };
+  }
+  return fail(`${path}.kind`, `unsupported destination kind: ${kind}`);
+}
+
+export function parseNoteDecision(value: unknown): NoteDecision {
+  assertNoAuthorityFields(value, "decision", decisionCoordinatePaths(value));
+  const decision = readRecord(value, "decision");
+  const status = readString(decision.status, "decision.status");
+  switch (status) {
+    case "READY": {
+      assertDecisionVariantKeys(decision, ["steps"]);
+      const steps = readArray(decision.steps, "decision.steps");
+      if (steps.length < 1 || steps.length > NOTE_DECISION_MAX_BATCH_STEPS) {
+        fail("decision.steps", `expected between 1 and ${NOTE_DECISION_MAX_BATCH_STEPS} steps`);
+      }
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        steps: steps.map((step, index) => readDecisionStep(step, `decision.steps[${index}]`)),
+      };
+    }
+    case "NEEDS_VISUAL": {
+      assertDecisionVariantKeys(decision, ["candidateHandles", "cropRegion"]);
+      const candidateHandles = readArray(
+        decision.candidateHandles,
+        "decision.candidateHandles",
+      ).map((handle, index) => readObjectHandle(
+        handle,
+        `decision.candidateHandles[${index}]`,
+      ));
+      if (candidateHandles.length < 2 || candidateHandles.length > 6) {
+        fail("decision.candidateHandles", "expected between 2 and 6 handles");
+      }
+      const crop = readRecord(decision.cropRegion, "decision.cropRegion");
+      assertOnlyKeys(crop, ["mode", "padding"], "decision.cropRegion");
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        candidateHandles,
+        cropRegion: {
+          mode: readUnion(crop.mode, "decision.cropRegion.mode", ["CANDIDATE_UNION"] as const),
+          padding: readNonNegativeNumber(crop.padding, "decision.cropRegion.padding"),
+        },
+      };
+    }
+    case "NEEDS_CLARIFICATION":
+      assertDecisionVariantKeys(decision, ["reason"]);
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        reason: readUnion(decision.reason, "decision.reason", [
+          "AMBIGUOUS_OBJECT",
+          "MISSING_TARGET",
+          "MISSING_DESTINATION",
+          "VISUAL_UNRESOLVED",
+          "CONTEXT_LIMIT",
+        ] as const),
+      };
+    case "NOT_ALLOWED":
+      assertDecisionVariantKeys(decision, ["reason"]);
+      return {
+        status,
+        sceneRevision: readRevision(decision.sceneRevision, "decision.sceneRevision"),
+        reason: readNonEmptyString(decision.reason, "decision.reason"),
+      };
+    case "CALL":
+      assertOnlyKeys(decision, ["status", "call"], "decision");
+      {
+        const call = readToolCall(decision.call, "decision.call");
+        validateStepReferences([call]);
+        return { status, call };
+      }
+    case "BATCH": {
+      assertOnlyKeys(decision, ["status", "atomic", "steps"], "decision");
+      if (decision.atomic !== true) fail("decision.atomic", "BATCH must be atomic true");
+      const steps = readArray(decision.steps, "decision.steps");
+      if (steps.length < 1 || steps.length > NOTE_DECISION_MAX_BATCH_STEPS) {
+        fail("decision.steps", `expected between 1 and ${NOTE_DECISION_MAX_BATCH_STEPS} steps`);
+      }
+      const parsed = steps.map((step, index) =>
+        readToolCall(step, `decision.steps[${index}]`));
+      if (new Set(parsed.map((step) => step.stepId)).size !== parsed.length) {
+        fail("decision.steps", "stepId values must be unique");
+      }
+      validateStepReferences(parsed);
+      return { status, atomic: true, steps: parsed };
+    }
+    case "NEEDS_INPUT":
+      assertOnlyKeys(decision, ["status", "missing"], "decision");
+      return { status, missing: readNonEmptyStringArray(decision.missing, "decision.missing") };
+    case "UNSUPPORTED":
+      assertOnlyKeys(decision, ["status", "reasonCode"], "decision");
+      return {
+        status,
+        reasonCode: readNonEmptyString(decision.reasonCode, "decision.reasonCode"),
+      };
+    case "NO_OP":
+      assertOnlyKeys(decision, ["status"], "decision");
+      return { status };
+    default:
+      return fail("decision.status", `unsupported decision status: ${status}`);
+  }
+}
+
+export function parseActionTarget(
+  value: unknown,
+  path = "target",
+): DecisionObjectRef {
+  const allowed = new Set<string>();
+  allowActionTargetCoordinatePaths(allowed, value, path);
+  assertNoAuthorityFields(value, path, allowed);
+  return readDecisionObjectRef(value, path);
+}
+
+const STRICT_DECISION_KEYS = [
+  "status",
+  "sceneRevision",
+  "steps",
+  "candidateHandles",
+  "cropRegion",
+  "reason",
+] as const;
+
+function assertDecisionVariantKeys(
+  decision: UnknownRecord,
+  active: readonly (typeof STRICT_DECISION_KEYS)[number][],
+): void {
+  assertOnlyKeys(decision, STRICT_DECISION_KEYS, "decision");
+  const activeKeys = new Set(["status", "sceneRevision", ...active]);
+  for (const key of STRICT_DECISION_KEYS) {
+    if (!activeKeys.has(key) && decision[key] !== undefined && decision[key] !== null) {
+      fail(`decision.${key}`, "expected null for this status");
+    }
+  }
+}
+
+export function parseNoteDecisionInput(value: unknown): NoteDecisionInput {
+  const input = readRecord(value, "input");
+  assertOnlyKeys(input, [
+    "turn", "frozenContext", "availableTools", "pageBase", "liveScene",
+    "objectCatalog", "visualContext",
+  ], "input");
+  const turn = readRecord(input.turn, "input.turn");
+  assertOnlyKeys(turn, ["turnId", "language", "rawFinalTranscript"], "input.turn");
+  const frozen = readRecord(input.frozenContext, "input.frozenContext");
+  assertOnlyKeys(frozen, [
+    "documentId", "pageId", "sceneRevision", "sceneMode", "selection", "focus",
+    "lastOperation",
+  ], "input.frozenContext");
+  const availableTools = readArray(input.availableTools, "input.availableTools")
+    .map((tool, index) => readCompactToolSchema(tool, `input.availableTools[${index}]`));
+  if (new Set(availableTools.map((tool) => tool.id)).size !== availableTools.length) {
+    fail("input.availableTools", "tool ids must be unique");
+  }
+  const pageBase = readPageBaseSnapshot(input.pageBase);
+  const liveScene = readLiveSceneContext(input.liveScene);
+  const catalog = readRecord(input.objectCatalog, "input.objectCatalog");
+  assertOnlyKeys(catalog, ["objects", "truncated"], "input.objectCatalog");
+  const objects = readArray(catalog.objects, "input.objectCatalog.objects")
+    .map((object, index) => readCatalogObject(object, `input.objectCatalog.objects[${index}]`));
+  if (new Set(objects.map((object) => object.handle)).size !== objects.length) {
+    fail("input.objectCatalog.objects", "handles must be unique");
+  }
+  const frozenContext = {
+    documentId: readNonEmptyString(frozen.documentId, "input.frozenContext.documentId"),
+    pageId: readNonEmptyString(frozen.pageId, "input.frozenContext.pageId"),
+    sceneRevision: readRevision(frozen.sceneRevision, "input.frozenContext.sceneRevision"),
+    sceneMode: readUnion(frozen.sceneMode, "input.frozenContext.sceneMode", ["pdf", "blank"] as const),
+    ...(frozen.selection === undefined
+      ? {}
+      : { selection: readContextSummary(frozen.selection, "input.frozenContext.selection") }),
+    ...(frozen.focus === undefined
+      ? {}
+      : { focus: readContextSummary(frozen.focus, "input.frozenContext.focus") }),
+    ...(frozen.lastOperation === undefined
+      ? {}
+      : { lastOperation: readLastOperation(frozen.lastOperation, "input.frozenContext.lastOperation") }),
+  };
+  if (pageBase.documentId !== frozenContext.documentId || pageBase.pageId !== frozenContext.pageId) {
+    fail("input.pageBase", "document and page must match frozenContext");
+  }
+  if (liveScene.sceneRevision !== frozenContext.sceneRevision) {
+    fail("input.liveScene.sceneRevision", "must match frozenContext.sceneRevision");
+  }
+  return {
+    turn: {
+      turnId: readNonEmptyString(turn.turnId, "input.turn.turnId"),
+      language: readNonEmptyString(turn.language, "input.turn.language"),
+      rawFinalTranscript: readString(turn.rawFinalTranscript, "input.turn.rawFinalTranscript"),
+    },
+    frozenContext,
+    availableTools,
+    pageBase,
+    liveScene,
+    objectCatalog: {
+      objects,
+      truncated: readBoolean(catalog.truncated, "input.objectCatalog.truncated"),
+    },
+    ...(input.visualContext === undefined
+      ? {}
+      : { visualContext: readDecisionVisualContext(input.visualContext) }),
+  };
+}
+
+function readPageBaseSnapshot(value: unknown): NoteDecisionInput["pageBase"] {
+  const path = "input.pageBase";
+  const base = readRecord(value, path);
+  assertOnlyKeys(base, [
+    "documentId", "pageId", "baseRevision", "sceneMode", "objects", "pageText", "createdAt",
+  ], path);
+  const objects = readCatalogObjects(base.objects, `${path}.objects`);
+  return {
+    documentId: readNonEmptyString(base.documentId, `${path}.documentId`),
+    pageId: readNonEmptyString(base.pageId, `${path}.pageId`),
+    baseRevision: readNonEmptyString(base.baseRevision, `${path}.baseRevision`),
+    sceneMode: readUnion(base.sceneMode, `${path}.sceneMode`, ["pdf", "blank"] as const),
+    objects,
+    ...(base.pageText === undefined ? {} : { pageText: readString(base.pageText, `${path}.pageText`) }),
+    createdAt: readNonNegativeNumber(base.createdAt, `${path}.createdAt`),
+  };
+}
+
+function readLiveSceneContext(value: unknown): NoteDecisionInput["liveScene"] {
+  const path = "input.liveScene";
+  const live = readRecord(value, path);
+  assertOnlyKeys(live, [
+    "sceneRevision", "createdObjects", "updatedObjects", "deletedObjectIds",
+    "selectedObjectIds", "focusedObjectId", "recentObjectIds", "lastOperation",
+  ], path);
+  return {
+    sceneRevision: readRevision(live.sceneRevision, `${path}.sceneRevision`),
+    createdObjects: readCatalogObjects(live.createdObjects, `${path}.createdObjects`),
+    updatedObjects: readCatalogObjects(live.updatedObjects, `${path}.updatedObjects`),
+    deletedObjectIds: readObjectHandles(live.deletedObjectIds, `${path}.deletedObjectIds`),
+    selectedObjectIds: readObjectHandles(live.selectedObjectIds, `${path}.selectedObjectIds`),
+    ...(live.focusedObjectId === undefined
+      ? {}
+      : { focusedObjectId: readObjectHandle(live.focusedObjectId, `${path}.focusedObjectId`) }),
+    recentObjectIds: readObjectHandles(live.recentObjectIds, `${path}.recentObjectIds`),
+    ...(live.lastOperation === undefined
+      ? {}
+      : { lastOperation: readLastOperation(live.lastOperation, `${path}.lastOperation`) }),
+  };
+}
+
+function readCatalogObjects(value: unknown, path: string): readonly NoteCatalogObject[] {
+  const objects = readArray(value, path)
+    .map((object, index) => readCatalogObject(object, `${path}[${index}]`));
+  if (new Set(objects.map((object) => object.handle)).size !== objects.length) {
+    fail(path, "handles must be unique");
+  }
+  return objects;
+}
+
+function readObjectHandles(value: unknown, path: string): readonly `O${number}`[] {
+  const handles = readArray(value, path)
+    .map((handle, index) => readObjectHandle(handle, `${path}[${index}]`));
+  if (new Set(handles).size !== handles.length) fail(path, "handles must be unique");
+  return handles;
+}
+
+function readDecisionVisualContext(value: unknown): NonNullable<NoteDecisionInput["visualContext"]> {
+  const path = "input.visualContext";
+  const visual = readRecord(value, path);
+  assertOnlyKeys(visual, [
+    "mimeType", "imageDataUrl", "pixelWidth", "pixelHeight", "byteLength", "markedObjects",
+  ], path);
+  const mimeType = readUnion(
+    visual.mimeType,
+    `${path}.mimeType`,
+    ["image/png", "image/jpeg"] as const,
+  );
+  const imageDataUrl = readNonEmptyString(visual.imageDataUrl, `${path}.imageDataUrl`);
+  if (!imageDataUrl.startsWith(`data:${mimeType};base64,`)) {
+    fail(`${path}.imageDataUrl`, "expected a matching base64 image data URL");
+  }
+  const markedObjects = readArray(visual.markedObjects, `${path}.markedObjects`)
+    .map((value, index) => {
+      const markerPath = `${path}.markedObjects[${index}]`;
+      const marker = readRecord(value, markerPath);
+      assertOnlyKeys(marker, ["objectId", "kind", "bounds"], markerPath);
+      const boundsPath = `${markerPath}.bounds`;
+      const bounds = readRecord(marker.bounds, boundsPath);
+      assertOnlyKeys(bounds, ["x", "y", "width", "height"], boundsPath);
+      return {
+        objectId: readObjectHandle(marker.objectId, `${markerPath}.objectId`),
+        kind: readSceneObjectKind(marker.kind, `${markerPath}.kind`),
+        bounds: {
+          x: readUnitNumber(bounds.x, `${boundsPath}.x`),
+          y: readUnitNumber(bounds.y, `${boundsPath}.y`),
+          width: readUnitNumber(bounds.width, `${boundsPath}.width`),
+          height: readUnitNumber(bounds.height, `${boundsPath}.height`),
+        },
+      };
+    });
+  if (new Set(markedObjects.map((marker) => marker.objectId)).size !== markedObjects.length) {
+    fail(`${path}.markedObjects`, "objectIds must be unique");
+  }
+  return {
+    mimeType,
+    imageDataUrl,
+    pixelWidth: readPositiveInteger(visual.pixelWidth, `${path}.pixelWidth`),
+    pixelHeight: readPositiveInteger(visual.pixelHeight, `${path}.pixelHeight`),
+    byteLength: readNonNegativeNumber(visual.byteLength, `${path}.byteLength`),
+    markedObjects,
+  };
+}
+
+function readDecisionStep(value: unknown, path: string): DecisionStep {
+  const step = readRecord(value, path);
+  assertOnlyKeys(step, ["action", "target", "args", "destination"], path);
+  const args = readRecord(step.args, `${path}.args`);
+  return {
+    action: readToolId(step.action, `${path}.action`),
+    target: step.target === null ? null : readDecisionObjectRef(step.target, `${path}.target`),
+    args: readJsonRecord(args, `${path}.args`),
+    destination: step.destination === null
+      ? null
+      : parseDecisionDestination(step.destination, `${path}.destination`),
+  };
+}
+
+function readDecisionObjectRef(value: unknown, path: string): DecisionObjectRef {
+  const ref = readRecord(value, path);
+  assertOnlyKeys(ref, ["object", "part", "region", "fallbackPoint"], path);
+  const object = ref.object === null
+    ? null
+    : readObjectHandle(ref.object, `${path}.object`);
+  const part = ref.part === null || ref.part === undefined
+    ? null
+    : readDecisionPart(ref.part, `${path}.part`);
+  const region = ref.region === null || ref.region === undefined
+    ? undefined
+    : readActionTargetRegion(ref.region, `${path}.region`);
+  const fallbackPoint = ref.fallbackPoint === null || ref.fallbackPoint === undefined
+    ? undefined
+    : readActionTargetFallbackPoint(ref.fallbackPoint, `${path}.fallbackPoint`);
+  if (object === null && part !== null) fail(`${path}.part`, "requires an object handle");
+  if (object === null && region !== undefined) fail(`${path}.region`, "requires an object handle");
+  if (object === null && fallbackPoint?.coordinateSpace === "OBJECT_LOCAL") {
+    fail(`${path}.fallbackPoint.coordinateSpace`, "OBJECT_LOCAL requires an object handle");
+  }
+  if (object === null && fallbackPoint === undefined) {
+    fail(path, "requires an object handle or PAGE fallback point");
+  }
+  if (part !== null && region !== undefined) {
+    fail(path, "part and visual region cannot be combined");
+  }
+  return {
+    object,
+    part,
+    ...(ref.region === undefined ? {} : { region: region ?? null }),
+    ...(ref.fallbackPoint === undefined
+      ? {}
+      : { fallbackPoint: fallbackPoint ?? null }),
+  };
+}
+
+function readActionTargetRegion(
+  value: unknown,
+  path: string,
+): NonNullable<DecisionObjectRef["region"]> {
+  const region = readRecord(value, path);
+  assertOnlyKeys(region, ["x", "y", "width", "height"], path);
+  const result = {
+    x: readUnitNumber(region.x, `${path}.x`),
+    y: readUnitNumber(region.y, `${path}.y`),
+    width: readPositiveUnitNumber(region.width, `${path}.width`),
+    height: readPositiveUnitNumber(region.height, `${path}.height`),
+  };
+  if (result.x + result.width > 1 || result.y + result.height > 1) {
+    fail(path, "normalized region must stay inside the target object");
+  }
+  return result;
+}
+
+function readActionTargetFallbackPoint(
+  value: unknown,
+  path: string,
+): NonNullable<DecisionObjectRef["fallbackPoint"]> {
+  const point = readRecord(value, path);
+  assertOnlyKeys(point, ["x", "y", "coordinateSpace"], path);
+  return {
+    x: readUnitNumber(point.x, `${path}.x`),
+    y: readUnitNumber(point.y, `${path}.y`),
+    coordinateSpace: readUnion(
+      point.coordinateSpace,
+      `${path}.coordinateSpace`,
+      ["OBJECT_LOCAL", "PAGE"] as const,
+    ),
+  };
+}
+
+function readDecisionPart(value: unknown, path: string): DecisionObjectPartRef {
+  const part = readRecord(value, path);
+  assertOnlyKeys(
+    part,
+    ["kind", "index", "row", "column", "text", "startText", "endText"],
+    path,
+  );
+  return {
+    kind: readUnion(part.kind, `${path}.kind`, NOTE_OBJECT_PART_KINDS),
+    index: readNullablePositiveInteger(part.index, `${path}.index`),
+    row: readNullablePositiveInteger(part.row, `${path}.row`),
+    column: readNullablePositiveInteger(part.column, `${path}.column`),
+    text: readNullableString(part.text, `${path}.text`),
+    startText: readNullableString(part.startText, `${path}.startText`),
+    endText: readNullableString(part.endText, `${path}.endText`),
+  };
+}
+
+export function parseDecisionDestination(
+  value: unknown,
+  path = "destination",
+): DecisionDestination {
+  const destination = readRecord(value, path);
+  assertOnlyKeys(destination, ["relation", "anchor", "region"], path);
+  return {
+    relation: readUnion(destination.relation, `${path}.relation`, [
+      "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "NEAR", "INSIDE", "BETWEEN", "CANVAS_REGION",
+    ] as const),
+    anchor: destination.anchor === null
+      ? null
+      : readDecisionObjectRef(destination.anchor, `${path}.anchor`),
+    region: destination.region === null
+      ? null
+      : readPageRegion(destination.region, `${path}.region`),
+  };
+}
+
+function readCatalogObject(value: unknown, path: string): NoteCatalogObject {
+  const object = readRecord(value, path);
+  assertOnlyKeys(object, [
+    "handle", "source", "kind", "text", "summary", "bounds", "capabilities",
+    "selected", "focused", "recent", "parts",
+  ], path);
+  if (object.text !== undefined && object.summary !== undefined) {
+    fail(path, "catalog object cannot contain both text and summary");
+  }
+  const bounds = readRecord(object.bounds, `${path}.bounds`);
+  assertOnlyKeys(bounds, ["x", "y", "width", "height"], `${path}.bounds`);
+  return {
+    handle: readObjectHandle(object.handle, `${path}.handle`),
+    source: readUnion(object.source, `${path}.source`, ["pdf", "tldraw"] as const),
+    kind: readSceneObjectKind(object.kind, `${path}.kind`),
+    ...(object.text === undefined
+      ? {}
+      : { text: readString(object.text, `${path}.text`) }),
+    ...(object.summary === undefined
+      ? {}
+      : { summary: readString(object.summary, `${path}.summary`) }),
+    bounds: {
+      x: readUnitNumber(bounds.x, `${path}.bounds.x`),
+      y: readUnitNumber(bounds.y, `${path}.bounds.y`),
+      width: readUnitNumber(bounds.width, `${path}.bounds.width`),
+      height: readUnitNumber(bounds.height, `${path}.bounds.height`),
+    },
+    capabilities: readArray(object.capabilities, `${path}.capabilities`)
+      .map((capability, index) => readNonEmptyString(
+        capability,
+        `${path}.capabilities[${index}]`,
+      )),
+    selected: readBoolean(object.selected, `${path}.selected`),
+    focused: readBoolean(object.focused, `${path}.focused`),
+    recent: readBoolean(object.recent, `${path}.recent`),
+    ...(object.parts === undefined ? {} : {
+      parts: readArray(object.parts, `${path}.parts`).map((part, index) => {
+        const partPath = `${path}.parts[${index}]`;
+        const record = readRecord(part, partPath);
+        assertOnlyKeys(record, ["kind", "summary"], partPath);
+        return {
+          kind: readNonEmptyString(record.kind, `${partPath}.kind`),
+          ...(record.summary === undefined
+            ? {}
+            : { summary: readString(record.summary, `${partPath}.summary`) }),
+        };
+      }),
+    }),
+  };
+}
+
+function readEntitySelector(value: unknown, path: string, depth: number): EntitySelector {
+  if (depth > NOTE_SELECTOR_MAX_DEPTH) {
+    return fail(path, `selector nesting exceeds depth ${NOTE_SELECTOR_MAX_DEPTH}`);
+  }
+  const selector = readRecord(value, path);
+  assertOnlyKeys(selector, [
+    "scope", "kinds", "source", "content", "attributes", "temporal",
+    "ordinal", "context", "spatial",
+    "part",
+  ], path);
+  const content = selector.content === undefined
+    ? undefined
+    : readContent(selector.content, `${path}.content`);
+  const spatial = selector.spatial === undefined
+    ? undefined
+    : readArray(selector.spatial, `${path}.spatial`).map((constraint, index) =>
+        readSpatialConstraint(constraint, `${path}.spatial[${index}]`, depth));
+  if (spatial !== undefined && spatial.length > 4) {
+    fail(`${path}.spatial`, "expected at most 4 constraints");
+  }
+  return {
+    ...(selector.scope === undefined
+      ? {}
+      : { scope: readUnion(selector.scope, `${path}.scope`, ["CURRENT_VIEW", "CURRENT_PAGE", "DOCUMENT"] as const) }),
+    ...(selector.kinds === undefined ? {} : { kinds: readKinds(selector.kinds, `${path}.kinds`) }),
+    ...(selector.source === undefined
+      ? {}
+      : { source: readUnion(selector.source, `${path}.source`, ["PDF_BASE", "USER_CREATED", "ANY"] as const) }),
+    ...(content === undefined ? {} : { content }),
+    ...(selector.attributes === undefined
+      ? {}
+      : { attributes: readAttributes(selector.attributes, `${path}.attributes`) }),
+    ...(selector.temporal === undefined
+      ? {}
+      : { temporal: readUnion(selector.temporal, `${path}.temporal`, ["RECENT", "FIRST_CREATED", "LAST_CREATED"] as const) }),
+    ...(selector.ordinal === undefined ? {} : { ordinal: readOrdinal(selector.ordinal, `${path}.ordinal`) }),
+    ...(selector.context === undefined ? {} : { context: readContext(selector.context, `${path}.context`) }),
+    ...(spatial === undefined ? {} : { spatial }),
+    ...(selector.part === undefined
+      ? {}
+      : { part: readPartSelector(selector.part, `${path}.part`) }),
+  };
+}
+
+function readPartSelector(value: unknown, path: string) {
+  const part = readRecord(value, path);
+  assertOnlyKeys(part, ["kind", "index", "row", "column", "text"], path);
+  return {
+    kind: readUnion(part.kind, `${path}.kind`, NOTE_OBJECT_PART_KINDS),
+    ...(part.index === undefined ? {} : { index: readPositiveInteger(part.index, `${path}.index`) }),
+    ...(part.row === undefined ? {} : { row: readPositiveInteger(part.row, `${path}.row`) }),
+    ...(part.column === undefined ? {} : { column: readPositiveInteger(part.column, `${path}.column`) }),
+    ...(part.text === undefined ? {} : { text: readNonEmptyString(part.text, `${path}.text`) }),
+  };
+}
+
+function readContent(value: unknown, path: string) {
+  const content = readRecord(value, path);
+  assertOnlyKeys(content, ["text", "math", "semantic"], path);
+  if (Object.keys(content).length === 0) fail(path, "content must not be empty");
+  return {
+    ...(content.text === undefined ? {} : { text: readNonEmptyString(content.text, `${path}.text`) }),
+    ...(content.math === undefined ? {} : { math: readNonEmptyString(content.math, `${path}.math`) }),
+    ...(content.semantic === undefined ? {} : { semantic: readNonEmptyString(content.semantic, `${path}.semantic`) }),
+  };
+}
+
+function readSpatialConstraint(
+  value: unknown,
+  path: string,
+  selectorDepth: number,
+): SpatialConstraint {
+  const constraint = readRecord(value, path);
+  assertOnlyKeys(constraint, ["relation", "reference"], path);
+  return {
+    relation: readSpatialRelation(constraint.relation, `${path}.relation`),
+    reference: readSpatialReference(constraint.reference, `${path}.reference`, selectorDepth),
+  };
+}
+
+function readSpatialReference(
+  value: unknown,
+  path: string,
+  selectorDepth: number,
+): SpatialReference {
+  const reference = readRecord(value, path);
+  const kind = readString(reference.kind, `${path}.kind`);
+  if (kind === "ENTITY") {
+    assertOnlyKeys(reference, ["kind", "selector"], path);
+    return {
+      kind,
+      selector: readEntitySelector(reference.selector, `${path}.selector`, selectorDepth + 1),
+    };
+  }
+  if (kind === "PAGE_REGION") {
+    assertOnlyKeys(reference, ["kind", "region"], path);
+    return { kind, region: readPageRegion(reference.region, `${path}.region`) };
+  }
+  if (kind === "FOCUS" || kind === "SELECTION") {
+    assertOnlyKeys(reference, ["kind"], path);
+    return { kind };
+  }
+  return fail(`${path}.kind`, `unsupported spatial reference: ${kind}`);
+}
+
+function readToolCall(value: unknown, path: string): NoteToolCall {
+  const call = readRecord(value, path);
+  assertOnlyKeys(call, ["stepId", "toolId", "input"], path);
+  return {
+    stepId: readNonEmptyString(call.stepId, `${path}.stepId`),
+    toolId: readToolId(call.toolId, `${path}.toolId`),
+    input: cloneJsonValue(call.input, `${path}.input`, 0),
+  };
+}
+
+function readCompactToolSchema(value: unknown, path: string): CompactToolSchema {
+  const tool = readRecord(value, path);
+  assertOnlyKeys(tool, ["id", "kind", "description", "examples", "input", "strictArgs"], path);
+  const fields = tool.input === undefined
+    ? undefined
+    : readRecord(tool.input, `${path}.input`);
+  return {
+    id: readToolId(tool.id, `${path}.id`),
+    kind: readUnion(tool.kind, `${path}.kind`, ["QUERY", "COMPUTE", "MUTATION"] as const),
+    description: readNonEmptyString(tool.description, `${path}.description`),
+    ...(tool.examples === undefined
+      ? {}
+      : { examples: readNonEmptyStringArray(tool.examples, `${path}.examples`) }),
+    ...(fields === undefined ? {} : {
+      input: Object.fromEntries(Object.entries(fields).map(([key, entry]) => [
+        key,
+        readNonEmptyString(entry, `${path}.input.${key}`),
+      ])),
+    }),
+    ...(tool.strictArgs === undefined
+      ? {}
+      : { strictArgs: readJsonRecord(readRecord(tool.strictArgs, `${path}.strictArgs`), `${path}.strictArgs`) }),
+  };
+}
+
+function readContextSummary(value: unknown, path: string) {
+  const summary = readRecord(value, path);
+  assertOnlyKeys(summary, ["kind", "textPreview", "semanticPreview"], path);
+  return {
+    ...(summary.kind === undefined ? {} : { kind: readNonEmptyString(summary.kind, `${path}.kind`) }),
+    ...(summary.textPreview === undefined ? {} : { textPreview: readString(summary.textPreview, `${path}.textPreview`) }),
+    ...(summary.semanticPreview === undefined ? {} : { semanticPreview: readString(summary.semanticPreview, `${path}.semanticPreview`) }),
+  };
+}
+
+function readLastOperation(value: unknown, path: string) {
+  const operation = readRecord(value, path);
+  assertOnlyKeys(operation, ["toolId", "outputKind", "summary"], path);
+  return {
+    toolId: readToolId(operation.toolId, `${path}.toolId`),
+    ...(operation.outputKind === undefined ? {} : { outputKind: readNonEmptyString(operation.outputKind, `${path}.outputKind`) }),
+    ...(operation.summary === undefined ? {} : { summary: readString(operation.summary, `${path}.summary`) }),
+  };
+}
+
+function readKinds(value: unknown, path: string): readonly SceneObjectKind[] {
+  const kinds = readNonEmptyStringArray(value, path);
+  return kinds.map((kind, index) => {
+    if ((DIRECT_TARGET_OBJECT_TYPES as readonly string[]).includes(kind)) {
+      return kind as SceneObjectKind;
+    }
+    return fail(`${path}[${index}]`, `unsupported object kind: ${kind}`);
+  });
+}
+
+function readSceneObjectKind(value: unknown, path: string): SceneObjectKind {
+  const kind = readNonEmptyString(value, path);
+  return (DIRECT_TARGET_OBJECT_TYPES as readonly string[]).includes(kind)
+    ? kind as SceneObjectKind
+    : fail(path, `unsupported object kind: ${kind}`);
+}
+
+function readObjectHandle(value: unknown, path: string): `O${number}` {
+  const handle = readNonEmptyString(value, path);
+  return /^O[1-9][0-9]*$/u.test(handle)
+    ? handle as `O${number}`
+    : fail(path, `invalid request-local object handle: ${handle}`);
+}
+
+function readNullablePositiveInteger(value: unknown, path: string): number | null {
+  return value === null || value === undefined ? null : readPositiveInteger(value, path);
+}
+
+function readNullableString(value: unknown, path: string): string | null {
+  return value === null || value === undefined ? null : readString(value, path);
+}
+
+function readNonNegativeNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return fail(path, "expected a finite non-negative number");
+  }
+  return value;
+}
+
+function readUnitNumber(value: unknown, path: string): number {
+  const number = readNonNegativeNumber(value, path);
+  return number <= 1 ? number : fail(path, "expected a normalized number between 0 and 1");
+}
+
+function readPositiveUnitNumber(value: unknown, path: string): number {
+  const number = readUnitNumber(value, path);
+  return number > 0 ? number : fail(path, "expected a normalized number greater than 0");
+}
+
+function readJsonRecord(
+  value: Record<string, unknown>,
+  path: string,
+): Readonly<Record<string, JsonValue>> {
+  return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    cloneJsonValue(entry, `${path}.${key}`, 0),
+  ])));
+}
+
+function readAttributes(value: unknown, path: string): Readonly<Record<string, JsonValue>> {
+  const attributes = readRecord(value, path);
+  return Object.freeze(Object.fromEntries(Object.entries(attributes).map(([key, entry]) => [
+    key,
+    cloneJsonValue(entry, `${path}.${key}`, 0),
+  ])));
+}
+
+function cloneJsonValue(value: unknown, path: string, depth: number): JsonValue {
+  // A valid depth-2 EntitySelector contains structural records and arrays well
+  // beyond six JSON levels. Selector recursion is guarded separately above.
+  if (depth > MAX_TOOL_INPUT_JSON_DEPTH) {
+    return fail(path, "JSON value nesting is too deep");
+  }
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : fail(path, "expected a finite number");
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => cloneJsonValue(entry, `${path}[${index}]`, depth + 1));
+  }
+  const record = readRecord(value, path);
+  return Object.fromEntries(Object.entries(record).map(([key, entry]) => [
+    key,
+    cloneJsonValue(entry, `${path}.${key}`, depth + 1),
+  ]));
+}
+
+function assertNoAuthorityFields(
+  value: unknown,
+  path: string,
+  allowedPaths: ReadonlySet<string> = EMPTY_ALLOWED_AUTHORITY_PATHS,
+): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      assertNoAuthorityFields(entry, `${path}[${index}]`, allowedPaths));
+    return;
+  }
+  const record = readRecord(value, path);
+  for (const [key, entry] of Object.entries(record)) {
+    const entryPath = `${path}.${key}`;
+    if (
+      FORBIDDEN_AUTHORITY_FIELDS.has(key.replace(/[_-]/gu, "").toLocaleLowerCase())
+      && !allowedPaths.has(entryPath)
+    ) {
+      fail(entryPath, "runtime authority field is forbidden");
+    }
+    assertNoAuthorityFields(entry, entryPath, allowedPaths);
+  }
+}
+
+const EMPTY_ALLOWED_AUTHORITY_PATHS: ReadonlySet<string> = new Set();
+
+function decisionCoordinatePaths(value: unknown): ReadonlySet<string> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return EMPTY_ALLOWED_AUTHORITY_PATHS;
+  }
+  const decision = value as Record<string, unknown>;
+  if (decision.status !== "READY" || !Array.isArray(decision.steps)) {
+    return EMPTY_ALLOWED_AUTHORITY_PATHS;
+  }
+  const allowed = new Set<string>();
+  decision.steps.forEach((candidate, index) => {
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) return;
+    const step = candidate as Record<string, unknown>;
+    if (step.action === "math.graph.add_tangent") {
+      allowed.add(`decision.steps[${index}].args.x`);
+      allowed.add(`decision.steps[${index}].args.y`);
+    }
+    allowActionTargetCoordinatePaths(
+      allowed,
+      step.target,
+      `decision.steps[${index}].target`,
+    );
+    if (step.destination !== null
+      && typeof step.destination === "object"
+      && !Array.isArray(step.destination)) {
+      allowActionTargetCoordinatePaths(
+        allowed,
+        (step.destination as Record<string, unknown>).anchor,
+        `decision.steps[${index}].destination.anchor`,
+      );
+    }
+  });
+  return allowed;
+}
+
+function allowActionTargetCoordinatePaths(
+  allowed: Set<string>,
+  value: unknown,
+  path: string,
+): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return;
+  const target = value as Record<string, unknown>;
+  if (target.region !== null && typeof target.region === "object") {
+    allowed.add(`${path}.region.x`);
+    allowed.add(`${path}.region.y`);
+    allowed.add(`${path}.region.width`);
+    allowed.add(`${path}.region.height`);
+  }
+  if (target.fallbackPoint !== null && typeof target.fallbackPoint === "object") {
+    allowed.add(`${path}.fallbackPoint.x`);
+    allowed.add(`${path}.fallbackPoint.y`);
+  }
+}
+
+function validateStepReferences(calls: readonly NoteToolCall[]): void {
+  const completed = new Set<string>();
+  calls.forEach((call, index) => {
+    visitStepReferences(call.input, `decision.steps[${index}].input`, completed);
+    completed.add(call.stepId);
+  });
+}
+
+function visitStepReferences(
+  value: unknown,
+  path: string,
+  completed: ReadonlySet<string>,
+): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => visitStepReferences(entry, `${path}[${index}]`, completed));
+    return;
+  }
+  const record = readRecord(value, path);
+  if ("fromStep" in record) {
+    assertOnlyKeys(record, ["fromStep", "path"], path);
+    const fromStep = readNonEmptyString(record.fromStep, `${path}.fromStep`);
+    if (!completed.has(fromStep)) {
+      fail(`${path}.fromStep`, "step output references must point to an earlier step");
+    }
+    if (record.path !== undefined) {
+      const segments = readArray(record.path, `${path}.path`);
+      if (segments.length > 8) fail(`${path}.path`, "expected at most 8 path segments");
+      segments.forEach((segment, index) =>
+        readNonEmptyString(segment, `${path}.path[${index}]`));
+    }
+    return;
+  }
+  Object.entries(record).forEach(([key, entry]) =>
+    visitStepReferences(entry, `${path}.${key}`, completed));
+}
+
+function readPageRegion(value: unknown, path: string): NotePageRegion {
+  return readUnion(value, path, NOTE_PAGE_REGIONS);
+}
+
+function readSpatialRelation(value: unknown, path: string): NoteSpatialRelation {
+  return readUnion(value, path, NOTE_SPATIAL_RELATIONS);
+}
+
+function optionalAlignment(value: unknown, path: string): { alignment?: NoteAlignment } {
+  return value === undefined
+    ? {}
+    : { alignment: readUnion(value, path, ["START", "CENTER", "END", "AUTO"] as const) };
+}
+
+function optionalBoolean(value: unknown, path: string): { avoidOverlap?: boolean } {
+  return value === undefined ? {} : { avoidOverlap: readBoolean(value, path) };
+}
+
+function readContext(value: unknown, path: string): EntitySelectorContext {
+  return readUnion(value, path, ["FOCUS", "SELECTION"] as const);
+}
+
+function readOrdinal(value: unknown, path: string): number | "FIRST" | "LAST" {
+  if (value === "FIRST" || value === "LAST") return value;
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  return fail(path, "expected a positive integer, FIRST, or LAST");
+}
+
+function readPositiveInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return fail(path, "expected a positive integer");
+  }
+  return value;
+}
+
+function readToolId(value: unknown, path: string): NoteToolId {
+  const id = readNonEmptyString(value, path);
+  if (!/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/u.test(id)) {
+    return fail(path, "expected a namespaced tool id");
+  }
+  return id as NoteToolId;
+}
+
+function readRevision(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return fail(path, "expected a non-negative integer");
+  }
+  return value;
+}
+
+function readNonEmptyStringArray(value: unknown, path: string): readonly string[] {
+  const values = readArray(value, path);
+  if (values.length === 0) return fail(path, "expected a non-empty array");
+  return values.map((entry, index) => readNonEmptyString(entry, `${path}[${index}]`));
+}
+
+function readRecord(value: unknown, path: string): UnknownRecord {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return fail(path, "expected an object");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return fail(path, "expected a plain object");
+  }
+  return value as UnknownRecord;
+}
+
+function readArray(value: unknown, path: string): readonly unknown[] {
+  if (!Array.isArray(value)) return fail(path, "expected an array");
+  return value;
+}
+
+function readString(value: unknown, path: string): string {
+  if (typeof value !== "string") return fail(path, "expected a string");
+  return value;
+}
+
+function readNonEmptyString(value: unknown, path: string): string {
+  const text = readString(value, path);
+  if (text.trim().length === 0) return fail(path, "expected a non-empty string");
+  return text;
+}
+
+function readBoolean(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") return fail(path, "expected a boolean");
+  return value;
+}
+
+function readUnion<const TValues extends readonly string[]>(
+  value: unknown,
+  path: string,
+  values: TValues,
+): TValues[number] {
+  const candidate = readString(value, path);
+  return (values as readonly string[]).includes(candidate)
+    ? candidate as TValues[number]
+    : fail(path, `unsupported value: ${candidate}`);
+}
+
+function assertOnlyKeys(value: UnknownRecord, allowedKeys: readonly string[], path: string): void {
+  const allowed = new Set(allowedKeys);
+  const unknown = Object.keys(value).find((key) => !allowed.has(key));
+  if (unknown !== undefined) fail(`${path}.${unknown}`, "unexpected field");
+}
+
+function fail(path: string, message: string): never {
+  throw new NoteAgentValidationError(path, message);
+}

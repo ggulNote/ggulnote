@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DirectPlannerResultValidationError,
+  parseDirectPlannerDraftResult,
   parseDirectPlannerResult,
   safeParseDirectPlannerResult,
 } from "./direct-planner-schema";
@@ -82,6 +83,104 @@ describe("DirectPlannerResult runtime schema", () => {
     };
 
     expect(parseDirectPlannerResult(value)).toEqual(value);
+  });
+
+  it("accepts text.create only with a strict semantic placement query", () => {
+    const value = {
+      ...createExecutableResult(),
+      command: {
+        capability: "text",
+        operation: "create",
+        target: { kind: "CURRENT_PAGE" },
+        payload: { text: "그림 설명" },
+      },
+      placementQuery: {
+        reference: {
+          kind: "TARGET",
+          query: { kind: "object", objectType: "image", query: "이 그림" },
+        },
+        relation: "BELOW",
+        alignment: "START",
+        overlayIntent: "NONE",
+      },
+    };
+
+    expect(parseDirectPlannerResult(value)).toEqual(value);
+    const withoutPlacement = { ...value };
+    delete (withoutPlacement as { placementQuery?: unknown }).placementQuery;
+    expect(() => parseDirectPlannerResult(withoutPlacement)).toThrowError(
+      /text\.create requires a spatial placement query/u,
+    );
+  });
+
+  it("accepts only the text.create placement omission in planner draft mode", () => {
+    const value = createExecutableResult();
+    value.command = {
+      capability: "text",
+      operation: "create",
+      target: { kind: "CURRENT_PAGE" },
+      payload: { text: "가나다라" },
+    };
+
+    expect(parseDirectPlannerDraftResult(value)).toEqual(value);
+    expect(() => parseDirectPlannerResult(value)).toThrowError(
+      /text\.create requires a spatial placement query/u,
+    );
+
+    const forbidden = { ...value, placementQuery: { x: 100, y: 200 } };
+    expect(() => parseDirectPlannerDraftResult(forbidden)).toThrowError(
+      /placementQuery\.x: unexpected field/u,
+    );
+  });
+
+  it("lifts only a nested text.create placementQuery in planner draft mode", () => {
+    const placementQuery = {
+      reference: { kind: "PAGE" },
+      relation: "FREE_SPACE",
+      regionHint: "TOP",
+      alignment: "START",
+      overlayIntent: "NONE",
+    };
+    const nested = {
+      ...createExecutableResult(),
+      command: {
+        capability: "text",
+        operation: "create",
+        target: { kind: "CURRENT_PAGE" },
+        payload: { text: "가나다라" },
+        placementQuery,
+      },
+    };
+
+    const parsed = parseDirectPlannerDraftResult(nested);
+    expect(parsed).toMatchObject({
+      command: {
+        capability: "text",
+        operation: "create",
+        payload: { text: "가나다라" },
+      },
+      placementQuery,
+    });
+    if (parsed.status !== "EXECUTABLE") throw new Error("Expected executable draft.");
+    expect(parsed.command).not.toHaveProperty("placementQuery");
+    expect(() => parseDirectPlannerResult(nested)).toThrowError(
+      /result\.command\.placementQuery: unexpected field/u,
+    );
+    expect(() => parseDirectPlannerDraftResult({
+      ...nested,
+      placementQuery,
+    })).toThrowError(/placementQuery must appear exactly once/u);
+
+    const forbiddenCommand = {
+      ...createExecutableResult(),
+      command: {
+        ...createExecutableResult().command,
+        placementQuery,
+      },
+    };
+    expect(() => parseDirectPlannerDraftResult(forbiddenCommand)).toThrowError(
+      /result\.command\.placementQuery: unexpected field/u,
+    );
   });
 
   it("rejects coordinate fields mixed into an executable command", () => {

@@ -1,4 +1,13 @@
+@import "tldraw/tldraw.css";
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Ggulnote Handwriting";
+  src: url("/fonts/nanum-pen-script/NanumPenScript-Regular.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
 
 :root {
   --background: #ffffff;
@@ -44,6 +53,10 @@ button:disabled {
   letter-spacing: normal;
   word-spacing: normal;
   transform-origin: 0 0;
+}
+
+.ggulnote-tldraw-overlay .tl-background {
+  background: transparent !important;
 }
 
 .pdf-text-layer-debug :is(span, br) {
