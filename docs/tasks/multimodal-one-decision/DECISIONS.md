@@ -61,7 +61,7 @@
 
 - 이미지 내부 visual region 표시는 기존 `math.shape.create_circle` action을 registered math tool에 연결한다.
 - LLM은 object와 region만 결정하며 circle center/radius와 local geometry는 math-core가 deterministic하게 생성한다.
-- tangent의 quadrant constraint도 기존 local math handler까지 그대로 전달한다.
+- tangent는 LLM이 graph-domain `at.x`를 결정하고 math-core가 함수값, 미분값, 접선식을 계산한다.
 
 ## D11. Production has a hard one-call boundary
 
@@ -72,8 +72,8 @@
 
 ## D12. Local placement and text grounding are mechanical only
 
-- Note Agent placement는 target/relation을 다시 해석하지 않고 LLM이 선택한 typed destination에서 geometry, collision, clamp만 계산한다.
-- placement candidate 동률은 별도 VLM/preview 호출 없이 pure deterministic geometry policy로 해소한다.
+- Note Agent create placement는 LLM이 선택한 page-normalized final geometry를 pixel 좌표로 투영하고 page bounds로 구조적으로 clamp만 한다.
+- production `READY.steps[]`에는 destination/relation/candidate가 없으며 local slot 선택이나 spatial 의미 재해석을 수행하지 않는다.
 - PDF text target은 canonical stream의 exact anchor/range만 조회하고 검증한다. transcript 기반 fuzzy span recovery는 Note Agent 경로에서 사용하지 않는다.
 - explicit legacy direct-command route의 기존 provider/heuristic은 호환을 위해 유지하지만 기본 Note Agent production route에는 연결하지 않는다.
 
@@ -83,3 +83,11 @@
 - 최초 Decision에 첨부된 marked screenshot이 유일한 visual pass다.
 - visual evidence가 없거나 충분하지 않으면 같은 응답에서 `NEEDS_CLARIFICATION`과 `VISUAL_UNRESOLVED`를 반환한다.
 - parser-only shadow fixture 호환 타입은 유지하지만 production runtime은 `NEEDS_VISUAL` decision을 실행하지 않는다.
+
+## D14. Each domain keeps its semantic source of truth
+
+- text/formula/graph/shape create는 필요한 경우에만 page-normalized `placement`를 갖는다.
+- graph는 `args.expression`이 source of truth이며 math-core가 지원 descriptor와 sampling/render data를 deterministic하게 만든다.
+- graph point는 `args.point.{x,y}`, tangent는 `args.at.x`를 graph-domain 좌표로 받는다. canvas line/point geometry는 Decision 계약에 없다.
+- PDF underline/highlight는 exact canonical `startText`/`endText`를 source of truth로 유지하고 glyph rect는 local PDF/text engine이 계산한다.
+- 사용되지 않던 `ExistingPlacementEngine` candidate facade와 Note Agent용 `DecisionDestination` 계약은 제거했다. `Destination -> SpatialPlacementQuery` 변환은 구형 `EditorNoteAgentTransaction` 호환 경로에만 남긴다.

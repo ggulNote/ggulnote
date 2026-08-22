@@ -43,31 +43,24 @@ describe("editor-connected math action tools", () => {
       .toThrowError(/extra/u);
     expect(graph.inputSchema.parse({
       expression: "y=x²",
-      functionType: "quadratic",
-      parameters: [
-        { name: "a", value: 1 },
-        { name: "b", value: 0 },
-        { name: "c", value: 0 },
-      ],
-    })).toMatchObject({ args: { expression: "y=x²", functionType: "quadratic" } });
+    })).toMatchObject({ args: { expression: "y=x²" } });
     expect(point.inputSchema.parse({
       target: { object: "O1", part: null },
-      xValue: null,
-      yValue: null,
-      label: null,
-    })).toMatchObject({ target: { object: "O1", part: null } });
-    expect(() => point.inputSchema.parse({ xValue: null, yValue: null, label: null }))
-      .toThrowError(/target/u);
-    expect(tangent.inputSchema.parse({
-      target: { object: "O1", part: null },
-      mode: "quadrant",
-      x: null,
-      y: null,
-      quadrant: 2,
+      point: { x: 1, y: 2 },
       label: null,
     })).toMatchObject({
       target: { object: "O1", part: null },
-      args: { mode: "quadrant", quadrant: 2 },
+      args: { point: { x: 1, y: 2 } },
+    });
+    expect(() => point.inputSchema.parse({ point: { x: 1, y: 2 }, label: null }))
+      .toThrowError(/target/u);
+    expect(tangent.inputSchema.parse({
+      target: { object: "O1", part: null },
+      at: { x: -1 },
+      label: null,
+    })).toMatchObject({
+      target: { object: "O1", part: null },
+      args: { at: { x: -1 } },
     });
     expect(tangent.inputSchema.parse({
       target: {
@@ -82,14 +75,11 @@ describe("editor-connected math action tools", () => {
           endText: null,
         },
       },
-      mode: "quadrant",
-      x: null,
-      y: null,
-      quadrant: 2,
+      at: { x: -1 },
       label: null,
     })).toMatchObject({
       target: { object: "O1", part: null },
-      args: { mode: "quadrant", quadrant: 2 },
+      args: { at: { x: -1 } },
     });
     expect(() => tangent.inputSchema.parse({
       target: {
@@ -104,39 +94,20 @@ describe("editor-connected math action tools", () => {
           endText: null,
         },
       },
-      mode: "quadrant",
-      x: null,
-      y: null,
-      quadrant: 2,
+      at: { x: -1 },
       label: null,
     })).toThrowError(/whole math object or its unqualified graph curve/u);
-    expect(tangent.inputSchema.parse({
-      target: { object: "O1", part: null },
-      mode: "auto",
-      x: null,
-      y: null,
-      quadrant: null,
-      label: null,
-    })).toMatchObject({
-      target: { object: "O1", part: null },
-      args: { mode: "auto", x: null, y: null, quadrant: null },
-    });
     expect(expression.description).toContain("canonical source");
-    expect(tangent.description).toContain("exact derivative");
+    expect(tangent.description).toContain("math-core computes the derivative");
   });
 
-  it("uses one notebook placement profile for every math create action", () => {
+  it("provides deterministic default measurement for every math create action", () => {
     const graph = createMathPlacementContract(
       "math.graph.create",
       "draft-graph",
       { width: 552, height: 752 },
     );
     expect(graph).toMatchObject({
-      profile: {
-        capability: "graph",
-        preferredSize: { width: 360, height: 300 },
-        minClearance: 16,
-      },
       draft: {
         draftKey: "draft-graph",
         preferredFootprint: { width: 360, height: 300 },

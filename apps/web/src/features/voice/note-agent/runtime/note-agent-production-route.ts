@@ -467,22 +467,17 @@ function decisionDiagnostics(
   readonly selectedHandle?: `O${number}`;
   readonly decisionStatus: typeof decision.status;
   readonly decisionAction?: NoteToolId;
-  readonly decisionReferenceHandle?: `O${number}`;
-  readonly decisionRelation?: string;
+  readonly decisionPlacement?: import("../domain").CanvasPlacement;
 } {
   const step = decision.status === "READY" ? decision.steps[0] : undefined;
   const targetHandle = step?.target?.object ?? undefined;
-  const referenceHandle = step?.destination?.anchor?.object ?? undefined;
   return {
     decisionStatus: decision.status,
     ...(step === undefined ? {} : { decisionAction: step.action }),
-    ...(targetHandle === undefined && referenceHandle === undefined
+    ...(targetHandle === undefined ? {} : { selectedHandle: targetHandle }),
+    ...(step?.placement === null || step?.placement === undefined
       ? {}
-      : { selectedHandle: targetHandle ?? referenceHandle }),
-    ...(referenceHandle === undefined ? {} : { decisionReferenceHandle: referenceHandle }),
-    ...(step?.destination === null || step?.destination === undefined
-      ? {}
-      : { decisionRelation: step.destination.relation }),
+      : { decisionPlacement: { ...step.placement } }),
   };
 }
 

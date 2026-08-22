@@ -186,7 +186,6 @@ describe("NoteRuntime shadow boundary", () => {
           fallbackPoint: { x: 0.75, y: 0.25, coordinateSpace: "PAGE" },
         },
         args: {},
-        destination: null,
       }],
     }, { ...toolContext(), handles: new NoteObjectHandleMap() });
 
@@ -273,7 +272,7 @@ describe("NoteRuntime production transaction boundary", () => {
     const result = await new NoteRuntime({ registry }).execute({
       status: "READY",
       sceneRevision: 7,
-      steps: [{ action: "test.echo", target: null, args: { value: "ok" }, destination: null }],
+      steps: [{ action: "test.echo", target: null, args: { value: "ok" } }],
     }, { ...toolContext(), mode: "PRODUCTION" });
     expect(result).toMatchObject({ status: "SUCCESS", commitAttempted: false });
   });
@@ -332,7 +331,7 @@ describe("NoteRuntime production transaction boundary", () => {
     const result = await new NoteRuntime({ registry }).execute({
       status: "READY",
       sceneRevision: 7,
-      steps: [{ action: "test.echo", target: null, args: { value: "ok" }, destination: null }],
+      steps: [{ action: "test.echo", target: null, args: { value: "ok" } }],
     }, {
       ...toolContext(),
       mode: "PRODUCTION",
@@ -373,8 +372,8 @@ describe("NoteRuntime production transaction boundary", () => {
       status: "READY",
       sceneRevision: 7,
       steps: [
-        { action: "test.echo", target: null, args: { value: "one" }, destination: null },
-        { action: "test.echo", target: null, args: { value: "two" }, destination: null },
+        { action: "test.echo", target: null, args: { value: "one" } },
+        { action: "test.echo", target: null, args: { value: "two" } },
       ],
     }, {
       ...toolContext(),
@@ -406,8 +405,8 @@ describe("NoteRuntime production transaction boundary", () => {
       status: "READY",
       sceneRevision: 7,
       steps: [
-        { action: "test.echo", target: null, args: { value: "ready" }, destination: null },
-        { action: "test.echo", target: null, args: { value: "fail" }, destination: null },
+        { action: "test.echo", target: null, args: { value: "ready" } },
+        { action: "test.echo", target: null, args: { value: "fail" } },
       ],
     }, {
       ...toolContext(),

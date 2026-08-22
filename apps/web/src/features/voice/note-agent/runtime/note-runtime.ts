@@ -135,7 +135,7 @@ export class NoteRuntime {
           input: {
             ...step.args,
             ...(step.target === null ? {} : { target: step.target }),
-            ...(step.destination === null ? {} : { destination: step.destination }),
+            ...(step.placement === undefined ? {} : { placement: step.placement }),
           },
           ...(step.target === null ? {} : { target: step.target }),
         }))
@@ -269,12 +269,8 @@ function prepareContext(
     ...(resolvedTarget === undefined ? {} : { resolvedTarget }),
     getCurrentSceneRevision: context.getCurrentSceneRevision,
     stepId,
-    ...(context.placement === undefined ? {} : { placement: context.placement }),
     ...(context.signal === undefined ? {} : { signal: context.signal }),
     ...(context.metrics === undefined ? {} : { metrics: context.metrics }),
-    ...(context.productionPlacementAvailable === undefined
-      ? {}
-      : { productionPlacementAvailable: context.productionPlacementAvailable }),
     ...(context.preparePlacement === undefined
       ? {}
       : { preparePlacement: context.preparePlacement }),

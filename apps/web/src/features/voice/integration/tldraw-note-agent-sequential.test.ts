@@ -206,7 +206,7 @@ describe("tldraw One Decision sequential production flow", () => {
               action: "text.create",
               target: null,
               args: { text: "안녕하세요" },
-              destination: null,
+              placement: { x: 0.1, y: 0.1, width: null, height: null },
             }],
           },
           telemetry: {
@@ -227,22 +227,7 @@ describe("tldraw One Decision sequential production flow", () => {
             action: "text.create",
             target: null,
             args: { text: "가나다라" },
-            destination: {
-              relation: "BELOW",
-              anchor: {
-                object: "O1",
-                part: {
-                  kind: "text_range",
-                  index: null,
-                  row: null,
-                  column: null,
-                  text: "안녕하세요",
-                  startText: null,
-                  endText: null,
-                },
-              },
-              region: null,
-            },
+            placement: { x: 0.1, y: 0.25, width: null, height: null },
           }],
         },
       });
@@ -334,11 +319,14 @@ describe("tldraw One Decision sequential production flow", () => {
     expect(composition.noteAgentProduction?.traces.getAll().at(-1)).toMatchObject({
       runtimeOwner: "note-agent-v2",
       catalogHandles: ["O1"],
-      selectedHandle: "O1",
       decisionStatus: "READY",
       decisionAction: "text.create",
-      decisionReferenceHandle: "O1",
-      decisionRelation: "BELOW",
+      decisionPlacement: {
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: null,
+        height: null,
+      },
       legacyPlannerInvoked: false,
       fuzzyObjectSelectorInvoked: false,
       commitAttempted: true,
@@ -420,12 +408,16 @@ describe("tldraw One Decision sequential production flow", () => {
     const secondTrace = composition.noteAgentProduction?.traces.getAll().at(-1);
     expect(secondTrace).toMatchObject({
       runtimeOwner: "note-agent-v2",
-      decisionSchemaVersion: "multimodal-action-target-v1",
+      decisionSchemaVersion: "multimodal-final-placement-v2",
       decisionCallCount: 1,
       decisionStatus: "READY",
       decisionAction: "text.create",
-      decisionReferenceHandle: "O1",
-      decisionRelation: "BELOW",
+      decisionPlacement: {
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: 0.25,
+        height: null,
+      },
       legacyPlannerInvoked: false,
       fuzzyObjectSelectorInvoked: false,
       visualCallCount: 0,
@@ -456,7 +448,6 @@ describe("tldraw One Decision sequential production flow", () => {
     expect(provider.references.at(-1)).toMatchObject({
       transcript: "안녕하새요 밑에 가나다라라고 써 줘",
       summary: "안녕하세요",
-      relation: "BELOW",
     });
 
     currentRevision = 11;
@@ -468,7 +459,6 @@ describe("tldraw One Decision sequential production flow", () => {
       transcript: "방금 쓴 글 아래에 테스트라고 써 줘",
       summary: "가나다라",
       recent: true,
-      relation: "BELOW",
     });
     const afterRecent = adapter.getCurrentPageObjects();
     const recentAnchor = afterRecent.find((object) => object.text === "가나다라");
@@ -502,13 +492,13 @@ describe("tldraw One Decision sequential production flow", () => {
     expect(provider.references.at(-1)).toMatchObject({
       transcript: "반갑습니다 오른쪽에 테스트라고 써 줘",
       summary: "반갑습니다",
-      relation: "RIGHT_OF",
     });
     const afterRight = adapter.getCurrentPageObjects();
     const rightAnchor = afterRight.find((object) => object.text === "반갑습니다");
     const rightOutput = afterRight.find((object) => object.createdByTurnId === "turn-7");
-    expect(rightOutput!.bounds.x).toBeGreaterThanOrEqual(
+    expect(rightOutput!.bounds.x).toBeCloseTo(
       rightAnchor!.bounds.x + rightAnchor!.bounds.width + 16,
+      8,
     );
 
     currentRevision = 14;
@@ -528,7 +518,6 @@ describe("tldraw One Decision sequential production flow", () => {
       transcript: "선택한 글 아래에 가나다라마바사라고 써 줘",
       summary: "반갑습니다",
       selected: true,
-      relation: "BELOW",
     });
     const selectedOutput = adapter.getCurrentPageObjects()
       .find((object) => object.createdByTurnId === "turn-8");
@@ -543,7 +532,7 @@ describe("tldraw One Decision sequential production flow", () => {
     editorEngine.destroy();
   });
 
-  it("keeps repeated destination-null text creation deterministic past the visual threshold", async () => {
+  it("keeps repeated final-placement text creation deterministic past the visual threshold", async () => {
     const { editor: tldrawEditor, adapter } = createTldrawAdapter();
     installBrowserCanvas();
     const editorEngine = new EditorEngine();
@@ -662,7 +651,7 @@ class SequentialDecisionProvider implements NoteDecisionProvider {
     readonly summary: string;
     readonly recent: boolean;
     readonly selected: boolean;
-    readonly relation: "BELOW" | "RIGHT_OF";
+    readonly placement: { readonly x: number; readonly y: number };
   }> = [];
 
   public decide(input: NoteDecisionInput) {
@@ -678,7 +667,7 @@ class SequentialDecisionProvider implements NoteDecisionProvider {
           action: "text.create" as const,
           target: null,
           args: { text: "안녕하세요" },
-          destination: null,
+          placement: { x: 0.1, y: 0.1, width: null, height: null },
         }],
       });
     }
@@ -686,41 +675,46 @@ class SequentialDecisionProvider implements NoteDecisionProvider {
       return Promise.resolve({
         status: "READY" as const,
         sceneRevision,
-        steps: [{ action: "history.undo" as const, target: null, args: {}, destination: null }],
+        steps: [{ action: "history.undo" as const, target: null, args: {} }],
       });
     }
     const reference = transcript.startsWith("방금 쓴 글")
-      ? { summary: "가나다라", relation: "BELOW" as const, text: "테스트" }
+      ? { summary: "가나다라", text: "테스트" }
       : transcript.startsWith("반갑습니다 오른쪽")
-        ? { summary: "반갑습니다", relation: "RIGHT_OF" as const, text: "테스트" }
+        ? { summary: "반갑습니다", text: "테스트" }
         : transcript.startsWith("선택한 글")
-          ? { summary: "반갑습니다", relation: "BELOW" as const, text: "가나다라마바사" }
-          : { summary: "안녕하세요", relation: "BELOW" as const, text: "가나다라" };
+          ? { summary: "반갑습니다", text: "가나다라마바사" }
+          : { summary: "안녕하세요", text: "가나다라" };
     const anchor = transcript.startsWith("선택한 글")
       ? input.objectCatalog.objects.find((object) => object.selected)
       : input.objectCatalog.objects.find((object) => object.text === reference.summary);
     if (anchor?.text === undefined) {
       throw new Error("Expected model-selected tldraw catalog anchor.");
     }
+    const placement = transcript.startsWith("반갑습니다 오른쪽")
+      ? {
+          x: Math.min(0.9, anchor.bounds.x + anchor.bounds.width + 16 / PAGE_SIZE.width),
+          y: anchor.bounds.y,
+        }
+      : {
+          x: anchor.bounds.x,
+          y: Math.min(0.9, anchor.bounds.y + anchor.bounds.height + 16 / PAGE_SIZE.height),
+        };
     this.references.push({
       transcript,
       summary: anchor.text,
       recent: anchor.recent,
       selected: anchor.selected,
-      relation: reference.relation,
+      placement,
     });
     return Promise.resolve({
       status: "READY" as const,
       sceneRevision,
       steps: [{
         action: "text.create" as const,
-        target: { object: anchor.handle, part: null },
+        target: null,
         args: { text: reference.text },
-        destination: {
-          relation: reference.relation,
-          anchor: { object: anchor.handle, part: null },
-          region: null,
-        },
+        placement: { ...placement, width: 0.25, height: null },
       }],
     });
   }
@@ -742,16 +736,8 @@ class MathSmokeDecisionProvider implements NoteDecisionProvider {
           steps: [{
             action: "math.graph.create" as const,
             target: null,
-            args: {
-              expression: "y=x²",
-              functionType: "quadratic",
-              parameters: [
-                { name: "a", value: 1 },
-                { name: "b", value: 0 },
-                { name: "c", value: 0 },
-              ],
-            },
-            destination: null,
+            args: { expression: "y=x²" },
+            placement: { x: 0.1, y: 0.1, width: 0.4, height: 0.3 },
           }],
         });
       case "방금 만든 그래프에 점 하나 찍어줘": {
@@ -765,8 +751,7 @@ class MathSmokeDecisionProvider implements NoteDecisionProvider {
           steps: [{
             action: "math.graph.add_point" as const,
             target: { object: graph.handle, part: null },
-            args: { xValue: null, yValue: null, label: null },
-            destination: null,
+            args: { point: { x: 1, y: 1 }, label: null },
           }],
         });
       }
@@ -780,24 +765,9 @@ class MathSmokeDecisionProvider implements NoteDecisionProvider {
             action: "math.graph.add_tangent" as const,
             target: {
               object: graph.handle,
-              part: {
-                kind: "curve" as const,
-                index: null,
-                row: null,
-                column: null,
-                text: null,
-                startText: null,
-                endText: null,
-              },
+              part: null,
             },
-            args: {
-              mode: "quadrant",
-              x: null,
-              y: null,
-              quadrant: 2,
-              label: null,
-            },
-            destination: null,
+            args: { at: { x: -1 }, label: null },
           }],
         });
       }
@@ -809,7 +779,7 @@ class MathSmokeDecisionProvider implements NoteDecisionProvider {
             action: "math.arithmetic.setup_vertical_multiply" as const,
             target: null,
             args: { operands: ["58", "72"] },
-            destination: null,
+            placement: { x: 0.55, y: 0.1, width: 0.3, height: 0.25 },
           }],
         });
       case "직사각형 하나 그려줘":
@@ -820,7 +790,7 @@ class MathSmokeDecisionProvider implements NoteDecisionProvider {
             action: "math.shape.create_rectangle" as const,
             target: null,
             args: {},
-            destination: null,
+            placement: { x: 0.55, y: 0.45, width: 0.3, height: 0.25 },
           }],
         });
       case "x제곱 그래프 밑에 x제곱 더하기 2x 더하기 1이라고 써줘": {
@@ -833,11 +803,7 @@ class MathSmokeDecisionProvider implements NoteDecisionProvider {
             action: "math.expression.create" as const,
             target: null,
             args: { source: "x² + 2x + 1" },
-            destination: {
-              relation: "BELOW" as const,
-              anchor: { object: graph.handle, part: null },
-              region: null,
-            },
+            placement: { x: 0.1, y: 0.45, width: 0.4, height: 0.08 },
           }],
         });
       }

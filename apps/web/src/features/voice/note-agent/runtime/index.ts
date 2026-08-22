@@ -1,9 +1,7 @@
-export { ExistingPlacementEngine } from "./placement-engine";
+export { projectCanvasPlacement } from "./placement-engine";
 export { spatialQueryForDestination } from "./placement-engine";
 export type {
-  ExistingPlacementEngineOptions,
-  NotePlacementInput,
-  NotePlacementResult,
+  CanvasPlacementProjectionResult,
 } from "./placement-engine";
 export { NoteRuntime } from "./note-runtime";
 export type {

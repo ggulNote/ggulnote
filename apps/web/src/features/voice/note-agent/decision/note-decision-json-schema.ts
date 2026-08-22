@@ -1,6 +1,5 @@
 import {
   NOTE_OBJECT_PART_KINDS,
-  NOTE_PAGE_REGIONS,
   type CompactToolSchema,
   type JsonValue,
 } from "../domain";
@@ -12,19 +11,24 @@ import {
 
 type JsonSchema = Readonly<Record<string, JsonValue>>;
 
-export const NOTE_DECISION_SCHEMA_VERSION = "multimodal-action-target-v1";
+export const NOTE_DECISION_SCHEMA_VERSION = "multimodal-final-placement-v2";
 
 export function buildNoteDecisionJsonSchema(
   tools: readonly CompactToolSchema[],
 ): JsonSchema {
-  const stepVariants = tools.map((tool): JsonSchema => strictObject({
-    action: { type: "string", const: tool.id },
-    target: actionRequiresTarget(tool.id) ? objectRefSchema() : nullable(objectRefSchema()),
-    args: tool.strictArgs ?? strictObject({}, []),
-    destination: actionMutatesExistingObject(tool.id)
-      ? { type: "null" }
-      : nullable(destinationSchema()),
-  }, ["action", "target", "args", "destination"]));
+  const stepVariants = tools.map((tool): JsonSchema => {
+    const positioned = actionCreatesPositionedObject(tool.id);
+    return strictObject({
+      action: { type: "string", const: tool.id },
+      target: actionRequiresTarget(tool.id) ? objectRefSchema() : nullable(objectRefSchema()),
+      args: tool.strictArgs ?? strictObject({}, []),
+      ...(positioned === false ? {} : {
+        placement: positioned === "OPTIONAL"
+          ? nullable(canvasPlacementSchema())
+          : canvasPlacementSchema(),
+      }),
+    }, ["action", "target", "args", ...(positioned === false ? [] : ["placement"])]);
+  });
   if (stepVariants.length === 0) {
     throw new Error("One Note Decision requires at least one enabled action.");
   }
@@ -87,12 +91,14 @@ function objectRefSchema(): JsonSchema {
   }, ["object", "part", "region", "fallbackPoint"]);
 }
 
-function actionMutatesExistingObject(action: string): boolean {
-  if (isConnectedMathAction(action)) {
-    return mathActionDefinitionById(action).target === "existing";
-  }
-  return action === "annotation.apply"
-    || action === "text.replace";
+function actionCreatesPositionedObject(
+  action: string,
+): false | "REQUIRED" | "OPTIONAL" {
+  if (action === "text.create") return "REQUIRED";
+  if (!isConnectedMathAction(action)) return false;
+  const definition = mathActionDefinitionById(action);
+  if (definition.target !== "create") return false;
+  return action === "math.shape.create_circle" ? "OPTIONAL" : "REQUIRED";
 }
 
 function actionRequiresTarget(action: string): boolean {
@@ -104,17 +110,13 @@ function isConnectedMathAction(action: string): action is ConnectedMathActionId 
   return (CONNECTED_MATH_ACTION_IDS as readonly string[]).includes(action);
 }
 
-function destinationSchema(): JsonSchema {
+function canvasPlacementSchema(): JsonSchema {
   return strictObject({
-    relation: {
-      type: "string",
-      enum: [
-        "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "NEAR", "INSIDE", "BETWEEN", "CANVAS_REGION",
-      ],
-    },
-    anchor: nullable(objectRefSchema()),
-    region: nullable({ type: "string", enum: [...NOTE_PAGE_REGIONS] }),
-  }, ["relation", "anchor", "region"]);
+    x: unitNumber(),
+    y: unitNumber(),
+    width: nullable(positiveUnitNumber()),
+    height: nullable(positiveUnitNumber()),
+  }, ["x", "y", "width", "height"]);
 }
 
 function nullable(schema: JsonSchema): JsonSchema {

@@ -92,3 +92,25 @@
 - [ ] 전체 web test - 1036/1040 통과, 기존 `editor-shell.test.tsx` 4건은 jsdom `image.decode is not a function`으로 실패
 - [x] one-call/no-preview spy regression으로 추가 model 호출이 없음을 검증
 - [x] `git diff --check`
+
+## M5 - Final placement and semantic math parameters
+
+- [x] 시작 전 branch/worktree 및 M1-M4 완료 상태 확인
+- [x] production schema에서 relation/destination 제거 및 tool별 placement 적용
+- [x] normalized placement의 deterministic canvas projection
+- [x] graph expression source-of-truth 연결
+- [x] graph point/tangent graph-domain parameter 연결
+- [x] PDF canonical range regression
+- [x] 대표 명령과 navigation regression
+- [x] STATUS/DECISIONS/CHECKLIST 완료 상태 갱신
+
+## M5 검증 결과
+
+- [x] `pnpm --filter @ggulnote/web typecheck`
+- [x] `pnpm --filter @ggulnote/math-core typecheck`
+- [x] `pnpm --filter @ggulnote/web lint`
+- [x] `pnpm --filter @ggulnote/math-core lint`
+- [x] M5/전체 Note Agent/transaction 회귀 테스트 - 118/118 통과
+- [x] 전체 math-core test - 44/44 통과
+- [ ] 전체 web test - 1038/1042 통과, 기존 `editor-shell.test.tsx` 4건은 jsdom `image.decode is not a function`으로 실패
+- [x] `git diff --check`

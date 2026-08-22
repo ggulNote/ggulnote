@@ -1,15 +1,6 @@
 import type { Rect } from "@ggulnote/editor-core";
-import {
-  generatePlacementCandidates,
-  resolveDeterministicPlacementTie,
-  resolveDeterministically,
-} from "../../application";
 import type {
   MeasuredDraft,
-  PlacementCandidate,
-  PlacementProfile,
-  ResolvedPlacement,
-  ResolvedSpatialAnchor,
   SpatialAlignment,
   SpatialPlacementQuery,
   SpatialPlacementRelation,
@@ -17,146 +8,50 @@ import type {
   SpatialSceneSnapshot,
 } from "../../domain";
 import type {
+  CanvasPlacement,
   Destination,
-  EntitySelector,
   NotePageRegion,
   NoteSpatialRelation,
 } from "../domain";
-import type { EntityRef } from "../world";
-import type {
-  ExistingWorldResolver,
-  FrozenWorldContext,
-  UnifiedObjectWorld,
-} from "../world";
 
-export type NotePlacementResult =
-  | {
-      readonly status: "RESOLVED";
-      readonly placement: ResolvedPlacement;
-    }
-  | { readonly status: "AMBIGUOUS"; readonly candidates: readonly PlacementCandidate[] }
-  | { readonly status: "NO_FEASIBLE_PLACEMENT" }
-  | { readonly status: "STALE_SCENE" }
-  | { readonly status: "FAILED"; readonly reasonCode: string };
+export type CanvasPlacementProjectionResult =
+  | { readonly status: "RESOLVED"; readonly bounds: Rect }
+  | { readonly status: "INVALID"; readonly reasonCode: "INVALID_PLACEMENT" };
 
-export interface NotePlacementInput {
-  readonly destination?: Destination;
-  readonly draft: MeasuredDraft;
-  readonly profile: PlacementProfile;
+/** Projects the model's final page-normalized geometry without semantic replanning. */
+export function projectCanvasPlacement(input: {
+  readonly placement: CanvasPlacement;
   readonly snapshot: SpatialSceneSnapshot;
-  readonly worldContext: FrozenWorldContext;
-  readonly anchorRef?: EntityRef;
-  /** Geometry already resolved from the model-owned ActionTarget. */
-  readonly resolvedAnchor?: ResolvedSpatialAnchor;
-}
-
-export interface ExistingPlacementEngineOptions {
-  readonly world: UnifiedObjectWorld;
-  readonly resolver: ExistingWorldResolver;
-  readonly defaultDestination?: Destination;
-}
-
-/**
- * Deterministic facade over candidate generation. The model has already made
- * the semantic placement decision; this engine only performs geometry/layout.
- */
-export class ExistingPlacementEngine {
-  private readonly defaultDestination: Destination;
-
-  public constructor(private readonly options: ExistingPlacementEngineOptions) {
-    this.defaultDestination = options.defaultDestination ?? {
-      kind: "PAGE_REGION",
-      region: "TOP_LEFT",
-      alignment: "START",
-      avoidOverlap: true,
-    };
+  readonly draft: MeasuredDraft;
+}): CanvasPlacementProjectionResult {
+  const page = input.snapshot.pageBounds;
+  const requestedWidth = input.placement.width === null
+    ? input.draft.preferredFootprint.width
+    : input.placement.width * page.width;
+  const requestedHeight = input.placement.height === null
+    ? input.draft.preferredFootprint.height
+    : input.placement.height * page.height;
+  if (![page.x, page.y, page.width, page.height, requestedWidth, requestedHeight]
+    .every(Number.isFinite)
+    || page.width <= 0
+    || page.height <= 0
+    || requestedWidth <= 0
+    || requestedHeight <= 0) {
+    return { status: "INVALID", reasonCode: "INVALID_PLACEMENT" };
   }
-
-  public async resolve(input: NotePlacementInput): Promise<NotePlacementResult> {
-    if (
-      input.snapshot.pageId !== input.worldContext.pageId
-      || input.snapshot.sceneRevision !== input.worldContext.sceneRevision
-    ) {
-      return { status: "STALE_SCENE" };
-    }
-    const destination = input.destination ?? this.defaultDestination;
-    if (destination.kind === "PAGE_REGION") {
-      return this.resolveQuery({ ...input, destination }, pageRegionQuery(destination.region, destination.alignment));
-    }
-
-    const anchorSelector: EntitySelector = "context" in destination.anchor
-      ? { context: destination.anchor.context }
-      : destination.anchor;
-    const resolved = input.resolvedAnchor !== undefined
-      ? undefined
-      : input.anchorRef === undefined
-      ? await this.options.resolver.resolve(anchorSelector, input.worldContext)
-      : { status: "RESOLVED" as const, ref: input.anchorRef };
-    if (resolved !== undefined && resolved.status !== "RESOLVED") {
-      return resolved.status === "UNSUPPORTED" && resolved.reasonCode === "STALE_SCENE"
-        ? { status: "STALE_SCENE" }
-        : { status: "NO_FEASIBLE_PLACEMENT" };
-    }
-    const anchor = input.resolvedAnchor
-      ?? (resolved?.status === "RESOLVED"
-        ? resolvedAnchor(resolved.ref, this.options.world)
-        : undefined);
-    if (anchor === undefined) return { status: "NO_FEASIBLE_PLACEMENT" };
-
-    if (destination.relation === "BESIDE") {
-      const left = await this.resolveQuery(
-        input,
-        relativeQuery("LEFT_OF", destination.alignment, destination.distance),
-        anchor,
-      );
-      const right = await this.resolveQuery(
-        input,
-        relativeQuery("RIGHT_OF", destination.alignment, destination.distance),
-        anchor,
-      );
-      return combineBeside(left, right);
-    }
-    const relation = toExistingRelation(destination.relation);
-    if (relation === undefined) return { status: "NO_FEASIBLE_PLACEMENT" };
-    return this.resolveQuery(
-      input,
-      relativeQuery(relation, destination.alignment, destination.distance),
-      anchor,
-    );
-  }
-
-  private async resolveQuery(
-    input: NotePlacementInput,
-    query: SpatialPlacementQuery,
-    anchor?: ResolvedSpatialAnchor,
-  ): Promise<NotePlacementResult> {
-    const generated = generatePlacementCandidates({
-      snapshot: input.snapshot,
-      query,
-      profile: input.profile,
-      draft: input.draft,
-      ...(anchor === undefined ? {} : { anchor }),
-    });
-    const result = resolveDeterministically({
-      snapshot: input.snapshot,
-      query,
-      candidates: generated.candidates,
-      ...(anchor === undefined ? {} : { anchor }),
-    });
-    const chosen = resolveDeterministicPlacementTie({
-      result,
-      snapshot: input.snapshot,
-      query,
-      ...(anchor === undefined ? {} : { anchor }),
-    });
-    if (chosen.status === "RESOLVED") {
-      return { status: "RESOLVED", placement: chosen.placement };
-    }
-    if (chosen.status === "AMBIGUOUS") return { status: "AMBIGUOUS", candidates: chosen.candidates };
-    return chosen.status === "STALE_SCENE"
-      ? { status: "STALE_SCENE" }
-      : { status: "NO_FEASIBLE_PLACEMENT" };
-  }
+  const width = Math.min(requestedWidth, page.width);
+  const height = Math.min(requestedHeight, page.height);
+  const requestedX = page.x + input.placement.x * page.width;
+  const requestedY = page.y + input.placement.y * page.height;
+  return {
+    status: "RESOLVED",
+    bounds: {
+      x: Math.max(page.x, Math.min(page.x + page.width - width, requestedX)),
+      y: Math.max(page.y, Math.min(page.y + page.height - height, requestedY)),
+      width,
+      height,
+    },
+  };
 }
 
 function pageRegionQuery(
@@ -173,6 +68,7 @@ function pageRegionQuery(
   };
 }
 
+/** Legacy direct-command transaction compatibility; One Decision does not call this path. */
 export function spatialQueryForDestination(
   destination: Destination | undefined,
   resolvedRelation?: SpatialPlacementRelation,
@@ -186,9 +82,9 @@ export function spatialQueryForDestination(
   if (effective.kind === "PAGE_REGION") {
     return pageRegionQuery(effective.region, effective.alignment);
   }
-  const relation = resolvedRelation ?? toExistingRelation(effective.relation);
+  const relation = resolvedRelation ?? toLegacyRelation(effective.relation);
   if (relation === undefined) {
-    throw new RangeError(`Unsupported production placement relation: ${effective.relation}`);
+    throw new RangeError(`Unsupported legacy placement relation: ${effective.relation}`);
   }
   return relativeQuery(relation, effective.alignment, effective.distance);
 }
@@ -225,7 +121,7 @@ function relativeQuery(
   };
 }
 
-function toExistingRelation(
+function toLegacyRelation(
   relation: NoteSpatialRelation,
 ): SpatialPlacementRelation | undefined {
   switch (relation) {
@@ -239,71 +135,4 @@ function toExistingRelation(
     default:
       return undefined;
   }
-}
-
-function resolvedAnchor(
-  ref: EntityRef,
-  world: UnifiedObjectWorld,
-): ResolvedSpatialAnchor | undefined {
-  const bounds = boundsForRef(ref, world);
-  if (bounds === undefined) return undefined;
-  const objectId = ref.kind === "OBJECT" || ref.kind === "OBJECT_PART"
-    ? ref.objectId
-    : ref.kind === "TEXT_RANGE"
-      ? ref.objectIds[0]
-      : undefined;
-  const metadata = objectId === undefined ? undefined : world.getObjectMetadata(objectId);
-  return {
-    kind: "OBJECT",
-    ...(objectId === undefined ? {} : { objectId }),
-    bounds,
-    ...(metadata?.searchableText === undefined
-      ? {}
-      : { textPreview: metadata.searchableText.slice(0, 160) }),
-  };
-}
-
-function boundsForRef(ref: EntityRef, world: UnifiedObjectWorld): Rect | undefined {
-  if (ref.kind === "OBJECT") return world.getObjectMetadata(ref.objectId)?.renderBounds;
-  if (ref.kind === "OBJECT_PART") {
-    return ref.bounds ?? world.getObjectMetadata(ref.objectId)?.renderBounds;
-  }
-  if (ref.kind === "TEXT_RANGE") return unionRects(ref.rects);
-  return undefined;
-}
-
-function unionRects(rects: readonly Rect[]): Rect | undefined {
-  if (rects.length === 0) return undefined;
-  const x = Math.min(...rects.map((rect) => rect.x));
-  const y = Math.min(...rects.map((rect) => rect.y));
-  const right = Math.max(...rects.map((rect) => rect.x + rect.width));
-  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
-  return { x, y, width: right - x, height: bottom - y };
-}
-
-function combineBeside(
-  left: NotePlacementResult,
-  right: NotePlacementResult,
-): NotePlacementResult {
-  if (left.status === "STALE_SCENE" || right.status === "STALE_SCENE") {
-    return { status: "STALE_SCENE" };
-  }
-  const candidates = [
-    ...placementCandidates(left),
-    ...placementCandidates(right),
-  ];
-  if (candidates.length === 0) return { status: "NO_FEASIBLE_PLACEMENT" };
-  if (left.status === "RESOLVED" && right.status !== "RESOLVED" && candidates.length === 1) {
-    return left;
-  }
-  if (right.status === "RESOLVED" && left.status !== "RESOLVED" && candidates.length === 1) {
-    return right;
-  }
-  return { status: "AMBIGUOUS", candidates };
-}
-
-function placementCandidates(result: NotePlacementResult): readonly PlacementCandidate[] {
-  if (result.status === "RESOLVED") return [result.placement.candidate];
-  if (result.status === "AMBIGUOUS") return result.candidates;
-  return [];
 }

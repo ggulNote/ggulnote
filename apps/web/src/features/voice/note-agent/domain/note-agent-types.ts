@@ -71,6 +71,7 @@ export interface SpatialConstraint {
 
 export type NoteAlignment = "START" | "CENTER" | "END" | "AUTO";
 
+/** Legacy EditorNoteAgentTransaction destination; production READY steps use CanvasPlacement. */
 export type Destination =
   | {
       readonly kind: "PAGE_REGION";
@@ -224,16 +225,6 @@ export interface NoteToolCall {
   readonly input: unknown;
 }
 
-export type DecisionDestinationRelation =
-  | "ABOVE"
-  | "BELOW"
-  | "LEFT_OF"
-  | "RIGHT_OF"
-  | "NEAR"
-  | "INSIDE"
-  | "BETWEEN"
-  | "CANVAS_REGION";
-
 export interface DecisionObjectPartRef {
   readonly kind: NoteObjectPartKind;
   readonly index?: number | null;
@@ -273,23 +264,29 @@ export interface ActionTarget {
 /** Compatibility name retained for existing registered action adapters. */
 export type DecisionObjectRef = ActionTarget;
 
-export interface DecisionDestination {
-  readonly relation: DecisionDestinationRelation;
-  readonly anchor: DecisionObjectRef | null;
-  readonly region: NotePageRegion | null;
+/** Final page-local placement selected by the multimodal Decision. */
+export interface CanvasPlacement {
+  /** Normalized top-left x in page coordinates. */
+  readonly x: number;
+  /** Normalized top-left y in page coordinates. */
+  readonly y: number;
+  /** Optional normalized width. Null keeps the renderer-measured width. */
+  readonly width: number | null;
+  /** Optional normalized height. Null keeps the renderer-measured height. */
+  readonly height: number | null;
 }
 
 export interface DecisionStep {
   readonly action: NoteToolId;
   readonly target: DecisionObjectRef | null;
   readonly args: Readonly<Record<string, JsonValue>>;
-  readonly destination: DecisionDestination | null;
+  /** Present only for actions that create a canvas object. */
+  readonly placement?: CanvasPlacement | null;
 }
 
 export type ClarificationReason =
   | "AMBIGUOUS_OBJECT"
   | "MISSING_TARGET"
-  | "MISSING_DESTINATION"
   | "VISUAL_UNRESOLVED"
   | "CONTEXT_LIMIT";
 

@@ -6,9 +6,9 @@ import {
   NOTE_PAGE_REGIONS,
   NOTE_SELECTOR_MAX_DEPTH,
   NOTE_SPATIAL_RELATIONS,
+  type CanvasPlacement,
   type CompactToolSchema,
   type Destination,
-  type DecisionDestination,
   type DecisionObjectPartRef,
   type DecisionObjectRef,
   type DecisionStep,
@@ -49,6 +49,7 @@ export function parseEntitySelector(value: unknown, path = "selector"): EntitySe
   return readEntitySelector(value, path, 0);
 }
 
+/** Parses only the legacy EditorNoteAgentTransaction contract. */
 export function parseDestination(value: unknown, path = "destination"): Destination {
   assertNoAuthorityFields(value, path);
   const destination = readRecord(value, path);
@@ -133,7 +134,6 @@ export function parseNoteDecision(value: unknown): NoteDecision {
         reason: readUnion(decision.reason, "decision.reason", [
           "AMBIGUOUS_OBJECT",
           "MISSING_TARGET",
-          "MISSING_DESTINATION",
           "VISUAL_UNRESOLVED",
           "CONTEXT_LIMIT",
         ] as const),
@@ -390,15 +390,35 @@ function readDecisionVisualContext(value: unknown): NonNullable<NoteDecisionInpu
 
 function readDecisionStep(value: unknown, path: string): DecisionStep {
   const step = readRecord(value, path);
-  assertOnlyKeys(step, ["action", "target", "args", "destination"], path);
+  assertOnlyKeys(step, ["action", "target", "args", "placement"], path);
   const args = readRecord(step.args, `${path}.args`);
   return {
     action: readToolId(step.action, `${path}.action`),
     target: step.target === null ? null : readDecisionObjectRef(step.target, `${path}.target`),
     args: readJsonRecord(args, `${path}.args`),
-    destination: step.destination === null
+    ...(step.placement === undefined
+      ? {}
+      : { placement: step.placement === null
+          ? null
+          : parseCanvasPlacement(step.placement, `${path}.placement`) }),
+  };
+}
+
+export function parseCanvasPlacement(
+  value: unknown,
+  path = "placement",
+): CanvasPlacement {
+  const placement = readRecord(value, path);
+  assertOnlyKeys(placement, ["x", "y", "width", "height"], path);
+  return {
+    x: readUnitNumber(placement.x, `${path}.x`),
+    y: readUnitNumber(placement.y, `${path}.y`),
+    width: placement.width === null
       ? null
-      : parseDecisionDestination(step.destination, `${path}.destination`),
+      : readPositiveUnitNumber(placement.width, `${path}.width`),
+    height: placement.height === null
+      ? null
+      : readPositiveUnitNumber(placement.height, `${path}.height`),
   };
 }
 
@@ -488,25 +508,6 @@ function readDecisionPart(value: unknown, path: string): DecisionObjectPartRef {
     text: readNullableString(part.text, `${path}.text`),
     startText: readNullableString(part.startText, `${path}.startText`),
     endText: readNullableString(part.endText, `${path}.endText`),
-  };
-}
-
-export function parseDecisionDestination(
-  value: unknown,
-  path = "destination",
-): DecisionDestination {
-  const destination = readRecord(value, path);
-  assertOnlyKeys(destination, ["relation", "anchor", "region"], path);
-  return {
-    relation: readUnion(destination.relation, `${path}.relation`, [
-      "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "NEAR", "INSIDE", "BETWEEN", "CANVAS_REGION",
-    ] as const),
-    anchor: destination.anchor === null
-      ? null
-      : readDecisionObjectRef(destination.anchor, `${path}.anchor`),
-    region: destination.region === null
-      ? null
-      : readPageRegion(destination.region, `${path}.region`),
   };
 }
 
@@ -847,22 +848,23 @@ function decisionCoordinatePaths(value: unknown): ReadonlySet<string> {
     if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) return;
     const step = candidate as Record<string, unknown>;
     if (step.action === "math.graph.add_tangent") {
-      allowed.add(`decision.steps[${index}].args.x`);
-      allowed.add(`decision.steps[${index}].args.y`);
+      allowed.add(`decision.steps[${index}].args.at.x`);
+    }
+    if (step.action === "math.graph.add_point") {
+      allowed.add(`decision.steps[${index}].args.point`);
+      allowed.add(`decision.steps[${index}].args.point.x`);
+      allowed.add(`decision.steps[${index}].args.point.y`);
     }
     allowActionTargetCoordinatePaths(
       allowed,
       step.target,
       `decision.steps[${index}].target`,
     );
-    if (step.destination !== null
-      && typeof step.destination === "object"
-      && !Array.isArray(step.destination)) {
-      allowActionTargetCoordinatePaths(
-        allowed,
-        (step.destination as Record<string, unknown>).anchor,
-        `decision.steps[${index}].destination.anchor`,
-      );
+    if (step.placement !== null && typeof step.placement === "object") {
+      allowed.add(`decision.steps[${index}].placement.x`);
+      allowed.add(`decision.steps[${index}].placement.y`);
+      allowed.add(`decision.steps[${index}].placement.width`);
+      allowed.add(`decision.steps[${index}].placement.height`);
     }
   });
   return allowed;

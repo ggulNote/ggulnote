@@ -3,8 +3,8 @@ import type { AnyMathAction, MathActionId } from "./math-action";
 import { createMathAction } from "./math-action";
 import type { MathGraph, MathObject } from "../domain/math-object";
 import {
+  compileMathGraphExpression,
   resolveMathGraphTangentRequest,
-  type MathGraphTangentRequest,
 } from "../graph/math-graph-handler";
 
 export const CONNECTED_MATH_ACTION_IDS = [
@@ -44,25 +44,7 @@ export const connectedMathActionDecisionArgsSchema = (
     case "math.graph.create":
       return strictObject({
         expression: { type: "string", minLength: 1 },
-        functionType: {
-          type: "string",
-          enum: [
-            "linear", "quadratic", "cubic", "quartic", "absolute", "rational",
-            "radical", "exponential", "logarithmic", "sin", "cos", "tan",
-          ],
-        },
-        parameters: {
-          type: "array",
-          items: strictObject({
-            name: {
-              type: "string",
-              enum: ["a", "b", "c", "d", "e", "h", "k", "base"],
-            },
-            value: { type: "number" },
-          }, ["name", "value"]),
-          maxItems: 8,
-        },
-      }, ["expression", "functionType", "parameters"]);
+      }, ["expression"]);
     case "math.shape.create_rectangle":
     case "math.shape.create_circle":
       return strictObject({}, []);
@@ -77,18 +59,17 @@ export const connectedMathActionDecisionArgsSchema = (
       }, ["operands"]);
     case "math.graph.add_point":
       return strictObject({
-        xValue: nullable({ type: "number" }),
-        yValue: nullable({ type: "number" }),
+        point: strictObject({
+          x: { type: "number" },
+          y: { type: "number" },
+        }, ["x", "y"]),
         label: nullable({ type: "string" }),
-      }, ["xValue", "yValue", "label"]);
+      }, ["point", "label"]);
     case "math.graph.add_tangent":
       return strictObject({
-        mode: { type: "string", enum: ["at-point", "at-x", "quadrant", "auto"] },
-        x: nullable({ type: "number" }),
-        y: nullable({ type: "number" }),
-        quadrant: nullable({ type: "integer", enum: [1, 2, 3, 4] }),
+        at: strictObject({ x: { type: "number" } }, ["x"]),
         label: nullable({ type: "string" }),
-      }, ["mode", "x", "y", "quadrant", "label"]);
+      }, ["at", "label"]);
   }
 };
 
@@ -117,21 +98,20 @@ export const createConnectedMathAction = (
       const args = strictRecord(
         decisionArgs,
         "math.graph.create args",
-        ["expression", "functionType", "parameters"],
+        ["expression"],
       );
-      const functionType = enumValue(args.functionType, "math.graph.create args.functionType", [
-        "linear", "quadratic", "cubic", "quartic", "absolute", "rational",
-        "radical", "exponential", "logarithmic", "sin", "cos", "tan",
-      ] as const);
+      const compiled = compileMathGraphExpression(
+        nonEmptyString(args.expression, "math.graph.create args.expression"),
+      );
       return createMathAction(actionId, {
         objectId: context.objectId,
         bounds: requireBounds(context, actionId),
         style: { handDrawn: true },
         functions: [{
           id: `${context.objectId}:function:1`,
-          expression: nonEmptyString(args.expression, "math.graph.create args.expression"),
-          functionType,
-          parameters: graphParameters(args.parameters),
+          expression: compiled.expression,
+          functionType: compiled.functionType,
+          parameters: compiled.parameters,
         }],
         showAxes: true,
         showGrid: false,
@@ -192,12 +172,13 @@ export const createConnectedMathAction = (
       const args = strictRecord(
         decisionArgs,
         "math.graph.add_point args",
-        ["xValue", "yValue", "label"],
+        ["point", "label"],
       );
+      const point = strictRecord(args.point, "math.graph.add_point args.point", ["x", "y"]);
       return createMathAction(actionId, {
         objectId: context.objectId,
-        x: nullableFiniteNumber(args.xValue, "math.graph.add_point args.xValue") ?? 1,
-        y: nullableFiniteNumber(args.yValue, "math.graph.add_point args.yValue") ?? 1,
+        x: finiteNumber(point.x, "math.graph.add_point args.point.x"),
+        y: finiteNumber(point.y, "math.graph.add_point args.point.y"),
         ...(args.label === null
           ? {}
           : { label: nonEmptyString(args.label, "math.graph.add_point args.label") }),
@@ -207,12 +188,13 @@ export const createConnectedMathAction = (
       const args = strictRecord(
         decisionArgs,
         "math.graph.add_tangent args",
-        ["mode", "x", "y", "quadrant", "label"],
+        ["at", "label"],
       );
       const graph = requireCurrentGraph(context, actionId);
+      const at = strictRecord(args.at, "math.graph.add_tangent args.at", ["x"]);
       const resolved = resolveMathGraphTangentRequest(
         graph,
-        tangentRequest(args, "math.graph.add_tangent args"),
+        { mode: "at-x", x: finiteNumber(at.x, "math.graph.add_tangent args.at.x") },
       );
       return createMathAction(actionId, {
         objectId: context.objectId,
@@ -240,17 +222,10 @@ export const parseConnectedMathActionDecisionArgs = (
       const args = strictRecord(
         decisionArgs,
         `${actionId} args`,
-        ["expression", "functionType", "parameters"],
+        ["expression"],
       );
       return Object.freeze({
         expression: nonEmptyString(args.expression, `${actionId} args.expression`),
-        functionType: enumValue(args.functionType, `${actionId} args.functionType`, [
-          "linear", "quadratic", "cubic", "quartic", "absolute", "rational",
-          "radical", "exponential", "logarithmic", "sin", "cos", "tan",
-        ] as const),
-        parameters: Object.freeze(Object.entries(graphParameters(args.parameters)).map(
-          ([name, value]) => Object.freeze({ name, value }),
-        )),
       });
     }
     case "math.shape.create_rectangle":
@@ -266,10 +241,13 @@ export const parseConnectedMathActionDecisionArgs = (
       return Object.freeze({ operands: Object.freeze([...operands]) });
     }
     case "math.graph.add_point": {
-      const args = strictRecord(decisionArgs, `${actionId} args`, ["xValue", "yValue", "label"]);
+      const args = strictRecord(decisionArgs, `${actionId} args`, ["point", "label"]);
+      const point = strictRecord(args.point, `${actionId} args.point`, ["x", "y"]);
       return Object.freeze({
-        xValue: nullableFiniteNumber(args.xValue, `${actionId} args.xValue`) ?? null,
-        yValue: nullableFiniteNumber(args.yValue, `${actionId} args.yValue`) ?? null,
+        point: Object.freeze({
+          x: finiteNumber(point.x, `${actionId} args.point.x`),
+          y: finiteNumber(point.y, `${actionId} args.point.y`),
+        }),
         ...(args.label === null
           ? { label: null }
           : { label: nonEmptyString(args.label, `${actionId} args.label`) }),
@@ -279,14 +257,11 @@ export const parseConnectedMathActionDecisionArgs = (
       const args = strictRecord(
         decisionArgs,
         `${actionId} args`,
-        ["mode", "x", "y", "quadrant", "label"],
+        ["at", "label"],
       );
-      const request = tangentRequest(args, `${actionId} args`);
+      const at = strictRecord(args.at, `${actionId} args.at`, ["x"]);
       return Object.freeze({
-        mode: request.mode,
-        x: request.mode === "at-point" || request.mode === "at-x" ? request.x : null,
-        y: request.mode === "at-point" ? request.y ?? null : null,
-        quadrant: request.mode === "quadrant" ? request.quadrant : null,
+        at: Object.freeze({ x: finiteNumber(at.x, `${actionId} args.at.x`) }),
         ...(args.label === null
           ? { label: null }
           : { label: nonEmptyString(args.label, `${actionId} args.label`) }),
@@ -294,43 +269,6 @@ export const parseConnectedMathActionDecisionArgs = (
     }
   }
 };
-
-function tangentRequest(
-  args: Record<string, unknown>,
-  path: string,
-): MathGraphTangentRequest {
-  const mode = enumValue(args.mode, `${path}.mode`, [
-    "at-point", "at-x", "quadrant", "auto",
-  ] as const);
-  const x = nullableFiniteNumber(args.x, `${path}.x`);
-  const y = nullableFiniteNumber(args.y, `${path}.y`);
-  const quadrant = args.quadrant === null
-    ? undefined
-    : enumNumber(args.quadrant, `${path}.quadrant`, [1, 2, 3, 4] as const);
-  if (mode === "at-point") {
-    if (x === undefined) throw new TypeError(`${path}.x is required for at-point.`);
-    if (quadrant !== undefined) throw new TypeError(`${path}.quadrant must be null for at-point.`);
-    return { mode, x, ...(y === undefined ? {} : { y }) };
-  }
-  if (mode === "at-x") {
-    if (x === undefined) throw new TypeError(`${path}.x is required for at-x.`);
-    if (y !== undefined || quadrant !== undefined) {
-      throw new TypeError(`${path}.y and quadrant must be null for at-x.`);
-    }
-    return { mode, x };
-  }
-  if (mode === "quadrant") {
-    if (quadrant === undefined) throw new TypeError(`${path}.quadrant is required.`);
-    if (x !== undefined || y !== undefined) {
-      throw new TypeError(`${path}.x and y must be null for quadrant.`);
-    }
-    return { mode, quadrant };
-  }
-  if (x !== undefined || y !== undefined || quadrant !== undefined) {
-    throw new TypeError(`${path}.x, y, and quadrant must be null for auto.`);
-  }
-  return { mode };
-}
 
 function requireCurrentGraph(
   context: ConnectedMathActionContext,
@@ -341,26 +279,6 @@ function requireCurrentGraph(
     throw new TypeError(`${actionId} requires the current graph object.`);
   }
   return object;
-}
-
-function graphParameters(value: unknown): Readonly<Record<string, number>> {
-  if (!Array.isArray(value) || value.length > 8) {
-    throw new TypeError("math.graph.create args.parameters must be an array of at most 8 entries.");
-  }
-  const parameters: Record<string, number> = {};
-  for (const [index, entry] of value.entries()) {
-    const parameter = strictRecord(
-      entry,
-      `math.graph.create args.parameters[${index}]`,
-      ["name", "value"],
-    );
-    const name = enumValue(parameter.name, `math.graph.create args.parameters[${index}].name`, [
-      "a", "b", "c", "d", "e", "h", "k", "base",
-    ] as const);
-    if (parameters[name] !== undefined) throw new TypeError(`Duplicate graph parameter: ${name}`);
-    parameters[name] = finiteNumber(parameter.value, `math.graph.create args.parameters[${index}].value`);
-  }
-  return parameters;
 }
 
 function requireBounds(context: ConnectedMathActionContext, actionId: ConnectedMathActionId): Rect {
@@ -408,32 +326,6 @@ function finiteNumber(value: unknown, path: string): number {
     throw new TypeError(`${path} must be a finite number.`);
   }
   return value;
-}
-
-function nullableFiniteNumber(value: unknown, path: string): number | undefined {
-  return value === null ? undefined : finiteNumber(value, path);
-}
-
-function enumValue<const TValues extends readonly string[]>(
-  value: unknown,
-  path: string,
-  values: TValues,
-): TValues[number] {
-  if (typeof value !== "string" || !values.includes(value)) {
-    throw new TypeError(`${path} is not supported.`);
-  }
-  return value as TValues[number];
-}
-
-function enumNumber<const TValues extends readonly number[]>(
-  value: unknown,
-  path: string,
-  values: TValues,
-): TValues[number] {
-  if (typeof value !== "number" || !values.includes(value)) {
-    throw new TypeError(`${path} is not supported.`);
-  }
-  return value as TValues[number];
 }
 
 function strictObject(

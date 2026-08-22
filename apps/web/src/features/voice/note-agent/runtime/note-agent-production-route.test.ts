@@ -72,7 +72,7 @@ describe("NoteAgentProductionRoute", () => {
     const provider = new FakeNoteDecisionProvider({
       status: "READY",
       sceneRevision: 7,
-      steps: [{ action: "navigation.next_page", target: null, args: {}, destination: null }],
+      steps: [{ action: "navigation.next_page", target: null, args: {} }],
     });
     const commit = vi.fn(async () => ({
       status: "SUCCESS" as const,
@@ -129,7 +129,7 @@ describe("NoteAgentProductionRoute", () => {
     const provider = new FakeNoteDecisionProvider({
       status: "READY",
       sceneRevision: 7,
-      steps: [{ action: "test.choose", target: null, args: {}, destination: null }],
+      steps: [{ action: "test.choose", target: null, args: {} }],
     });
     const route = setup(registry, provider, prepareCommit);
     await expect(route.execute(turn())).resolves.toMatchObject({
@@ -155,7 +155,7 @@ describe("NoteAgentProductionRoute", () => {
       const provider = new FakeNoteDecisionProvider({
         status: "READY",
         sceneRevision: 7,
-        steps: [{ action, target: null, args: {}, destination: null }],
+        steps: [{ action, target: null, args: {} }],
       });
       const commit = vi.fn(async (input: {
         steps: readonly { readonly toolId: string }[];
@@ -192,7 +192,6 @@ describe("NoteAgentProductionRoute", () => {
         action: "text.replace",
         target: { object: "O99", part: null },
         args: { text: "수정" },
-        destination: null,
       }],
     });
     const commit = vi.fn();
@@ -237,7 +236,6 @@ describe("NoteAgentProductionRoute", () => {
           fallbackPoint: null,
         },
         args: {},
-        destination: null,
       }],
     });
     const route = setup(registry, provider, vi.fn(), {
@@ -273,7 +271,7 @@ describe("NoteAgentProductionRoute", () => {
     const provider = new FakeNoteDecisionProvider({
       status: "READY",
       sceneRevision: 7,
-      steps: [{ action: "navigation.next_page", target: null, args: {}, destination: null }],
+      steps: [{ action: "navigation.next_page", target: null, args: {} }],
     });
     const route = setup(
       createExistingNoteToolRegistry(),
@@ -305,7 +303,7 @@ describe("NoteAgentProductionRoute", () => {
         return {
           status: "READY",
           sceneRevision: 7,
-          steps: [{ action: "navigation.next_page", target: null, args: {}, destination: null }],
+          steps: [{ action: "navigation.next_page", target: null, args: {} }],
         };
       },
     };
@@ -379,7 +377,7 @@ describe("NoteAgentProductionRoute", () => {
         return {
           status: "READY",
           sceneRevision: 7,
-          steps: [{ action: "navigation.next_page", target: null, args: {}, destination: null }],
+          steps: [{ action: "navigation.next_page", target: null, args: {} }],
         };
       },
     };
@@ -417,7 +415,7 @@ describe("NoteAgentProductionRoute", () => {
         return {
           status: "READY",
           sceneRevision: 7,
-          steps: [{ action: "navigation.next_page", target: null, args: {}, destination: null }],
+          steps: [{ action: "navigation.next_page", target: null, args: {} }],
         };
       },
     };

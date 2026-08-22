@@ -79,7 +79,7 @@ describe("One Note Decision Responses strict schema", () => {
     expect(serialized).toContain('"const":"history.undo"');
     expect(serialized).toContain('"const":"annotation.apply"');
     expect(serialized).toContain('"const":"math.graph.add_tangent"');
-    expect(serialized).toContain('"NEAR"');
+    expect(serialized).not.toContain('"NEAR"');
     expect(serialized).toContain("canonical non-empty startText/endText");
     expect(serialized).toContain('"coordinateSpace"');
     expect(serialized).toContain('"OBJECT_LOCAL"');
@@ -94,27 +94,26 @@ describe("One Note Decision Responses strict schema", () => {
     const annotationVariant = stepVariants.find((variant) =>
       ((variant.properties as Record<string, { const?: string }>).action?.const)
         === "annotation.apply");
-    expect((annotationVariant?.properties as Record<string, unknown>).destination)
-      .toEqual({ type: "null" });
+    expect((annotationVariant?.properties as Record<string, unknown>).placement)
+      .toBeUndefined();
     const graphCreateVariant = stepVariants.find((variant) =>
       ((variant.properties as Record<string, { const?: string }>).action?.const)
         === "math.graph.create");
-    expect((graphCreateVariant?.properties as Record<string, unknown>).destination)
-      .toHaveProperty("anyOf");
+    expect((graphCreateVariant?.properties as Record<string, unknown>).placement)
+      .toHaveProperty("properties");
     const tangentVariant = stepVariants.find((variant) =>
       ((variant.properties as Record<string, { const?: string }>).action?.const)
         === "math.graph.add_tangent");
-    expect((tangentVariant?.properties as Record<string, unknown>).destination)
-      .toEqual({ type: "null" });
+    expect((tangentVariant?.properties as Record<string, unknown>).placement)
+      .toBeUndefined();
     expect((tangentVariant?.properties as Record<string, unknown>).target)
       .not.toHaveProperty("anyOf");
     const tangentArgs = (tangentVariant?.properties as Record<string, unknown>).args as {
       readonly properties: Record<string, unknown>;
       readonly required: readonly string[];
     };
-    expect(tangentArgs.required).toEqual(["mode", "x", "y", "quadrant", "label"]);
-    expect(tangentArgs.properties.x).toHaveProperty("anyOf");
-    expect(tangentArgs.properties.y).toHaveProperty("anyOf");
+    expect(tangentArgs.required).toEqual(["at", "label"]);
+    expect(tangentArgs.properties.at).toHaveProperty("properties.x");
   });
 
   it("parses the reduced production response without legacy visual-pass fields", () => {
@@ -125,11 +124,7 @@ describe("One Note Decision Responses strict schema", () => {
         action: "text.create",
         target: null,
         args: { text: "가나다라" },
-        destination: {
-          relation: "CANVAS_REGION",
-          anchor: null,
-          region: "TOP_RIGHT",
-        },
+        placement: { x: 0.75, y: 0.1, width: null, height: null },
       }],
       reason: null,
     })).toEqual({
@@ -139,11 +134,7 @@ describe("One Note Decision Responses strict schema", () => {
         action: "text.create",
         target: null,
         args: { text: "가나다라" },
-        destination: {
-          relation: "CANVAS_REGION",
-          anchor: null,
-          region: "TOP_RIGHT",
-        },
+        placement: { x: 0.75, y: 0.1, width: null, height: null },
       }],
     });
   });
