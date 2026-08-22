@@ -125,7 +125,7 @@ describe("One Note Decision strict schema", () => {
           fallbackPoint: { x: 0.7, y: 0.7, coordinateSpace: "PAGE" },
         },
         args: { text: "중요" },
-        destination: { relation: "INSIDE", anchor: null, region: null },
+        placement: { x: 0.6, y: 0.65, width: null, height: null },
       }],
       candidateHandles: null,
       cropRegion: null,
@@ -153,7 +153,7 @@ describe("One Note Decision strict schema", () => {
           fallbackPoint: null,
         },
         args: { text: "invalid" },
-        destination: null,
+        placement: { x: 0.1, y: 0.1, width: null, height: null },
       }],
       candidateHandles: null,
       cropRegion: null,
@@ -171,7 +171,7 @@ describe("One Note Decision strict schema", () => {
           fallbackPoint: { x: 0.5, y: 0.5, coordinateSpace: "OBJECT_LOCAL" },
         },
         args: { text: "invalid" },
-        destination: null,
+        placement: { x: 0.1, y: 0.1, width: null, height: null },
       }],
       candidateHandles: null,
       cropRegion: null,
@@ -179,15 +179,14 @@ describe("One Note Decision strict schema", () => {
     })).toThrowError(/OBJECT_LOCAL requires an object handle/u);
   });
 
-  it("allows semantic tangent x/y only inside typed tangent args", () => {
+  it("allows graph-domain tangent x only inside typed tangent args", () => {
     const tangent = {
       status: "READY",
       sceneRevision: 7,
       steps: [{
         action: "math.graph.add_tangent",
         target: { object: "O1", part: null },
-        args: { mode: "at-point", x: -1, y: 1, quadrant: null, label: null },
-        destination: null,
+        args: { at: { x: -1 }, label: null },
       }],
       candidateHandles: null,
       cropRegion: null,
@@ -198,7 +197,7 @@ describe("One Note Decision strict schema", () => {
       status: "READY",
       steps: [{
         action: "math.graph.add_tangent",
-        args: { x: -1, y: 1 },
+        args: { at: { x: -1 } },
       }],
     });
     expect(() => parseNoteDecision({
@@ -207,7 +206,7 @@ describe("One Note Decision strict schema", () => {
         action: "text.create",
         target: null,
         args: { text: "hello", x: 20 },
-        destination: null,
+        placement: { x: 0.1, y: 0.1, width: null, height: null },
       }],
     })).toThrowError(/runtime authority field is forbidden/u);
     expect(() => parseNoteDecision({

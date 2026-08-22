@@ -11,24 +11,18 @@ import {
   type MathObject,
   type MathObjectKind,
 } from "@ggulnote/math-core";
-import type {
-  MeasuredDraft,
-  PlacementProfile,
-  ResolvedPlacement,
-} from "../../domain";
-import { NOTEBOOK_LAYOUT_POLICY } from "../../application";
+import type { MeasuredDraft } from "../../domain";
 import {
   NoteAgentValidationError,
   parseActionTarget,
-  parseDecisionDestination,
-  type Destination,
-  type DecisionDestination,
+  parseCanvasPlacement,
+  type CanvasPlacement,
   type DecisionObjectRef,
   type NoteActionPrepareResult,
   type NoteToolId,
 } from "../domain";
+import { projectCanvasPlacement } from "../runtime";
 import { editorMathSceneId } from "../../integration/editor-voice-context";
-import type { EntityRef } from "../world";
 import type {
   NoteSchema,
   NoteTool,
@@ -38,7 +32,7 @@ import type {
 interface MathToolInput {
   readonly args: Readonly<Record<string, unknown>>;
   readonly target?: DecisionObjectRef;
-  readonly destination?: DecisionDestination;
+  readonly placement?: CanvasPlacement;
 }
 
 interface PreparedMathValue {
@@ -47,7 +41,6 @@ interface PreparedMathValue {
 }
 
 export interface MathCreatePlacementContract {
-  readonly profile: PlacementProfile;
   readonly draft: MeasuredDraft;
 }
 
@@ -70,21 +63,7 @@ export function createMathPlacementContract(
     height: Math.max(1, Math.min(requested.height, availableSize.height)),
   });
   const capability = mathPlacementCapability(definition.objectKind);
-  const profile: PlacementProfile = Object.freeze({
-    capability,
-    preferredSize,
-    minSize: Object.freeze({ width: 1, height: 1 }),
-    maxSize: preferredSize,
-    resizePolicy: "FIXED",
-    minClearance: NOTEBOOK_LAYOUT_POLICY.naturalGap,
-    allowedRelations: Object.freeze([
-      "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "NEAR", "INSIDE", "FREE_SPACE",
-    ] as const),
-    overlayPolicy: "EXPLICIT_ONLY",
-    overflowPolicy: "FAIL",
-  });
   return Object.freeze({
-    profile,
     draft: Object.freeze({
       draftKey,
       capability,
@@ -119,7 +98,7 @@ function mathActionTool(actionId: ConnectedMathActionId): NoteTool<MathToolInput
         ?? createLogicalObjectId(context, definition.objectKind);
       const directShapeBounds = definition.target === "create"
         && definition.objectKind === "shape"
-        && input.destination === undefined
+        && input.placement === undefined
         && context.resolvedTarget !== undefined
         ? directShapeTargetBounds(context)
         : undefined;
@@ -170,13 +149,6 @@ function mathActionTool(actionId: ConnectedMathActionId): NoteTool<MathToolInput
               : input.target.object === null
                 ? {}
                 : { target: context.handles?.resolve(input.target.object) }),
-            ...(placement === undefined ? {} : {
-              placement: placement.placement,
-              ...(placement.destination === undefined
-                ? {}
-                : { destination: placement.destination }),
-              ...(placement.anchorRef === undefined ? {} : { target: placement.anchorRef }),
-            }),
           },
         }],
       };
@@ -187,10 +159,7 @@ function mathActionTool(actionId: ConnectedMathActionId): NoteTool<MathToolInput
 type MathCreatePlacementResolution =
   | {
       readonly status: "RESOLVED";
-      readonly bounds: ResolvedPlacement["bounds"];
-      readonly placement: ResolvedPlacement;
-      readonly destination?: Destination;
-      readonly anchorRef?: EntityRef;
+      readonly bounds: import("@ggulnote/editor-core").Rect;
     }
   | {
       readonly status: "FAILED";
@@ -202,7 +171,7 @@ async function resolveMathCreatePlacement(
   input: MathToolInput,
   context: NoteToolContext,
 ): Promise<MathCreatePlacementResolution> {
-  if (context.placement === undefined || context.preparePlacement === undefined) {
+  if (context.preparePlacement === undefined) {
     return {
       status: "FAILED",
       failure: { status: "NOT_ALLOWED", reasonCode: "PLACEMENT_UNAVAILABLE" },
@@ -215,85 +184,23 @@ async function resolveMathCreatePlacement(
       failure: { status: "NOT_ALLOWED", reasonCode: "MEASUREMENT_UNAVAILABLE" },
     };
   }
-  const resolvedActionAnchor = input.target === undefined
-    ? undefined
-    : context.resolvedTarget?.anchor;
-  const destination = runtimeDestination(
-    input.destination,
-    resolvedActionAnchor !== undefined,
-  );
-  if (input.destination !== undefined && destination === undefined) {
-    return { status: "FAILED", failure: { status: "NEEDS_INPUT", missing: ["destination"] } };
+  if (input.placement === undefined) {
+    return { status: "FAILED", failure: { status: "NEEDS_INPUT", missing: ["placement"] } };
   }
-  const anchorRef = resolvedActionAnchor !== undefined
-    ? context.resolvedTarget?.objectRef
-    : input.destination?.relation === "CANVAS_REGION"
-    ? undefined
-    : input.destination?.anchor === null || input.destination?.anchor === undefined
-      ? undefined
-      : input.destination.anchor.object === null
-        ? undefined
-        : context.handles?.resolve(input.destination.anchor.object);
-  if (
-    input.destination !== undefined
-    && input.destination.relation !== "CANVAS_REGION"
-    && resolvedActionAnchor === undefined
-    && anchorRef === undefined
-  ) {
-    return { status: "FAILED", failure: { status: "NOT_FOUND" } };
-  }
-  const result = await context.placement.resolve({
-    ...(destination === undefined ? {} : { destination }),
-    ...prepared,
-    worldContext: context.frozenWorld,
-    ...(anchorRef === undefined ? {} : { anchorRef }),
-    ...(resolvedActionAnchor === undefined
-      ? {}
-      : { resolvedAnchor: resolvedActionAnchor }),
+  const result = projectCanvasPlacement({
+    placement: input.placement,
+    snapshot: prepared.snapshot,
+    draft: prepared.draft,
   });
   switch (result.status) {
     case "RESOLVED":
       return {
         status: "RESOLVED",
-        bounds: result.placement.bounds,
-        placement: result.placement,
-        ...(destination === undefined ? {} : { destination }),
-        ...(anchorRef === undefined ? {} : { anchorRef }),
+        bounds: result.bounds,
       };
-    case "AMBIGUOUS":
-      return { status: "FAILED", failure: { status: "AMBIGUOUS", candidates: result.candidates } };
-    case "NO_FEASIBLE_PLACEMENT":
-      return { status: "FAILED", failure: { status: "NO_FEASIBLE_PLACEMENT" } };
-    case "STALE_SCENE":
-      return { status: "FAILED", failure: { status: "STALE_SCENE" } };
-    case "FAILED":
+    case "INVALID":
       return { status: "FAILED", failure: { status: "FAILED", reasonCode: result.reasonCode } };
   }
-}
-
-function runtimeDestination(
-  destination: DecisionDestination | undefined,
-  hasResolvedTarget = false,
-): Destination | undefined {
-  if (destination === undefined) return undefined;
-  if (destination.relation === "CANVAS_REGION") {
-    return destination.region === null ? undefined : {
-      kind: "PAGE_REGION",
-      region: destination.region,
-      alignment: "AUTO",
-      avoidOverlap: true,
-    };
-  }
-  if ((destination.anchor === null && !hasResolvedTarget)
-    || destination.relation === "BETWEEN") return undefined;
-  return {
-    kind: "RELATIVE",
-    relation: destination.relation,
-    anchor: { context: "FOCUS" },
-    alignment: "START",
-    distance: "NORMAL",
-    avoidOverlap: true,
-  };
 }
 
 function addSetupSeparator(object: MathObject) {
@@ -317,7 +224,7 @@ function mathToolInputSchema(actionId: ConnectedMathActionId): NoteSchema<MathTo
     compact: Object.freeze({}),
     parse(value, path = "input") {
       const input = strictRecord(value, path);
-      const { target, destination, ...decisionArgs } = input;
+      const { target, placement, ...decisionArgs } = input;
       let args: Readonly<Record<string, unknown>>;
       try {
         args = parseConnectedMathActionDecisionArgs(actionId, decisionArgs);
@@ -329,8 +236,8 @@ function mathToolInputSchema(actionId: ConnectedMathActionId): NoteSchema<MathTo
         if (target === undefined) {
           throw new NoteAgentValidationError(`${path}.target`, "expected an existing math ObjectHandle");
         }
-        if (destination !== undefined) {
-          throw new NoteAgentValidationError(`${path}.destination`, "existing-object math actions do not accept placement");
+        if (placement !== undefined) {
+          throw new NoteAgentValidationError(`${path}.placement`, "existing-object math actions do not accept placement");
         }
         return {
           args,
@@ -345,16 +252,16 @@ function mathToolInputSchema(actionId: ConnectedMathActionId): NoteSchema<MathTo
         return {
           args,
           target: parseActionTarget(target, `${path}.target`),
-          ...(destination === undefined
+          ...(placement === undefined || placement === null
             ? {}
-            : { destination: parseDecisionDestination(destination, `${path}.destination`) }),
+            : { placement: parseCanvasPlacement(placement, `${path}.placement`) }),
         };
       }
       return {
         args,
-        ...(destination === undefined
+        ...(placement === undefined || placement === null
           ? {}
-          : { destination: parseDecisionDestination(destination, `${path}.destination`) }),
+          : { placement: parseCanvasPlacement(placement, `${path}.placement`) }),
       };
     },
   };
@@ -385,7 +292,7 @@ function createLogicalObjectId(context: NoteToolContext, kind: MathObjectKind): 
 
 function directShapeTargetBounds(
   context: NoteToolContext,
-): ResolvedPlacement["bounds"] | undefined {
+): import("@ggulnote/editor-core").Rect | undefined {
   const target = context.resolvedTarget;
   if (target === undefined) return undefined;
   if (target.mode !== "FALLBACK_POINT") return { ...target.canvasBounds };
@@ -413,7 +320,7 @@ function preferredMathSize(kind: MathObjectKind) {
   return { width: 320, height: 80 };
 }
 
-function mathPlacementCapability(kind: MathObjectKind): PlacementProfile["capability"] {
+function mathPlacementCapability(kind: MathObjectKind): MeasuredDraft["capability"] {
   if (kind === "graph") return "graph";
   if (kind === "shape") return "shape";
   if (kind === "table") return "table";
@@ -474,11 +381,11 @@ const preparedMathValueSchema: NoteSchema<PreparedMathValue> = {
 function actionDescription(actionId: ConnectedMathActionId, summary: string): string {
   switch (actionId) {
     case "math.graph.create":
-      return `${summary} Supply the typed descriptor; for x squared use quadratic with parameters a=1, b=0, c=0.`;
+      return `${summary} Supply only the canonical expression; math-core compiles and renders it deterministically.`;
     case "math.graph.add_point":
-      return `${summary} Select the existing graph handle as target; null coordinates create the deterministic smoke-test point (1, 1).`;
+      return `${summary} Select the graph target and supply the exact graph-domain point.`;
     case "math.graph.add_tangent":
-      return "Add a tangent to an existing graph. Use semantic at-point, at-x, quadrant, or auto intent; the runtime selects the contact point when needed and computes the exact derivative and tangent.";
+      return "Add a tangent to an existing graph at an exact graph-domain x selected by the Decision; math-core computes the derivative and tangent.";
     case "math.shape.create_rectangle":
     case "math.shape.create_circle":
       return `${summary} Geometry is supplied deterministically by the runtime.`;

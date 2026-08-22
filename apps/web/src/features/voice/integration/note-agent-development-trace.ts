@@ -15,8 +15,7 @@ export type NoteAgentDevelopmentTraceSummary = Pick<NoteAgentShadowTrace,
   | "selectedHandle"
   | "decisionStatus"
   | "decisionAction"
-  | "decisionReferenceHandle"
-  | "decisionRelation"
+  | "decisionPlacement"
   | "groundingMode"
   | "resolvedTargetHandle"
   | "resolvedCanvasBounds"
@@ -71,10 +70,9 @@ export function summarizeNoteAgentTrace(
     ...(trace.selectedHandle === undefined ? {} : { selectedHandle: trace.selectedHandle }),
     ...(trace.decisionStatus === undefined ? {} : { decisionStatus: trace.decisionStatus }),
     ...(trace.decisionAction === undefined ? {} : { decisionAction: trace.decisionAction }),
-    ...(trace.decisionReferenceHandle === undefined
+    ...(trace.decisionPlacement === undefined
       ? {}
-      : { decisionReferenceHandle: trace.decisionReferenceHandle }),
-    ...(trace.decisionRelation === undefined ? {} : { decisionRelation: trace.decisionRelation }),
+      : { decisionPlacement: { ...trace.decisionPlacement } }),
     ...(trace.groundingMode === undefined ? {} : { groundingMode: trace.groundingMode }),
     ...(trace.resolvedTargetHandle === undefined
       ? {}

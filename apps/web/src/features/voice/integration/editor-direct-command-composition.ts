@@ -47,7 +47,6 @@ import {
   createExistingNoteToolRegistry,
   createMathPlacementContract,
   DirectCommandOperationLedgerAdapter,
-  ExistingPlacementEngine,
   ExistingSceneUnifiedObjectWorldSource,
   ExistingUnifiedObjectWorld,
   ExistingWorldResolver,
@@ -313,10 +312,6 @@ function createNoteAgentEnvironment(
     operationLedger: ledger,
   });
   const resolver = new ExistingWorldResolver({ world });
-  const placement = new ExistingPlacementEngine({
-    world,
-    resolver,
-  });
   const registry = createExistingNoteToolRegistry();
   const spatialSceneSource = new ExistingSceneSpatialSceneSource({
     sceneSource: {
@@ -380,14 +375,10 @@ function createNoteAgentEnvironment(
       frozenWorld,
       world,
       resolver,
-      placement,
       getCurrentSceneRevision: input.options.getCurrentSceneRevision,
       ...(runtimeOptions.signal === undefined ? {} : { signal: runtimeOptions.signal }),
       ...(runtimeOptions.metrics === undefined ? {} : { metrics: runtimeOptions.metrics }),
       ...(mode === "SHADOW" ? {} : { transaction }),
-      ...(mode === "PRODUCTION"
-        ? { productionPlacementAvailable: input.spatial !== undefined }
-        : {}),
       preparePlacement: async (toolId, toolInput) => {
         const scene = readSnapshot()?.scene;
         if (scene === undefined) return undefined;
@@ -404,7 +395,6 @@ function createNoteAgentEnvironment(
           return {
             snapshot: spatialSnapshot.snapshot,
             draft: math.draft,
-            profile: math.profile,
           };
         }
         if (toolId !== "text.create" || !hasText(toolInput)) return undefined;
@@ -432,7 +422,6 @@ function createNoteAgentEnvironment(
           : {
               snapshot: spatialSnapshot.snapshot,
               draft: measured.draft,
-              profile: profile.profile,
             };
       },
     }),

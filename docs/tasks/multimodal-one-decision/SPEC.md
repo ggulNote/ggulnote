@@ -12,8 +12,8 @@ Page Base Cache + Live Scene Context + Marked Screenshot + Voice Command
   -> Tldraw Transaction / Render
 ```
 
-LLM/VLM은 의미, 의도, object reference, semantic relation, content kind, tool 선택을 담당한다.
-로컬은 lookup, validation, coordinate transform, geometry, layout, math, render, transaction, undo만 담당한다.
+LLM/VLM은 의미, 의도, object reference, content kind, tool 선택과 필요한 final canvas placement를 담당한다.
+로컬은 lookup, validation, normalized coordinate projection, geometry, math, PDF glyph lookup, render, transaction, undo만 담당한다.
 
 ## Milestones
 
@@ -45,6 +45,15 @@ LLM/VLM은 의미, 의도, object reference, semantic relation, content kind, to
 - 기본 경로의 repair/disambiguation/preview LLM 재호출 제거
 - local natural-language heuristic 우회/삭제
 - production/debug trace와 end-to-end 회귀 검증
+
+### M5 - Final placement and semantic math parameters
+
+- production `READY.steps[]`에서 relation/destination 대신 page-normalized final placement 사용
+- text/math create는 LLM placement를 local coordinate projection으로만 실행
+- graph expression을 source of truth로 유지하고 descriptor/sampling/render는 math-core가 계산
+- graph point와 tangent는 graph-domain coordinate를 받고 local math engine이 계산
+- PDF text range는 canonical anchors를 유지하고 glyph geometry는 local에서 계산
+- production relation candidate execution 경로 제거와 대표 명령 회귀 검증
 
 ## Non-goals
 

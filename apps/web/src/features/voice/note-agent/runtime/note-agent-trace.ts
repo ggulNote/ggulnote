@@ -35,8 +35,7 @@ export interface NoteAgentShadowTrace {
   readonly selectedHandle?: `O${number}`;
   readonly decisionStatus?: NoteDecision["status"];
   readonly decisionAction?: NoteToolId;
-  readonly decisionReferenceHandle?: `O${number}`;
-  readonly decisionRelation?: string;
+  readonly decisionPlacement?: import("../domain").CanvasPlacement;
   readonly groundingMode?: ActionTargetGroundingMode;
   readonly resolvedTargetHandle?: `O${number}`;
   readonly resolvedCanvasBounds?: {

@@ -10,11 +10,10 @@ export type {
   ActionTarget,
   ActionTargetFallbackPoint,
   ActionTargetRegion,
+  CanvasPlacement,
   CompactToolSchema,
   ClarificationReason,
   CropRequest,
-  DecisionDestination,
-  DecisionDestinationRelation,
   DecisionObjectPartRef,
   DecisionObjectRef,
   DecisionStep,
@@ -55,7 +54,7 @@ export type {
 } from "./note-tool-result";
 export {
   NoteAgentValidationError,
-  parseDecisionDestination,
+  parseCanvasPlacement,
   parseActionTarget,
   parseDestination,
   parseEntitySelector,

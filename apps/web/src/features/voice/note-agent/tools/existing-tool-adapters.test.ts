@@ -23,7 +23,6 @@ import type {
   NotePlacementPreparation,
   NoteToolContext,
 } from "./note-tool-registry";
-import type { ExistingPlacementEngine } from "../runtime/placement-engine";
 
 const PDF: ParagraphSceneObject = {
   id: "pdf-paragraph",
@@ -135,75 +134,23 @@ describe("existing NoteTool adapters", () => {
       .not.toContain("text.create");
   });
 
-  it("uses a resolved fallback anchor for registered text.create without re-grounding", async () => {
+  it("projects final normalized text placement without a relation resolver", async () => {
     const tool = createExistingNoteToolRegistry().get("text.create");
     if (tool === undefined) throw new Error("Expected text.create adapter.");
-    const placementResolve = vi.fn(async () => ({
-      status: "RESOLVED" as const,
-      placement: {
-        snapshotId: "snapshot-1",
-        pageId: "page-1",
-        sceneRevision: 7,
-        bounds: { x: 300, y: 200, width: 120, height: 40 },
-        relation: "INSIDE" as const,
-        alignment: "CENTER" as const,
-        candidate: {
-          internalId: "candidate-1",
-          alias: "S1" as const,
-          snapshotId: "snapshot-1",
-          sceneRevision: 7,
-          bounds: { x: 300, y: 200, width: 120, height: 40 },
-          strategy: "ANCHOR_RELATIVE" as const,
-          relation: "INSIDE" as const,
-          alignment: "CENTER" as const,
-          sizeVariant: "PREFERRED" as const,
-          evidence: {
-            hardOverlapArea: 0,
-            softOverlapArea: 0,
-            clearance: 0,
-            anchorDistance: 0,
-            relationSatisfied: true,
-            alignmentSatisfied: true,
-            preferredSizePreserved: true,
-            insideEditableBounds: true,
-            regionMatch: true,
-            nearbyObjectIds: [],
-          },
-        },
-      },
-    }));
     const base = context();
-    const resolvedTarget = {
-      status: "RESOLVED" as const,
-      mode: "FALLBACK_POINT" as const,
-      objectHandle: "O99" as const,
-      canvasBounds: { x: 449.5, y: 199.5, width: 1, height: 1 },
-      canvasPoint: { x: 450, y: 200 },
-      anchor: {
-        kind: "PAGE" as const,
-        bounds: { x: 449.5, y: 199.5, width: 1, height: 1 },
-      },
-    };
     const input = tool.inputSchema.parse({
       text: "이거 중요",
-      target: {
-        object: "O99",
-        part: null,
-        region: null,
-        fallbackPoint: { x: 0.75, y: 0.25, coordinateSpace: "PAGE" },
-      },
-      destination: { relation: "INSIDE", anchor: null, region: null },
+      placement: { x: 0.5, y: 0.25, width: 0.2, height: 0.05 },
     });
 
     const result = await tool.prepare(input, {
       ...base,
-      placement: { resolve: placementResolve } as unknown as ExistingPlacementEngine,
       preparePlacement: async () => ({
-        snapshot: {},
-        draft: {},
-        profile: {},
+        snapshot: {
+          pageBounds: { x: 0, y: 0, width: 600, height: 800 },
+        },
+        draft: { preferredFootprint: { width: 1, height: 1 } },
       }) as unknown as NotePlacementPreparation,
-      resolvedTarget,
     });
 
     expect(result).toMatchObject({
@@ -218,9 +165,6 @@ describe("existing NoteTool adapters", () => {
         },
       }],
     });
-    expect(placementResolve).toHaveBeenCalledWith(expect.objectContaining({
-      resolvedAnchor: resolvedTarget.anchor,
-    }));
   });
 
   it("allows editable user text but refuses immutable PDF replacement", async () => {

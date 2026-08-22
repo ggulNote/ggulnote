@@ -43,6 +43,116 @@ const SUPPORTED_FUNCTION_TYPES = new Set<MathGraphFunctionType>([
   "cos",
   "tan",
 ]);
+
+export interface CompiledMathGraphExpression {
+  readonly expression: string;
+  readonly functionType: MathGraphFunctionType;
+  readonly parameters: Readonly<Record<string, number>>;
+}
+
+/** Compiles the supported canonical expression into the renderer's typed descriptor. */
+export const compileMathGraphExpression = (
+  expression: string,
+): CompiledMathGraphExpression => {
+  const source = expression.trim();
+  if (source.length === 0) throw new TypeError("Graph expression must not be empty.");
+  const normalized = source
+    .replaceAll("−", "-")
+    .replaceAll("²", "^2")
+    .replaceAll("³", "^3")
+    .replaceAll("⁴", "^4")
+    .replace(/\s+/gu, "")
+    .replace(/^(?:y|f\(x\))=/u, "");
+  if (normalized.length === 0) throw new TypeError("Graph expression must have a right-hand side.");
+  const unary = /^(sin|cos|tan|abs|sqrt|log|ln)\(x\)$/u.exec(normalized);
+  if (unary !== null) {
+    const name = unary[1];
+    const functionType: MathGraphFunctionType = name === "abs"
+      ? "absolute"
+      : name === "sqrt"
+        ? "radical"
+        : name === "log" || name === "ln"
+          ? "logarithmic"
+          : name as "sin" | "cos" | "tan";
+    const parameters: Readonly<Record<string, number>> = name === "ln"
+      ? Object.freeze({ base: Math.E })
+      : name === "log" ? Object.freeze({ base: 10 }) : Object.freeze({});
+    return Object.freeze({
+      expression: source,
+      functionType,
+      parameters,
+    });
+  }
+  const rational = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\/x$/u.exec(normalized);
+  if (rational !== null) {
+    return Object.freeze({
+      expression: source,
+      functionType: "rational",
+      parameters: Object.freeze({ a: Number(rational[1]) }),
+    });
+  }
+  const exponential = /^((?:\d+(?:\.\d+)?|\.\d+))\^x$/u.exec(normalized);
+  if (exponential !== null) {
+    const base = Number(exponential[1]);
+    if (base <= 0 || base === 1) throw new RangeError("Graph exponential base is invalid.");
+    return Object.freeze({
+      expression: source,
+      functionType: "exponential",
+      parameters: Object.freeze({ base }),
+    });
+  }
+  const coefficients = compilePolynomial(normalized);
+  const degree = highestPolynomialDegree(coefficients);
+  const functionType: MathGraphFunctionType = degree <= 1
+    ? "linear"
+    : degree === 2 ? "quadratic" : degree === 3 ? "cubic" : "quartic";
+  const names = functionType === "linear"
+    ? ["a", "b"] as const
+    : functionType === "quadratic"
+      ? ["a", "b", "c"] as const
+      : functionType === "cubic"
+        ? ["a", "b", "c", "d"] as const
+        : ["a", "b", "c", "d", "e"] as const;
+  const parameters = Object.fromEntries(names.map((name, index) => [
+    name,
+    coefficients[names.length - index - 1] ?? 0,
+  ]));
+  return Object.freeze({
+    expression: source,
+    functionType,
+    parameters: Object.freeze(parameters),
+  });
+};
+
+function compilePolynomial(source: string): readonly number[] {
+  if (!/^[+\-]?(?:\d+(?:\.\d+)?|\.\d+)?(?:\*?x(?:\^[1-4])?)?(?:[+\-](?:\d+(?:\.\d+)?|\.\d+)?(?:\*?x(?:\^[1-4])?)?)*$/u
+    .test(source)) {
+    throw new TypeError(`Unsupported graph expression: ${source}`);
+  }
+  const coefficients = [0, 0, 0, 0, 0];
+  const terms = source.match(/[+\-]?[^+\-]+/gu) ?? [];
+  for (const term of terms) {
+    const xTerm = /^([+\-]?)(?:(\d+(?:\.\d+)?|\.\d+)\*?)?x(?:\^([1-4]))?$/u.exec(term);
+    if (xTerm !== null) {
+      const sign = xTerm[1] === "-" ? -1 : 1;
+      const coefficient = xTerm[2] === undefined ? 1 : Number(xTerm[2]);
+      const degree = xTerm[3] === undefined ? 1 : Number(xTerm[3]);
+      coefficients[degree] = (coefficients[degree] ?? 0) + sign * coefficient;
+      continue;
+    }
+    const constant = Number(term);
+    if (!Number.isFinite(constant)) throw new TypeError(`Unsupported graph term: ${term}`);
+    coefficients[0] = (coefficients[0] ?? 0) + constant;
+  }
+  return coefficients;
+}
+
+function highestPolynomialDegree(coefficients: readonly number[]): number {
+  for (let degree = coefficients.length - 1; degree >= 1; degree -= 1) {
+    if (Math.abs(coefficients[degree] ?? 0) > FUNCTION_EPSILON) return degree;
+  }
+  return 1;
+}
 const FUNCTION_EPSILON = 1e-10;
 
 export const createMathGraph = (

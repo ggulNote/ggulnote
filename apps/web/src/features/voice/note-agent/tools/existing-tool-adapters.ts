@@ -1,16 +1,16 @@
 import {
   NoteAgentValidationError,
   parseActionTarget,
-  parseDestination,
+  parseCanvasPlacement,
   parseEntitySelector,
-  type Destination,
+  type CanvasPlacement,
   type EntitySelector,
-  type DecisionDestination,
   type DecisionObjectPartRef,
   type DecisionObjectRef,
   type NoteToolId,
   type NoteToolResult,
 } from "../domain";
+import { projectCanvasPlacement } from "../runtime";
 import {
   buildCanonicalTextStream,
   resolveTextSpanWithCanonicalStream,
@@ -33,7 +33,7 @@ interface PreparedActionValue {
 interface TextCreateInput {
   readonly text: string;
   readonly target?: DecisionObjectRef;
-  readonly destination?: Destination | DecisionDestination;
+  readonly placement: CanvasPlacement;
 }
 
 interface TargetedTextInput {
@@ -64,97 +64,32 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
   return {
     id: "text.create",
     kind: "MUTATION",
-    description: "Create ordinary written language or a label. Do not use this when the content's primary meaning is a mathematical expression, equation, or formula. Omit destination when location is unspecified.",
+    description: "Create ordinary written language or a label at final page-normalized placement. Do not use this when the content's primary meaning is mathematical.",
     examples: ["가나다라 써 줘", "안녕하세요 아래에 가나다라 써 줘"],
     inputSchema: textCreateSchema,
     outputSchema: preparedActionValueSchema,
     decisionArgsSchema: strictObjectSchema({
       text: { type: "string", minLength: 1 },
     }, ["text"]),
-    isAvailable: (context) =>
-      context.placement !== undefined
-      && context.preparePlacement !== undefined
-      && (context.mode === "SHADOW" || context.productionPlacementAvailable === true),
+    isAvailable: (context) => context.preparePlacement !== undefined,
     prepare: async (input, context) => {
-      if (context.placement === undefined || context.preparePlacement === undefined) {
+      if (context.preparePlacement === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "PLACEMENT_UNAVAILABLE" };
       }
       const prepared = await context.preparePlacement("text.create", input);
       if (prepared === undefined) {
         return { status: "NOT_ALLOWED", reasonCode: "MEASUREMENT_UNAVAILABLE" };
       }
-      let anchorRef;
-      const resolvedActionAnchor = input.target === undefined
-        ? undefined
-        : context.resolvedTarget?.anchor;
-      if (isDecisionDestination(input.destination)) {
-        if (input.destination.relation !== "CANVAS_REGION") {
-          if (resolvedActionAnchor !== undefined) {
-            anchorRef = context.resolvedTarget?.objectRef;
-          } else if (input.destination.anchor === null) {
-            return { status: "NEEDS_INPUT", missing: ["destination.anchor"] };
-          } else {
-            const directAnchor = resolveDecisionAnchorRef(input.destination.anchor, context);
-            if ("result" in directAnchor) return directAnchor.result;
-            if (directAnchor.status !== "RESOLVED") {
-              return { status: "FAILED", reasonCode: "ANCHOR_RESOLUTION_FAILED" };
-            }
-            anchorRef = directAnchor.ref;
-          }
-        }
-      } else if (input.destination?.kind === "RELATIVE") {
-        const selector = "context" in input.destination.anchor
-          ? { context: input.destination.anchor.context }
-          : input.destination.anchor;
-        const anchorStartedAt = context.metrics?.now();
-        const resolved = await context.resolver.resolve(selector, context.frozenWorld);
-        if (anchorStartedAt !== undefined) {
-          context.metrics?.add("resolverMs", context.metrics.now() - anchorStartedAt);
-        }
-        const resolvedAnchor = resolved.status === "RESOLVED" ? resolved.ref : undefined;
-        if (resolvedAnchor === undefined) {
-          if (resolved.status === "AMBIGUOUS") {
-            return { status: "AMBIGUOUS", candidates: resolved.candidates };
-          }
-          if (resolved.status === "NOT_FOUND") return { status: "NOT_FOUND" };
-          return resolved.status === "UNSUPPORTED" && resolved.reasonCode === "STALE_SCENE"
-            ? { status: "STALE_SCENE" }
-            : { status: "FAILED", reasonCode: resolved.status === "UNSUPPORTED"
-                ? resolved.reasonCode
-                : "ANCHOR_RESOLUTION_FAILED" };
-        }
-        anchorRef = resolvedAnchor;
-      }
-      const runtimeDestination = isDecisionDestination(input.destination)
-        ? placementDestination(input.destination, resolvedActionAnchor !== undefined)
-        : input.destination;
-      if (isDecisionDestination(input.destination) && runtimeDestination === undefined) {
-        return { status: "NEEDS_INPUT", missing: ["destination"] };
-      }
       const placementStartedAt = context.metrics?.now();
-      const spatialDecisionInstruction = JSON.stringify({
-        destination: input.destination ?? null,
-      });
-      const placement = await context.placement.resolve({
-        ...(runtimeDestination === undefined ? {} : { destination: runtimeDestination }),
-        ...prepared,
-        worldContext: context.frozenWorld,
-        ...(anchorRef === undefined ? {} : { anchorRef }),
-        ...(resolvedActionAnchor === undefined
-          ? {}
-          : { resolvedAnchor: resolvedActionAnchor }),
+      const placement = projectCanvasPlacement({
+        placement: input.placement,
+        snapshot: prepared.snapshot,
+        draft: prepared.draft,
       });
       if (placementStartedAt !== undefined) {
         context.metrics?.add("placementMs", context.metrics.now() - placementStartedAt);
       }
-      if (placement.status === "AMBIGUOUS") {
-        return { status: "AMBIGUOUS", candidates: placement.candidates };
-      }
-      if (placement.status === "NO_FEASIBLE_PLACEMENT") {
-        return { status: "NO_FEASIBLE_PLACEMENT" };
-      }
-      if (placement.status === "STALE_SCENE") return { status: "STALE_SCENE" };
-      if (placement.status === "FAILED") {
+      if (placement.status === "INVALID") {
         return { status: "FAILED", reasonCode: placement.reasonCode };
       }
       return {
@@ -168,15 +103,14 @@ function textCreateTool(): NoteTool<TextCreateInput, PreparedActionValue> {
               operation: "create",
               payload: { text: input.text },
             },
-            placement: placement.placement,
-            ...(runtimeDestination === undefined ? {} : { destination: runtimeDestination }),
-            ...(anchorRef === undefined ? {} : { target: anchorRef }),
+            ...(context.resolvedTarget?.objectRef === undefined
+              ? {}
+              : { target: context.resolvedTarget.objectRef }),
             tldrawOperation: {
               kind: "CREATE_TEXT",
               text: input.text,
-              bounds: placement.placement.bounds,
+              bounds: placement.bounds,
             },
-            spatialDecisionInstruction,
           },
         }],
       };
@@ -242,7 +176,7 @@ function annotationApplyTool(): NoteTool<AnnotationApplyInput, PreparedActionVal
   return {
     id: "annotation.apply",
     kind: "MUTATION",
-    description: "Apply underline/highlight. For a partial span, ground across all supplied object text first, select the object containing that span, and return exact canonical startText/endText; destination is null.",
+    description: "Apply underline/highlight. For a partial span, ground across all supplied object text first, select the object containing that span, and return exact canonical startText/endText. This action has no canvas placement.",
     examples: ["Moreover부터 instance까지 밑줄 쳐 줘"],
     inputSchema: annotationApplySchema,
     outputSchema: preparedActionValueSchema,
@@ -380,42 +314,10 @@ function parseDecisionPart(value: unknown, path: string): DecisionObjectPartRef 
   };
 }
 
-function parseToolDestination(
-  value: unknown,
-  path: string,
-): Destination | DecisionDestination {
-  const destination = strictRecord(value, path, [
-    "kind", "region", "alignment", "avoidOverlap", "relation", "anchor", "distance",
-  ]);
-  if (destination.kind !== undefined) return parseDestination(value, path);
-  const relation = stringValue(destination.relation, `${path}.relation`);
-  if (![
-    "ABOVE", "BELOW", "LEFT_OF", "RIGHT_OF", "NEAR", "INSIDE", "BETWEEN", "CANVAS_REGION",
-  ].includes(relation)) {
-    throw new NoteAgentValidationError(`${path}.relation`, "unsupported destination relation");
-  }
-  const region = destination.region === null || destination.region === undefined
-    ? null
-    : stringValue(destination.region, `${path}.region`) as DecisionDestination["region"];
-  return {
-    relation: relation as DecisionDestination["relation"],
-    anchor: destination.anchor === null || destination.anchor === undefined
-      ? null
-      : parseToolTarget(destination.anchor, `${path}.anchor`) as DecisionObjectRef,
-    region,
-  };
-}
-
 function isDecisionObjectRef(
   target: EntitySelector | DecisionObjectRef,
 ): target is DecisionObjectRef {
   return "object" in target;
-}
-
-function isDecisionDestination(
-  destination: Destination | DecisionDestination | undefined,
-): destination is DecisionDestination {
-  return destination !== undefined && !("kind" in destination);
 }
 
 function resolveDecisionObjectRef(
@@ -486,35 +388,6 @@ function resolveDecisionObjectRef(
   };
 }
 
-function resolveDecisionAnchorRef(
-  target: DecisionObjectRef,
-  context: NoteToolContext,
-): WorldResolutionResult | {
-  readonly result: Exclude<NoteToolResult<never>, { status: "SUCCESS" }>;
-} {
-  if (target.object === null) {
-    return { result: { status: "NOT_FOUND" } };
-  }
-  if (target.part?.kind !== "text_range") {
-    return resolveDecisionObjectRef(target, context);
-  }
-  const ref = context.handles?.resolve(target.object);
-  if (ref === undefined) {
-    return { result: { status: "FAILED", reasonCode: "INVALID_HANDLE" } };
-  }
-  if (ref.kind !== "OBJECT") return { result: { status: "NOT_FOUND" } };
-  const object = context.world.getObject(ref.objectId);
-  const metadata = context.world.getObjectMetadata(ref.objectId);
-  if (
-    object?.source === "canvas"
-    && object.kind === "text"
-    && metadata?.capabilities.textRangeAddressable === true
-  ) {
-    return { status: "RESOLVED", ref };
-  }
-  return resolveDecisionObjectRef(target, context);
-}
-
 function resolvePdfTextRange(
   ref: import("../world").EntityRef,
   part: DecisionObjectPartRef,
@@ -573,30 +446,6 @@ function resolvePdfTextRange(
   };
 }
 
-function placementDestination(
-  destination: DecisionDestination,
-  hasResolvedTarget = false,
-): Destination | undefined {
-  if (destination.relation === "CANVAS_REGION") {
-    return destination.region === null ? undefined : {
-      kind: "PAGE_REGION",
-      region: destination.region,
-      alignment: "AUTO",
-      avoidOverlap: true,
-    };
-  }
-  if ((destination.anchor === null && !hasResolvedTarget)
-    || destination.relation === "BETWEEN") return undefined;
-  return {
-    kind: "RELATIVE",
-    relation: destination.relation,
-    anchor: { context: "FOCUS" },
-    alignment: "START",
-    distance: "NORMAL",
-    avoidOverlap: true,
-  };
-}
-
 function tldrawObjectIdForRef(
   ref: import("../world").EntityRef,
   context: NoteToolContext,
@@ -638,18 +487,16 @@ function nullablePositiveInteger(value: unknown, path: string): number | null {
 const textCreateSchema: NoteSchema<TextCreateInput> = {
   compact: Object.freeze({
     text: "non-empty string",
-    destination: "null when not requested; otherwise the explicit semantic Destination",
+    placement: "final page-normalized x/y and optional width/height",
   }),
   parse(value, path = "input") {
-    const input = strictRecord(value, path, ["text", "destination", "target"]);
+    const input = strictRecord(value, path, ["text", "placement", "target"]);
     return {
       text: nonEmptyString(input.text, `${path}.text`),
+      placement: parseCanvasPlacement(input.placement, `${path}.placement`),
       ...(input.target === undefined
         ? {}
         : { target: parseActionTarget(input.target, `${path}.target`) }),
-      ...(input.destination === undefined
-        ? {}
-        : { destination: parseToolDestination(input.destination, `${path}.destination`) }),
     };
   },
 };

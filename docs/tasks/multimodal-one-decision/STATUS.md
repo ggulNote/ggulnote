@@ -35,14 +35,20 @@
 - PDF text target은 canonical exact range만 검증하며 local fuzzy semantic repair를 수행하지 않음.
 - production response schema에서 `NEEDS_VISUAL`과 crop/candidate 필드를 제거해 nullable schema와 status별 parser 계약의 불일치를 해소함.
 - visual evidence가 부족하면 추가 screenshot/model pass 없이 `NEEDS_CLARIFICATION(VISUAL_UNRESOLVED)`로 종료함.
+- production `READY.steps[]`의 `destination/relation`을 제거하고 canvas object create action에만 page-normalized final `placement`를 요구함.
+- text/math create는 model placement를 page 좌표로 직접 투영하고 측정된 기본 크기와 structural clamp만 local에서 적용함.
+- 미사용 `ExistingPlacementEngine` candidate facade와 Note Agent 전용 `DecisionDestination` 타입/parser를 제거함.
+- graph create는 canonical expression만 받아 local compiler가 typed descriptor를 만들며 expression을 source of truth로 보존함.
+- graph point는 graph-domain `(x, y)`, tangent는 graph-domain `at.x`를 받고 derivative/tangent equation/render는 math-core가 계산함.
+- PDF annotation은 exact canonical text range와 기존 glyph geometry 경로를 그대로 유지함.
 
 ## Completed Milestone
 
-`M4 (One-call cleanup)` 완료.
+`M5 (Final placement and semantic math parameters)` 완료.
 
 ## Current Milestone
 
-없음. 계획된 M1-M4를 완료했다.
+없음.
 
 ## Known Problems
 
@@ -50,8 +56,9 @@
 - 저장소 요구 Node는 `>=22`이나 현재 검증 환경은 `v20.19.4`다.
 - 현재 shell과 `apps/web/.env.local`에 `OPENAI_API_KEY`/`DIRECT_COMMAND_MODEL`이 없어 실제 OpenAI live eval은 실행하지 못했다.
 - explicit legacy direct-command route용 provider와 heuristic 코드는 호환 경로에 남아 있지만 기본 Note Agent production 경로에서는 호출되지 않는다.
+- 구형 `EditorNoteAgentTransaction` 호환용 `Destination`/`spatialQueryForDestination`과 math-core standalone quadrant/auto tangent API는 남아 있지만 connected production Decision schema에서는 사용되지 않는다.
 - parser-only shadow fixture용 `NEEDS_VISUAL` 타입은 남아 있지만 production schema에는 노출되지 않는다.
 
 ## Next Milestone
 
-없음. 후속 작업은 별도 결정 전까지 시작하지 않는다.
+없음.

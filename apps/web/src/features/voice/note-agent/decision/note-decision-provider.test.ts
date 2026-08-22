@@ -112,11 +112,7 @@ describe("One Note Decision provider", () => {
         action: "text.create",
         target: null,
         args: { text: "가나다라" },
-        destination: {
-          relation: "BELOW",
-          anchor: { object: "O1", part: null },
-          region: null,
-        },
+        placement: { x: 0.1, y: 0.32, width: null, height: null },
       }],
       reason: null,
     }));
@@ -126,10 +122,7 @@ describe("One Note Decision provider", () => {
       steps: [{
         action: "text.create",
         args: { text: "가나다라" },
-        destination: {
-          relation: "BELOW",
-          anchor: { object: "O1" },
-        },
+        placement: { x: 0.1, y: 0.32 },
       }],
     });
     expect(transport.calls).toHaveLength(1);
@@ -145,24 +138,23 @@ describe("One Note Decision provider", () => {
       type: "object",
       additionalProperties: false,
     });
-    expect(request.instructions).toContain("destination MUST be null");
-    expect(request.instructions).toContain("destination MUST NOT be null");
-    expect(request.instructions).toContain("destination.anchor null");
-    expect(request.instructions).toContain("destination.anchor.part to null");
+    expect(request.instructions).toContain("choose its final page-normalized placement");
+    expect(request.instructions).toContain("Never return a relation/direction enum");
+    expect(request.instructions).toContain("uses final placement and normally has target null");
     expect(request.instructions).toContain("target.part MUST use kind text_range");
     expect(request.instructions).toContain("copied verbatim from the selected target object's text");
     expect(request.instructions).toContain("boundary anchors, NOT the full matched span");
     expect(request.instructions).toContain("smallest canonical exact substring corresponding to A");
     expect(request.instructions).toContain("set the unused index, row, column, and text fields to null");
     expect(request.instructions).toContain("NEVER include Korean range particles");
-    expect(request.instructions).toContain("For annotation.apply, destination MUST be null");
+    expect(request.instructions).toContain("For annotation.apply, do not emit placement");
     expect(request.instructions).toContain("DO NOT choose an object first from general topic similarity");
     expect(request.instructions).toContain("compare it against the supplied text of ALL catalog objects");
     expect(request.instructions).toContain("explicit content reference, strong object-content evidence");
     expect(request.instructions).toContain("Interpret intent instead of copying the transcript");
     expect(request.instructions).toContain('args.source="x^2+1"');
     expect(request.instructions).toContain("math.graph.add_tangent");
-    expect(request.instructions).toContain("computes the exact derivative and tangent");
+    expect(request.instructions).toContain("Runtime computes f(x), f'(x), the tangent equation");
     expect(request.instructions).toContain("only visual pass");
     expect(request.instructions).toContain("VISUAL_UNRESOLVED");
     expect(request.instructions).not.toContain("Use NEEDS_VISUAL");
@@ -210,11 +202,7 @@ describe("One Note Decision provider", () => {
         action: "text.create",
         target: null,
         args: { text: "풀이" },
-        destination: {
-          relation: "CANVAS_REGION",
-          anchor: null,
-          region: "BOTTOM_RIGHT",
-        },
+        placement: { x: 0.75, y: 0.8, width: null, height: null },
       }],
       reason: null,
     }));
@@ -265,11 +253,11 @@ describe("One Note Decision provider", () => {
       },
     ]);
     expect(request.instructions).toContain("exact same ObjectHandle O7");
-    expect(request.instructions).toContain("Do not invent object handles or pixel coordinates");
+    expect(request.instructions).toContain("Never emit canvas pixels");
     expect(readTextContent(request.input.at(-1)!.content)).toContain('"section":"VOICE_COMMAND"');
   });
 
-  it("accepts semantic tangent x/y fields without treating them as pixel authority", async () => {
+  it("accepts graph-domain tangent x without treating it as pixel authority", async () => {
     const transport = new StubTransport(JSON.stringify({
       status: "READY",
       sceneRevision: 7,
@@ -277,13 +265,9 @@ describe("One Note Decision provider", () => {
         action: "math.graph.add_tangent",
         target: { object: "O1", part: null },
         args: {
-          mode: "auto",
-          x: null,
-          y: null,
-          quadrant: null,
+          at: { x: -1 },
           label: null,
         },
-        destination: null,
       }],
       reason: null,
     }));
@@ -317,7 +301,7 @@ describe("One Note Decision provider", () => {
         status: "READY",
         steps: [{
           action: "math.graph.add_tangent",
-          args: { mode: "auto", x: null, y: null, quadrant: null },
+          args: { at: { x: -1 } },
         }],
       });
     expect(transport.calls).toHaveLength(1);
@@ -429,7 +413,7 @@ describe("One Note Decision provider", () => {
       availableTools: [{
         id: "annotation.apply",
         kind: "MUTATION",
-        description: "Apply a partial text annotation with canonical anchors and no destination.",
+        description: "Apply a partial text annotation with canonical anchors and no placement.",
         strictArgs: {
           type: "object",
           properties: {
@@ -469,7 +453,6 @@ describe("One Note Decision provider", () => {
           },
         },
         args: { annotationType: "UNDERLINE", color: null },
-        destination: null,
       }],
       reason: null,
     }));
@@ -492,7 +475,6 @@ describe("One Note Decision provider", () => {
           },
         },
         args: { annotationType: "UNDERLINE", color: null },
-        destination: null,
       }],
     });
     expect(transport.calls).toHaveLength(1);
@@ -515,7 +497,6 @@ describe("One Note Decision provider", () => {
           },
         },
         args: { annotationType: "UNDERLINE", color: null },
-        destination: null,
       }],
       reason: null,
     });

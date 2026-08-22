@@ -6,9 +6,6 @@ import type {
   NoteToolKind,
 } from "../domain";
 import type {
-  ExistingPlacementEngine,
-} from "../runtime/placement-engine";
-import type {
   ExistingWorldResolver,
   FrozenWorldContext,
   UnifiedObjectWorld,
@@ -16,7 +13,7 @@ import type {
   ResolvedActionTarget,
 } from "../world";
 import type { EntitySelector } from "../domain";
-import type { MeasuredDraft, PlacementProfile } from "../../domain";
+import type { MeasuredDraft } from "../../domain";
 import type {
   NoteRuntimeMetricsSink,
 } from "../runtime/note-runtime-metrics";
@@ -30,7 +27,6 @@ export interface NoteSchema<T> {
 export interface NotePlacementPreparation {
   readonly snapshot: SpatialSceneSnapshot;
   readonly draft: MeasuredDraft;
-  readonly profile: PlacementProfile;
 }
 
 export interface NoteToolContext {
@@ -41,12 +37,10 @@ export interface NoteToolContext {
   readonly resolver: ExistingWorldResolver;
   readonly handles?: NoteObjectHandleMap;
   readonly resolvedTarget?: ResolvedActionTarget;
-  readonly placement?: ExistingPlacementEngine;
   readonly getCurrentSceneRevision: () => number;
   readonly signal?: AbortSignal;
   readonly stepId?: string;
   readonly metrics?: NoteRuntimeMetricsSink;
-  readonly productionPlacementAvailable?: boolean;
   readonly preparePlacement?: (
     toolId: NoteToolId,
     input: unknown,
