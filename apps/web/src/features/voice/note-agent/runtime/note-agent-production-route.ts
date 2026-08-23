@@ -19,9 +19,11 @@ import {
   type NotePageActivationInput,
 } from "../context";
 import type {
+  CompactToolSchema,
   NoteDecisionInput,
   NoteToolId,
   ObjectHandle,
+  PageBaseSnapshot,
 } from "../domain";
 import type { FrozenWorldContext, UnifiedObjectWorld } from "../world";
 import {
@@ -67,6 +69,8 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
   private readonly contextAssembler: NoteContextAssembler;
   private readonly registry = new DirectCommandExecutionRegistry();
   private readonly now: () => number;
+  private readonly warmupAvailableTools: readonly CompactToolSchema[];
+  private readonly warmups = new Map<string, Promise<void>>();
 
   public constructor(private readonly options: NoteAgentProductionRouteOptions) {
     this.runtime = options.runtime ?? new NoteRuntime({ registry: options.registry });
@@ -75,12 +79,19 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     });
     this.traces = options.traces ?? new NoteAgentShadowTraceStore();
     this.now = options.now ?? Date.now;
+    this.warmupAvailableTools = options.registry.compactSchemas({
+      mode: "PRODUCTION",
+      preparePlacement: async () => undefined,
+    });
   }
 
   public activatePage(
     input: NotePageActivationInput,
   ): boolean {
-    return this.contextAssembler.activatePage(input) !== null;
+    const pageBase = this.contextAssembler.activatePage(input);
+    if (pageBase === null) return false;
+    this.scheduleWarmup(pageBase, input.contextRevision);
+    return true;
   }
 
   public execute(
@@ -92,7 +103,41 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
 
   public dispose(): void {
     this.registry.clear();
+    this.warmups.clear();
     this.traces.clear();
+  }
+
+  private scheduleWarmup(
+    pageBase: PageBaseSnapshot,
+    contextRevision: number,
+  ): void {
+    const warmup = this.options.provider.warmup?.bind(this.options.provider);
+    if (warmup === undefined) return;
+    const identity = [
+      pageBase.documentId,
+      pageBase.pageId,
+      contextRevision,
+    ].join("\u0000");
+    if (this.warmups.has(identity)) return;
+    const pending = Promise.resolve()
+      .then(() => warmup({
+        availableTools: this.warmupAvailableTools,
+        pageBase,
+        contextRevision,
+      }))
+      .catch(() => {
+        if (process.env.NODE_ENV !== "development") return;
+        console.info("[NOTE_PROMPT_CACHE_TRACE]", JSON.stringify({
+          sessionId: pageBase.documentId,
+          pageId: pageBase.pageId,
+          contextRevision,
+          warmup: true,
+          cachedInputTokens: 0,
+          cacheWriteInputTokens: 0,
+          failed: true,
+        }));
+      });
+    this.warmups.set(identity, pending);
   }
 
   private async executeOnce(
@@ -309,6 +354,9 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       ...(decisionTelemetry?.cachedInputTokens === undefined
         ? {}
         : { cachedInputTokens: decisionTelemetry.cachedInputTokens }),
+      ...(decisionTelemetry?.cacheWriteInputTokens === undefined
+        ? {}
+        : { cacheWriteInputTokens: decisionTelemetry.cacheWriteInputTokens }),
       ...(decisionTelemetry?.outputTokens === undefined
         ? {}
         : { outputTokens: decisionTelemetry.outputTokens }),

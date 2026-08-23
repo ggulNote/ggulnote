@@ -7,7 +7,11 @@ import type {
   DirectTextModelTransportOptions,
 } from "../../providers/direct-text-model-transport";
 import type { NoteDecisionInput } from "../domain";
-import { buildNoteDecisionModelRequest } from "./note-decision-prompt";
+import {
+  buildNoteDecisionModelRequest,
+  buildNoteDecisionWarmupModelRequest,
+  buildNotePromptCacheKey,
+} from "./note-decision-prompt";
 import { FakeNoteDecisionProvider } from "./note-decision-provider";
 import { HttpNoteDecisionProvider } from "./http-note-decision-provider";
 import { LlmNoteDecisionProvider } from "./llm-note-decision-provider";
@@ -537,6 +541,58 @@ describe("One Note Decision provider", () => {
     expect(fake.callCount).toBe(1);
   });
 
+  it("keeps explicit cache boundaries before live, screenshot, and voice input", () => {
+    const decision = buildNoteDecisionModelRequest({
+      ...INPUT,
+      visualContext: {
+        mimeType: "image/png",
+        imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+        pixelWidth: 600,
+        pixelHeight: 800,
+        byteLength: 8,
+        markedObjects: [],
+      },
+    });
+    const warmup = buildNoteDecisionWarmupModelRequest({
+      availableTools: INPUT.availableTools,
+      pageBase: INPUT.pageBase,
+      contextRevision: 1,
+    });
+    const nextCommand = buildNoteDecisionModelRequest({
+      ...INPUT,
+      turn: {
+        ...INPUT.turn,
+        turnId: "turn-2",
+        rawFinalTranscript: "다음 명령",
+      },
+    });
+    const sections = decision.input.map((entry) =>
+      JSON.parse(readTextContent(entry.content)) as { section: string });
+
+    expect(sections.map((entry) => entry.section)).toEqual([
+      "STATIC_CONTEXT", "PAGE_BASE", "LIVE_SCENE",
+      "CURRENT_CANVAS_IMAGE", "VOICE_COMMAND",
+    ]);
+    expect(decision.input.slice(0, 2)).toEqual(warmup.input.slice(0, 2));
+    expect(decision.responseFormat).toEqual(warmup.responseFormat);
+    expect(decision.promptCacheOptions).toEqual({ mode: "explicit" });
+    expect(decision.promptCacheKey).toBe("ggulnote:doc-1");
+    expect(nextCommand.promptCacheKey).toBe(decision.promptCacheKey);
+    expect(decision.promptCacheKey).toHaveLength(14);
+    expect(buildNotePromptCacheKey("x".repeat(100))).toHaveLength(64);
+    expect(decision.input[0]).toMatchObject({
+      content: [{ prompt_cache_breakpoint: { mode: "explicit" } }],
+    });
+    expect(decision.input[1]).toMatchObject({
+      content: [{ prompt_cache_breakpoint: { mode: "explicit" } }],
+    });
+    const stablePrefix = JSON.stringify(decision.input.slice(0, 2));
+    expect(stablePrefix).not.toContain("turn-1");
+    expect(stablePrefix).not.toContain("sceneRevision");
+    expect(stablePrefix).not.toContain("createdAt");
+    expect(stablePrefix).not.toContain("imageDataUrl");
+  });
+
   it("bounds previews and excludes full scene/history payloads", () => {
     const request = buildNoteDecisionModelRequest({
       ...INPUT,
@@ -552,6 +608,26 @@ describe("One Note Decision provider", () => {
     expect(serialized).toContain("page-1");
   });
 
+  it("posts page warmup to the same-origin warmup route", async () => {
+    const fetch = vi.fn(async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => Response.json({ result: true }));
+    const provider = new HttpNoteDecisionProvider({ fetch });
+    const warmup = {
+      availableTools: INPUT.availableTools,
+      pageBase: INPUT.pageBase,
+      contextRevision: 1,
+    };
+
+    await expect(provider.warmup(warmup)).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/voice/note-decision/warmup");
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      input: warmup,
+    });
+  });
+
   it("forwards only validated numeric transport telemetry across same-origin HTTP", async () => {
     const onTelemetry = vi.fn();
     const fetch = vi.fn(async (
@@ -565,6 +641,7 @@ describe("One Note Decision provider", () => {
         decisionJsonParseMs: 1,
         inputTokens: 120,
         cachedInputTokens: 80,
+        cacheWriteInputTokens: 40,
         outputTokens: 20,
       },
     }));
@@ -577,6 +654,7 @@ describe("One Note Decision provider", () => {
       decisionJsonParseMs: 1,
       inputTokens: 120,
       cachedInputTokens: 80,
+      cacheWriteInputTokens: 40,
       outputTokens: 20,
     });
     expect(JSON.stringify(fetch.mock.calls[0]?.[1])).not.toContain("Authorization");

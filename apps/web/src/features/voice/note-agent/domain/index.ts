@@ -34,6 +34,7 @@ export type {
   NoteContextPartId,
   NoteDecision,
   NoteDecisionInput,
+  NoteDecisionWarmupInput,
   LiveSceneContext,
   NoteObjectPartKind,
   NotePageRegion,
@@ -60,4 +61,5 @@ export {
   parseEntitySelector,
   parseNoteDecision,
   parseNoteDecisionInput,
+  parseNoteDecisionWarmupInput,
 } from "./note-agent-schema";

@@ -68,6 +68,50 @@ const COMPLEX_SCENE = buildSceneSnapshot({
 });
 
 describe("NoteAgentProductionRoute", () => {
+  it("warms one activated page revision once without blocking activation", async () => {
+    let resolveWarmup: (() => void) | undefined;
+    const pendingWarmup = new Promise<void>((resolve) => {
+      resolveWarmup = resolve;
+    });
+    const warmup = vi.fn(() => pendingWarmup);
+    const provider: NoteDecisionProvider = {
+      warmup,
+      decide: async () => ({
+        status: "READY",
+        sceneRevision: 7,
+        steps: [{ action: "navigation.next_page", target: null, args: {} }],
+      }),
+    };
+    const route = setup(
+      createExistingNoteToolRegistry(),
+      provider,
+      navigationCommit(),
+    );
+    const activation = {
+      documentId: "session-a",
+      pageId: "page-1",
+      contextRevision: 3,
+      createdAt: 100,
+      scene: SCENE,
+    };
+
+    expect(route.activatePage(activation)).toBe(true);
+    expect(route.activatePage(activation)).toBe(true);
+    expect(warmup).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(warmup).toHaveBeenCalledOnce();
+    expect(warmup).toHaveBeenCalledWith(expect.objectContaining({
+      contextRevision: 3,
+      pageBase: expect.objectContaining({
+        documentId: "session-a",
+        pageId: "page-1",
+        baseRevision: "page-1@3",
+      }),
+    }));
+    resolveWarmup?.();
+    await pendingWarmup;
+  });
+
   it("owns a duplicate turn exactly once and commits through one transaction", async () => {
     const provider = new FakeNoteDecisionProvider({
       status: "READY",

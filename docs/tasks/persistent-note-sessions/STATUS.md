@@ -17,11 +17,16 @@
 - page/session 재진입 시 저장된 snapshot으로 rebase하며, 동일 revision/state는 동일한 base content를 생성.
 - 신규 page record는 `contextRevision`을 저장하고 기존 record는 legacy `revision`을 그대로 사용.
 - production Note Decision model은 `gpt-5.6-terra`이며 explicit prompt cache breakpoint 지원 대상임을 공식 OpenAI 문서에서 확인.
+- Decision과 warmup이 동일한 builder에서 `STATIC -> PAGE_BASE` prefix와 strict schema/action ordering을 생성.
+- STATIC/PAGE_BASE `input_text` block에 explicit breakpoint를 두고 dynamic LIVE/marked screenshot/voice를 뒤에 유지.
+- Session 단위 `ggulnote:<sessionId>` cache key와 `prompt_cache_options.mode=explicit`을 Responses request에 적용.
+- page activation은 UI를 block하지 않고 background warmup을 예약하며 `sessionId/pageId/contextRevision` in-memory dedupe를 사용.
+- `cachedInputTokens`와 `cacheWriteInputTokens`를 transport, same-origin provider, Note trace로 전달.
 - 현재 action registry에는 PDF open 음성 action이 없으므로 새 action을 추가하지 않고 filename Session lookup API까지만 제공.
 
 ## Completed Milestone
 
-`M2 (Page activation baseline)` 완료.
+`M3 (Prompt cache and warmup)` 완료.
 
 ## Current Milestone
 
@@ -35,4 +40,4 @@
 
 ## Next Milestone
 
-`M3 (Prompt cache and warmup)`
+없음. Persistent Note Sessions의 계획된 M1-M3 완료.

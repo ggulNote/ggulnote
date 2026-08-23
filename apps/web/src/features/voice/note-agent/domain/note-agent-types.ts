@@ -166,6 +166,12 @@ export interface NoteDecisionInput {
   };
 }
 
+export interface NoteDecisionWarmupInput {
+  readonly availableTools: readonly CompactToolSchema[];
+  readonly pageBase: PageBaseSnapshot;
+  readonly contextRevision: number;
+}
+
 export type ObjectHandle = `O${number}`;
 
 export interface NoteCatalogObject {

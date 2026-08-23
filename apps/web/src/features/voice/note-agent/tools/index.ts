@@ -17,6 +17,7 @@ export type {
   NotePlacementPreparation,
   NoteSchema,
   NoteTool,
+  NoteToolAvailabilityContext,
   NoteToolContext,
   NoteRuntimeContext,
   RegisteredActionDefinition,

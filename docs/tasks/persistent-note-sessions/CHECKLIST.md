@@ -42,9 +42,17 @@
 
 ## M3 - Prompt cache and warmup
 
-- [ ] stable/dynamic prefix builder
-- [ ] Session 단위 prompt_cache_key
-- [ ] GPT-5.6 explicit breakpoints
-- [ ] non-blocking warmup과 in-memory dedupe
-- [ ] cache read/write telemetry 및 trace
-- [ ] ordering/cache key/dynamic isolation/warmup tests
+- [x] stable/dynamic prefix builder
+- [x] Session 단위 prompt_cache_key
+- [x] GPT-5.6 explicit breakpoints
+- [x] non-blocking warmup과 in-memory dedupe
+- [x] cache read/write telemetry 및 trace
+- [x] ordering/cache key/dynamic isolation/warmup tests
+
+## M3 검증 결과
+
+- [x] `pnpm --filter @ggulnote/web typecheck`
+- [x] `pnpm --filter @ggulnote/web lint`
+- [x] Prompt/provider/route/transport focused tests - 32/32 통과
+- [ ] 전체 web test - 1049/1053 통과, 기존 `editor-shell.test.tsx` 4건은 jsdom `image.decode is not a function`으로 실패
+- [x] `git diff --check`

@@ -83,6 +83,12 @@ implements DirectTextModelTransport {
         },
         body: JSON.stringify({
           model: this.options.model,
+          ...(request.promptCacheKey === undefined
+            ? {}
+            : { prompt_cache_key: request.promptCacheKey }),
+          ...(request.promptCacheOptions === undefined
+            ? {}
+            : { prompt_cache_options: request.promptCacheOptions }),
           instructions: request.instructions,
           input: [
             {
@@ -164,6 +170,7 @@ implements DirectTextModelTransport {
 function readUsage(value: unknown): {
   readonly inputTokens?: number;
   readonly cachedInputTokens?: number;
+  readonly cacheWriteInputTokens?: number;
   readonly outputTokens?: number;
 } {
   if (!isRecord(value) || !isRecord(value.usage)) return {};
@@ -174,14 +181,18 @@ function readUsage(value: unknown): {
   return {
     ...optionalMetric("inputTokens", usage.input_tokens),
     ...optionalMetric("cachedInputTokens", inputDetails?.cached_tokens),
+    ...optionalMetric("cacheWriteInputTokens", inputDetails?.cache_write_tokens),
     ...optionalMetric("outputTokens", usage.output_tokens),
   };
 }
 
 function optionalMetric(
-  name: "inputTokens" | "cachedInputTokens" | "outputTokens",
+  name: "inputTokens" | "cachedInputTokens" | "cacheWriteInputTokens" | "outputTokens",
   value: unknown,
-): Partial<Record<"inputTokens" | "cachedInputTokens" | "outputTokens", number>> {
+): Partial<Record<
+  "inputTokens" | "cachedInputTokens" | "cacheWriteInputTokens" | "outputTokens",
+  number
+>> {
   return typeof value === "number" && Number.isFinite(value) ? { [name]: value } : {};
 }
 

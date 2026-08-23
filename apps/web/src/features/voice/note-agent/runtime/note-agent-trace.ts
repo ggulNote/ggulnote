@@ -54,6 +54,7 @@ export interface NoteAgentShadowTrace {
   readonly decisionJsonParseMs?: number;
   readonly inputTokens?: number;
   readonly cachedInputTokens?: number;
+  readonly cacheWriteInputTokens?: number;
   readonly outputTokens?: number;
   readonly runtimeMs: number;
   readonly prepareMs?: number;

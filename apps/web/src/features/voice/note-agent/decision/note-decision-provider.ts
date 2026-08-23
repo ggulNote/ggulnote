@@ -1,6 +1,7 @@
 import type {
   NoteDecision,
   NoteDecisionInput,
+  NoteDecisionWarmupInput,
 } from "../domain";
 
 export interface NoteDecisionProviderOptions {
@@ -11,10 +12,15 @@ export interface NoteDecisionProviderOptions {
     readonly decisionJsonParseMs: number;
     readonly inputTokens?: number;
     readonly cachedInputTokens?: number;
+    readonly cacheWriteInputTokens?: number;
     readonly outputTokens?: number;
   }) => void;
 }
 export interface NoteDecisionProvider {
+  warmup?(
+    input: NoteDecisionWarmupInput,
+    options?: NoteDecisionProviderOptions,
+  ): Promise<void>;
   decide(
     input: NoteDecisionInput,
     options?: NoteDecisionProviderOptions,

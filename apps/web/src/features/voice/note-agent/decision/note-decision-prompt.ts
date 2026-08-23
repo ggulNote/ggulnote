@@ -1,5 +1,10 @@
 import type { DirectTextModelRequest } from "../../providers/direct-text-model-transport";
-import type { NoteDecisionInput } from "../domain";
+import type {
+  CompactToolSchema,
+  NoteDecisionInput,
+  NoteDecisionWarmupInput,
+  PageBaseSnapshot,
+} from "../domain";
 import { buildNoteDecisionJsonSchema } from "./note-decision-json-schema";
 
 const MAX_TRANSCRIPT_CHARS = 4_000;
@@ -76,15 +81,7 @@ export function buildNoteDecisionModelRequest(
   return {
     instructions: NOTE_DECISION_SYSTEM_POLICY,
     input: [
-      message("STATIC_CONTEXT", {
-        contextOrder: ["STATIC", "PAGE_BASE", "LIVE", "SCREENSHOT", "COMMAND"],
-        availableActions: input.availableTools.map((tool) => ({
-          kind: tool.kind,
-          id: tool.id,
-          description: tool.description,
-        })),
-      }),
-      message("PAGE_BASE", input.pageBase),
+      ...buildCacheablePrefix(input.availableTools, input.pageBase),
       message("LIVE_SCENE", {
         ...input.liveScene,
         selection: boundSummary(input.frozenContext.selection),
@@ -98,12 +95,69 @@ export function buildNoteDecisionModelRequest(
       }),
     ],
     maxOutputTokens: 700,
-    responseFormat: {
-      type: "json_schema",
-      name: "note_decision",
-      schema: buildNoteDecisionJsonSchema(input.availableTools),
-      strict: true,
-    },
+    promptCacheKey: buildNotePromptCacheKey(input.pageBase.documentId),
+    promptCacheOptions: { mode: "explicit" },
+    responseFormat: responseFormat(input.availableTools),
+  };
+}
+
+export function buildNoteDecisionWarmupModelRequest(
+  input: NoteDecisionWarmupInput,
+): DirectTextModelRequest {
+  return {
+    instructions: NOTE_DECISION_SYSTEM_POLICY,
+    input: [
+      ...buildCacheablePrefix(input.availableTools, input.pageBase),
+      message("CACHE_WARMUP_REQUEST", {
+        requiredResponse: {
+          status: "NEEDS_CLARIFICATION",
+          sceneRevision: input.contextRevision,
+          steps: null,
+          reason: "MISSING_TARGET",
+        },
+      }),
+    ],
+    maxOutputTokens: 700,
+    promptCacheKey: buildNotePromptCacheKey(input.pageBase.documentId),
+    promptCacheOptions: { mode: "explicit" },
+    responseFormat: responseFormat(input.availableTools),
+  };
+}
+
+export function buildNotePromptCacheKey(sessionId: string): string {
+  return `ggulnote:${sessionId}`.slice(0, 64);
+}
+
+function buildCacheablePrefix(
+  availableTools: readonly CompactToolSchema[],
+  pageBase: PageBaseSnapshot,
+): DirectTextModelRequest["input"] {
+  return [
+    cacheableMessage("developer", "STATIC_CONTEXT", {
+      contextOrder: ["STATIC", "PAGE_BASE", "LIVE", "SCREENSHOT", "COMMAND"],
+      availableActions: availableTools.map((tool) => ({
+        kind: tool.kind,
+        id: tool.id,
+        description: tool.description,
+      })),
+    }),
+    cacheableMessage("user", "PAGE_BASE", {
+      documentId: pageBase.documentId,
+      pageId: pageBase.pageId,
+      baseRevision: pageBase.baseRevision,
+      sceneMode: pageBase.sceneMode,
+      objects: pageBase.objects,
+      ...(pageBase.pageText === undefined ? {} : { pageText: pageBase.pageText }),
+    }),
+  ];
+}
+
+function responseFormat(availableTools: readonly CompactToolSchema[]) {
+  return {
+    type: "json_schema" as const,
+    name: "note_decision",
+    schema: buildNoteDecisionJsonSchema(availableTools),
+    strict: true as const,
   };
 }
 
@@ -148,7 +202,28 @@ function boundSummary(summary: NoteDecisionInput["frozenContext"]["focus"]) {
 }
 
 function message(section: string, data: unknown) {
-  return { role: "user" as const, content: JSON.stringify({ section, data }) };
+  return {
+    role: "user" as const,
+    content: [{
+      type: "input_text" as const,
+      text: JSON.stringify({ section, data }),
+    }],
+  };
+}
+
+function cacheableMessage(
+  role: "developer" | "user",
+  section: string,
+  data: unknown,
+) {
+  return {
+    role,
+    content: [{
+      type: "input_text" as const,
+      text: JSON.stringify({ section, data }),
+      prompt_cache_breakpoint: { mode: "explicit" as const },
+    }],
+  };
 }
 
 function bound(value: string, limit: number): string {

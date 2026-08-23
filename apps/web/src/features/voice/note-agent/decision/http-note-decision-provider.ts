@@ -7,8 +7,10 @@ import {
   NoteAgentValidationError,
   parseNoteDecision,
   parseNoteDecisionInput,
+  parseNoteDecisionWarmupInput,
   type NoteDecision,
   type NoteDecisionInput,
+  type NoteDecisionWarmupInput,
 } from "../domain";
 import type {
   NoteDecisionProvider,
@@ -21,11 +23,27 @@ export interface HttpNoteDecisionProviderOptions {
 }
 export class HttpNoteDecisionProvider implements NoteDecisionProvider {
   private readonly endpoint: string;
+  private readonly warmupEndpoint: string;
   private readonly fetchImpl: DirectAiFetch;
 
   public constructor(options: HttpNoteDecisionProviderOptions = {}) {
     this.endpoint = options.endpoint ?? "/api/voice/note-decision";
+    this.warmupEndpoint = `${this.endpoint}/warmup`;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
+  }
+
+  public async warmup(
+    input: NoteDecisionWarmupInput,
+    options: NoteDecisionProviderOptions = {},
+  ): Promise<void> {
+    const safeInput = parseNoteDecisionWarmupInput(input);
+    await postDirectAiRequest(
+      this.warmupEndpoint,
+      safeInput,
+      this.fetchImpl,
+      options.signal,
+      (telemetry) => options.onTelemetry?.(parseTelemetry(telemetry)),
+    );
   }
 
   public async decide(
@@ -72,7 +90,7 @@ function parseTelemetry(value: unknown): Parameters<NonNullable<NoteDecisionProv
   const record = value as Record<string, unknown>;
   const allowed = new Set([
     "openaiTtfbMs", "openaiBodyReadMs", "decisionJsonParseMs",
-    "inputTokens", "cachedInputTokens", "outputTokens",
+    "inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens",
   ]);
   if (Object.keys(record).some((key) => !allowed.has(key))) {
     throw new DirectAiProviderError("PLANNER_INVALID_OUTPUT", "INVALID_OUTPUT");
@@ -83,6 +101,7 @@ function parseTelemetry(value: unknown): Parameters<NonNullable<NoteDecisionProv
     decisionJsonParseMs: nonNegativeMetric(record.decisionJsonParseMs),
     ...optionalTelemetryMetric("inputTokens", record.inputTokens),
     ...optionalTelemetryMetric("cachedInputTokens", record.cachedInputTokens),
+    ...optionalTelemetryMetric("cacheWriteInputTokens", record.cacheWriteInputTokens),
     ...optionalTelemetryMetric("outputTokens", record.outputTokens),
   };
 }
@@ -95,9 +114,12 @@ function nonNegativeMetric(value: unknown): number {
 }
 
 function optionalTelemetryMetric(
-  key: "inputTokens" | "cachedInputTokens" | "outputTokens",
+  key: "inputTokens" | "cachedInputTokens" | "cacheWriteInputTokens" | "outputTokens",
   value: unknown,
-): Partial<Record<"inputTokens" | "cachedInputTokens" | "outputTokens", number>> {
+): Partial<Record<
+  "inputTokens" | "cachedInputTokens" | "cacheWriteInputTokens" | "outputTokens",
+  number
+>> {
   if (value === undefined) return {};
   return { [key]: nonNegativeMetric(value) };
 }

@@ -18,6 +18,7 @@ import {
   type NoteAlignment,
   type NoteDecision,
   type NoteDecisionInput,
+  type NoteDecisionWarmupInput,
   type NoteCatalogObject,
   type NotePageRegion,
   type NoteSpatialRelation,
@@ -281,6 +282,28 @@ export function parseNoteDecisionInput(value: unknown): NoteDecisionInput {
     ...(input.visualContext === undefined
       ? {}
       : { visualContext: readDecisionVisualContext(input.visualContext) }),
+  };
+}
+
+export function parseNoteDecisionWarmupInput(
+  value: unknown,
+): NoteDecisionWarmupInput {
+  const input = readRecord(value, "input");
+  assertOnlyKeys(input, [
+    "availableTools", "pageBase", "contextRevision",
+  ], "input");
+  const availableTools = readArray(input.availableTools, "input.availableTools")
+    .map((tool, index) => readCompactToolSchema(tool, `input.availableTools[${index}]`));
+  if (availableTools.length === 0) {
+    fail("input.availableTools", "expected at least one enabled action");
+  }
+  if (new Set(availableTools.map((tool) => tool.id)).size !== availableTools.length) {
+    fail("input.availableTools", "tool ids must be unique");
+  }
+  return {
+    availableTools,
+    pageBase: readPageBaseSnapshot(input.pageBase),
+    contextRevision: readRevision(input.contextRevision, "input.contextRevision"),
   };
 }
 
