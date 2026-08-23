@@ -5,6 +5,7 @@ export {
 export type {
   CandidatePartEntry,
   NoteContextAssemblerOptions,
+  NotePageActivationInput,
   NoteContextAssembly,
   NoteContextCollectionContext,
   NoteContextPartProvider,
@@ -18,6 +19,7 @@ export {
 export { PageAgentContextCache } from "./page-agent-context-cache";
 export type {
   PageAgentContext,
+  PageAgentContextActivationInput,
   PageAgentContextInput,
 } from "./page-agent-context-cache";
 export type {

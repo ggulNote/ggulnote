@@ -26,11 +26,19 @@
 
 ## M2 - Page activation baseline
 
-- [ ] activation 시 persisted PAGE_BASE freeze
-- [ ] activation 중 PAGE_BASE 불변 / LIVE_SCENE delta
-- [ ] leave/re-entry rebase
-- [ ] actual persisted change 기반 contextRevision
-- [ ] lifecycle tests
+- [x] activation 시 persisted PAGE_BASE freeze
+- [x] activation 중 PAGE_BASE 불변 / LIVE_SCENE delta
+- [x] leave/re-entry rebase
+- [x] actual persisted change 기반 contextRevision
+- [x] lifecycle tests
+
+## M2 검증 결과
+
+- [x] `pnpm --filter web typecheck`
+- [x] `pnpm --filter web lint`
+- [x] PAGE_BASE/assembler/editor activation/persistence focused tests - 17/17 통과
+- [ ] 전체 web test - 1045/1049 통과, 기존 `editor-shell.test.tsx` 4건은 jsdom `image.decode is not a function`으로 실패
+- [x] `git diff --check`
 
 ## M3 - Prompt cache and warmup
 

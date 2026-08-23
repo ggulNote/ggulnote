@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { Size } from "@ggulnote/editor-core";
+import type { PageSceneSnapshot, Size } from "@ggulnote/editor-core";
 import { Tldraw, type Editor } from "tldraw";
 import {
   HandwritingTextShapeUtil,
   MathObjectShapeUtil,
   NoteAnnotationShapeUtil,
   TldrawEditorAdapter,
+  type TldrawObjectProjection,
 } from "../../editor/adapters/tldraw";
 import {
+  getPersistedPageContextRevision,
   LocalEditorPersistence,
   TLDRAW_CANVAS_STORE_VERSION,
 } from "../local-persistence";
@@ -21,6 +23,16 @@ const SHAPE_UTILS = [
 ] as const;
 const SAVE_DEBOUNCE_MS = 250;
 
+export interface TldrawPageActivationSnapshot {
+  readonly documentId: string;
+  readonly pageId: string;
+  readonly pageNumber: number;
+  readonly contextRevision: number;
+  readonly persistedAt: number;
+  readonly pageSnapshot: PageSceneSnapshot;
+  readonly tldrawObjects: readonly TldrawObjectProjection[];
+}
+
 export interface TldrawCanvasLayerProps {
   readonly documentId: string;
   readonly pageId: string;
@@ -30,6 +42,7 @@ export interface TldrawCanvasLayerProps {
   readonly persistence: LocalEditorPersistence;
   readonly hidden?: boolean;
   onAdapterReady(adapter: TldrawEditorAdapter | null): void;
+  onPageActivated(activation: TldrawPageActivationSnapshot): void;
   onSceneChange(revision: number): void;
 }
 
@@ -43,17 +56,20 @@ export function TldrawCanvasLayer({
   persistence,
   hidden = false,
   onAdapterReady,
+  onPageActivated,
   onSceneChange,
 }: TldrawCanvasLayerProps): React.ReactElement {
   const editorRef = useRef<Editor | null>(null);
   const adapterRef = useRef<TldrawEditorAdapter | null>(null);
   const onAdapterReadyRef = useRef(onAdapterReady);
+  const onPageActivatedRef = useRef(onPageActivated);
   const onSceneChangeRef = useRef(onSceneChange);
 
   useEffect(() => {
     onAdapterReadyRef.current = onAdapterReady;
+    onPageActivatedRef.current = onPageActivated;
     onSceneChangeRef.current = onSceneChange;
-  }, [onAdapterReady, onSceneChange]);
+  }, [onAdapterReady, onPageActivated, onSceneChange]);
 
   const cameraOptions = useMemo(() => ({
     isLocked: true,
@@ -137,6 +153,15 @@ export function TldrawCanvasLayer({
         scheduleSave();
       }, { scope: "document" });
       onAdapterReadyRef.current(adapter);
+      onPageActivatedRef.current({
+        documentId,
+        pageId,
+        pageNumber,
+        contextRevision: getPersistedPageContextRevision(record),
+        persistedAt: record?.updatedAt ?? 0,
+        pageSnapshot: adapter.exportPageProjection(),
+        tldrawObjects: adapter.getCurrentPageObjects(),
+      });
       onSceneChangeRef.current(adapter.getSceneRevision());
     };
 

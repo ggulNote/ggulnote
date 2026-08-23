@@ -190,7 +190,7 @@ export interface NoteCatalogObject {
   }[];
 }
 
-/** Immutable, cache-friendly world captured on the first page observation. */
+/** Immutable, cache-friendly world captured from persisted state on page activation. */
 export interface PageBaseSnapshot {
   readonly documentId: string;
   readonly pageId: string;

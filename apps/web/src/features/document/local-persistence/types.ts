@@ -60,6 +60,8 @@ export interface PersistedPageSnapshotRecord {
   pageId: PageId;
   pageNumber: number;
   revision: number;
+  /** LLM page baseline revision. Legacy records fall back to revision. */
+  contextRevision?: number;
   annotations: PageSceneSnapshot["annotations"];
   createdAt: number;
   updatedAt: number;
@@ -67,6 +69,13 @@ export interface PersistedPageSnapshotRecord {
   /** Versioned TLStore snapshot. Added without creating a second database. */
   tldrawCanvasStoreVersion?: number;
   tldrawSnapshot?: unknown;
+}
+
+export function getPersistedPageContextRevision(
+  record: Pick<PersistedPageSnapshotRecord, "contextRevision" | "revision"> | null,
+): number {
+  const value = record?.contextRevision ?? record?.revision ?? 0;
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
 export interface PersistedOperationRecord {

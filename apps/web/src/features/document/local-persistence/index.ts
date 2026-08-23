@@ -1,7 +1,11 @@
 export { EMBEDDING_DATABASE_VERSION, GGULNOTE_DATABASE_NAME, GGULNOTE_DATABASE_VERSION, SEMANTIC_DATABASE_VERSION, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION, TLDRAW_CANVAS_STORE_VERSION } from "./types";
 export { openLocalDatabase } from "./database";
 
-export { PDF_ANALYSIS_VERSION, SESSION_DATABASE_VERSION } from './types';
+export {
+  PDF_ANALYSIS_VERSION,
+  SESSION_DATABASE_VERSION,
+  getPersistedPageContextRevision,
+} from './types';
 export type { NoteSession } from './types';
 
 export type {

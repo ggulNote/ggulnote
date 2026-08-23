@@ -149,6 +149,44 @@ function harness() {
 }
 
 describe("NoteContextAssembler", () => {
+  it("uses the restored activation scene as PAGE_BASE while current edits stay live", async () => {
+    const { assembler, objectWorld, toolContext } = harness();
+    const persistedGraph: GraphSceneObject = {
+      ...graph,
+      objectRevision: 0,
+      expressions: [{ id: PART_ID, expression: "x" }],
+    };
+    const activationScene = buildSceneSnapshot({
+      mode: "blank",
+      page: { id: "page-1", index: 0, width: 600, height: 800 },
+      sceneRevision: 4,
+      canvasObjects: [persistedGraph],
+    });
+
+    const activated = assembler.activatePage({
+      documentId: "doc-1",
+      pageId: "page-1",
+      contextRevision: 4,
+      createdAt: 100,
+      scene: activationScene,
+    });
+    const result = await assembler.assemble({
+      turn: turn(),
+      documentId: "doc-1",
+      frozenWorld: frozenWorld(),
+      world: objectWorld,
+      toolContext,
+    });
+
+    expect(activated).toMatchObject({
+      baseRevision: "page-1@4",
+      createdAt: 100,
+    });
+    expect(result.decisionInput.pageBase).toBe(activated);
+    expect(result.decisionInput.pageBase.objects[0]).toMatchObject({ summary: "x" });
+    expect(result.decisionInput.liveScene.updatedObjects[0]).toMatchObject({ summary: "x^2" });
+  });
+
   it("assembles always-on parts once in deterministic priority order", async () => {
     const { assembler, loadActions, objectWorld, toolContext } = harness();
     const result = await assembler.assemble({

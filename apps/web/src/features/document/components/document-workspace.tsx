@@ -39,7 +39,10 @@ import { DocumentDebugPanel } from "./document-debug-panel";
 import { DocumentSidebar } from "./document-sidebar";
 import { DocumentStage } from "./document-stage";
 import { DocumentToolbar } from "./document-toolbar";
-import { TldrawCanvasLayer } from "./tldraw-canvas-layer";
+import {
+  TldrawCanvasLayer,
+  type TldrawPageActivationSnapshot,
+} from "./tldraw-canvas-layer";
 import { PdfTextLayerDebug } from "./pdf-text-layer-debug";
 import { isPageTextResultForPage } from "../text/page-text-request";
 import {
@@ -53,6 +56,7 @@ import {
 } from "../layout-detection";
 import { LayoutDetectionDebugPanel } from "./layout-detection-debug-panel";
 import {
+  buildEditorPageBaseActivation,
   buildEditorVoiceContextRead,
   HttpMultimodalPlacementJudgeProvider,
   useOwnedBrowserDirectCommandComposition,
@@ -426,6 +430,9 @@ export function DocumentWorkspace({
   const annotationCanvasRef = useRef<AnnotationCanvasHandle | null>(null);
   const tldrawAdapterRef = useRef<TldrawEditorAdapter | null>(null);
   const [, setTldrawSceneRevision] = useState(0);
+  const pageActivationRef = useRef<TldrawPageActivationSnapshot | null>(null);
+  const activatedPageVersionRef = useRef(0);
+  const [pageActivationVersion, setPageActivationVersion] = useState(0);
   const rendererRef = useRef(new NativeCanvasRenderer());
   const activeDragRef = useRef<DragDraft | null>(null);
   const renderFrameRef = useRef<number | null>(null);
@@ -1240,6 +1247,60 @@ export function DocumentWorkspace({
         },
       },
     });
+  useEffect(() => {
+    const activation = pageActivationRef.current;
+    const document = state.document;
+    const page = state.page;
+    if (
+      activation === null
+      || activatedPageVersionRef.current === pageActivationVersion
+      || state.status !== "ready"
+      || document === null
+      || page === null
+      || activePageId === null
+      || activation.documentId !== document.id
+      || activation.pageId !== activePageId
+      || activation.pageNumber !== state.currentPage
+    ) return;
+
+    const semanticModel = document.kind === "pdf"
+      && semanticBuildPageKeyRef.current === activePageId
+      ? semanticDebugModel ?? undefined
+      : undefined;
+    const semanticSettled = document.kind === "blank"
+      || semanticModel !== undefined
+      || state.semanticStatus === "empty"
+      || state.semanticStatus === "error";
+    if (!semanticSettled) return;
+
+    const activated = voiceDirectCommandComposition.direct.noteAgentProduction?.activatePage(
+      buildEditorPageBaseActivation({
+        documentId: document.id,
+        mode: document.kind,
+        pageId: activePageId,
+        pageIndex: Math.max(0, state.currentPage - 1),
+        pageSize: { width: page.width, height: page.height },
+        contextRevision: activation.contextRevision,
+        persistedAt: activation.persistedAt,
+        pageSnapshot: activation.pageSnapshot,
+        tldrawObjects: activation.tldrawObjects,
+        ...(semanticModel === undefined ? {} : { semanticModel }),
+      }),
+    );
+    if (activated === true) {
+      activatedPageVersionRef.current = pageActivationVersion;
+    }
+  }, [
+    activePageId,
+    pageActivationVersion,
+    semanticDebugModel,
+    state.currentPage,
+    state.document,
+    state.page,
+    state.semanticStatus,
+    state.status,
+    voiceDirectCommandComposition,
+  ]);
   const voiceTurnController = voiceDirectCommandComposition.voice.controller;
   const voiceLensPage = useMemo(() => {
     if (
@@ -2748,6 +2809,10 @@ export function DocumentWorkspace({
               onAdapterReady={(adapter) => {
                 tldrawAdapterRef.current = adapter;
                 voiceSceneRevision.next();
+              }}
+              onPageActivated={(activation) => {
+                pageActivationRef.current = activation;
+                setPageActivationVersion((version) => version + 1);
               }}
               onSceneChange={(revision) => {
                 voiceSceneRevision.next();

@@ -22,6 +22,134 @@ function catalogObject(
 }
 
 describe("PageAgentContextCache", () => {
+  it("freezes restored state for one activation and rebases after re-entry", () => {
+    const cache = new PageAgentContextCache();
+    const initial = catalogObject(
+      cache.handleFor("session-a", "page-3", "note-1"),
+      "persisted note",
+      { source: "tldraw", kind: "text" },
+    );
+    const firstBase = cache.activate({
+      documentId: "session-a",
+      pageId: "page-3",
+      contextRevision: 4,
+      sceneMode: "blank",
+      objects: [initial],
+      persistedAt: 100,
+    });
+
+    const changed = catalogObject("O1", "edited note", {
+      source: "tldraw",
+      kind: "text",
+    });
+    const duringActivation = cache.build({
+      documentId: "session-a",
+      pageId: "page-3",
+      sceneRevision: 30,
+      sceneMode: "blank",
+      objects: [changed],
+      createdAt: 999,
+    });
+
+    expect(duringActivation.pageBase).toBe(firstBase);
+    expect(duringActivation.pageBase).toMatchObject({
+      baseRevision: "page-3@4",
+      createdAt: 100,
+    });
+    expect(duringActivation.pageBase.objects[0]?.text).toBe("persisted note");
+    expect(duringActivation.liveScene.updatedObjects[0]?.text).toBe("edited note");
+
+    const rebased = cache.activate({
+      documentId: "session-a",
+      pageId: "page-3",
+      contextRevision: 5,
+      sceneMode: "blank",
+      objects: [changed],
+      persistedAt: 200,
+    });
+    const afterReentry = cache.build({
+      documentId: "session-a",
+      pageId: "page-3",
+      sceneRevision: 31,
+      sceneMode: "blank",
+      objects: [changed],
+      createdAt: 1_000,
+    });
+
+    expect(rebased).not.toBe(firstBase);
+    expect(afterReentry.pageBase).toBe(rebased);
+    expect(afterReentry.pageBase).toMatchObject({
+      baseRevision: "page-3@5",
+      createdAt: 200,
+    });
+    expect(afterReentry.pageBase.objects[0]?.text).toBe("edited note");
+    expect(afterReentry.liveScene.createdObjects).toEqual([]);
+    expect(afterReentry.liveScene.updatedObjects).toEqual([]);
+    expect(afterReentry.liveScene.deletedObjectIds).toEqual([]);
+
+    const unchangedReentry = cache.activate({
+      documentId: "session-a",
+      pageId: "page-3",
+      contextRevision: 5,
+      sceneMode: "blank",
+      objects: [changed],
+      persistedAt: 200,
+    });
+    expect(unchangedReentry).toEqual(rebased);
+  });
+
+  it("keeps activation state isolated by Session and page identity", () => {
+    const cache = new PageAgentContextCache();
+    const sessionA = catalogObject(
+      cache.handleFor("session-a", "page-1", "note"),
+      "A",
+      { source: "tldraw", kind: "text" },
+    );
+    const sessionB = catalogObject(
+      cache.handleFor("session-b", "page-1", "note"),
+      "B",
+      { source: "tldraw", kind: "text" },
+    );
+    cache.activate({
+      documentId: "session-a",
+      pageId: "page-1",
+      contextRevision: 1,
+      sceneMode: "blank",
+      objects: [sessionA],
+      persistedAt: 10,
+    });
+    cache.activate({
+      documentId: "session-b",
+      pageId: "page-1",
+      contextRevision: 7,
+      sceneMode: "blank",
+      objects: [sessionB],
+      persistedAt: 20,
+    });
+
+    const restoredA = cache.build({
+      documentId: "session-a",
+      pageId: "page-1",
+      sceneRevision: 50,
+      sceneMode: "blank",
+      objects: [sessionA],
+      createdAt: 500,
+    });
+    const restoredB = cache.build({
+      documentId: "session-b",
+      pageId: "page-1",
+      sceneRevision: 51,
+      sceneMode: "blank",
+      objects: [sessionB],
+      createdAt: 501,
+    });
+
+    expect(restoredA.pageBase.baseRevision).toBe("page-1@1");
+    expect(restoredA.pageBase.objects[0]?.text).toBe("A");
+    expect(restoredB.pageBase.baseRevision).toBe("page-1@7");
+    expect(restoredB.pageBase.objects[0]?.text).toBe("B");
+  });
+
   it("keeps the first page base immutable and appends live create/update/delete state", () => {
     const cache = new PageAgentContextCache();
     const fullParagraph = `${"full canonical paragraph ".repeat(12)}tail`;

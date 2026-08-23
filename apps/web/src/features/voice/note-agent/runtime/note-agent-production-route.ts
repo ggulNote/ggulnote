@@ -14,7 +14,10 @@ import {
 import type { CompletedVoiceTurnRoute } from "../../integration/direct-command-voice-turn-bridge";
 import type { NoteDecisionProvider } from "../decision";
 import { NOTE_DECISION_SCHEMA_VERSION } from "../decision/note-decision-json-schema";
-import { NoteContextAssembler } from "../context";
+import {
+  NoteContextAssembler,
+  type NotePageActivationInput,
+} from "../context";
 import type {
   NoteDecisionInput,
   NoteToolId,
@@ -72,6 +75,12 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     });
     this.traces = options.traces ?? new NoteAgentShadowTraceStore();
     this.now = options.now ?? Date.now;
+  }
+
+  public activatePage(
+    input: NotePageActivationInput,
+  ): boolean {
+    return this.contextAssembler.activatePage(input) !== null;
   }
 
   public execute(

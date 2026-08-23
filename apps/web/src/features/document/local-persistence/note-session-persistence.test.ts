@@ -4,7 +4,7 @@ import { buildPageSemanticModel } from '@ggulnote/document-core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LocalEditorPersistence } from './application/local-editor-persistence';
 import { openLocalDatabase } from './database';
-import { PDF_ANALYSIS_VERSION } from './types';
+import { getPersistedPageContextRevision, PDF_ANALYSIS_VERSION } from './types';
 
 const databaseNames = new Set<string>();
 
@@ -40,11 +40,35 @@ describe('note session persistence', () => {
       snapshot,
       annotations: [],
     });
+    const changedSave = await persistence.saveTldrawPageSnapshot({
+      documentId: 'blank-a',
+      pageId: 'blank-a-page-1',
+      pageNumber: 1,
+      snapshot: {
+        document: {
+          store: {
+            'shape:note-1': { id: 'shape:note-1', typeName: 'shape' },
+            'shape:note-2': { id: 'shape:note-2', typeName: 'shape' },
+          },
+        },
+      },
+      annotations: [],
+    });
 
     expect(reopened?.session.title).toBe('빈 캔버스');
     expect(restored?.tldrawSnapshot).toEqual(snapshot);
     expect(firstSave.revision).toBe(1);
+    expect(getPersistedPageContextRevision(firstSave)).toBe(1);
     expect(unchangedSave.revision).toBe(1);
+    expect(getPersistedPageContextRevision(unchangedSave)).toBe(1);
+    expect(changedSave.revision).toBe(2);
+    expect(getPersistedPageContextRevision(changedSave)).toBe(2);
+  });
+
+  it('falls back to legacy page revision for contextRevision', () => {
+    expect(getPersistedPageContextRevision({ revision: 8 })).toBe(8);
+    expect(getPersistedPageContextRevision({ revision: 8, contextRevision: 3 })).toBe(3);
+    expect(getPersistedPageContextRevision(null)).toBe(0);
   });
 
   it('restores the PDF source, last page, and versioned semantic analysis', async () => {

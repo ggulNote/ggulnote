@@ -297,6 +297,7 @@ export type { UseVoiceTurnResult, VoiceTurnControllerPort } from "./hooks";
 export { VoiceLens, VoiceTrigger } from "./presentation";
 export type { VoiceLensProps, VoiceTriggerProps } from "./presentation";
 export {
+  buildEditorPageBaseActivation,
   buildEditorVoiceContextRead,
   createBrowserDirectCommandComposition,
   createBrowserVoiceTurnComposition,
@@ -331,6 +332,8 @@ export type {
   DirectCommandVoiceTurnBridgeOptions,
   EditorDirectRecentOperationsSourceOptions,
   EditorVoiceContextInput,
+  EditorPageBaseActivation,
+  EditorPageBaseActivationInput,
   DirectCommandExecutor,
   DirectCommandNavigationPort,
   DocumentSessionDirectCommandNavigationOptions,

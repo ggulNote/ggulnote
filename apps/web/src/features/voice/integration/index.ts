@@ -13,10 +13,15 @@ export type {
   BrowserVoiceTurnCompositionOptions,
 } from "./browser-voice-turn-composition";
 export {
+  buildEditorPageBaseActivation,
   buildEditorVoiceContextRead,
   editorAnnotationSceneId,
 } from "./editor-voice-context";
-export type { EditorVoiceContextInput } from "./editor-voice-context";
+export type {
+  EditorPageBaseActivation,
+  EditorPageBaseActivationInput,
+  EditorVoiceContextInput,
+} from "./editor-voice-context";
 export {
   createEditorDirectCommandComposition,
 } from "./editor-direct-command-composition";

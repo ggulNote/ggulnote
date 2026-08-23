@@ -12,12 +12,16 @@
 - page/session 이동 전 현재 TLStore와 view state를 flush하고 last page/zoom을 복구.
 - `PDF_ANALYSIS_VERSION = 1` cache hit에서는 persisted semantic model을 직접 복원하고 text extraction/자동 YOLO/semantic generation을 생략.
 - 동일 TLStore snapshot 재저장은 revision을 증가시키지 않음.
+- tldraw page restore 완료 시 persisted editor snapshot과 `contextRevision`을 한 번 캡처해 `PAGE_BASE`로 activate.
+- activation 동안 `PAGE_BASE`는 유지되고 현재 catalog와의 create/update/delete 차이만 `LIVE_SCENE`에 반영.
+- page/session 재진입 시 저장된 snapshot으로 rebase하며, 동일 revision/state는 동일한 base content를 생성.
+- 신규 page record는 `contextRevision`을 저장하고 기존 record는 legacy `revision`을 그대로 사용.
 - production Note Decision model은 `gpt-5.6-terra`이며 explicit prompt cache breakpoint 지원 대상임을 공식 OpenAI 문서에서 확인.
 - 현재 action registry에는 PDF open 음성 action이 없으므로 새 action을 추가하지 않고 filename Session lookup API까지만 제공.
 
 ## Completed Milestone
 
-`M1 (Persistent session lifecycle)` 완료.
+`M2 (Page activation baseline)` 완료.
 
 ## Current Milestone
 
@@ -31,4 +35,4 @@
 
 ## Next Milestone
 
-`M2 (Page activation baseline)`
+`M3 (Prompt cache and warmup)`
