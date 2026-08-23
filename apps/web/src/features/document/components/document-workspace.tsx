@@ -22,13 +22,12 @@ import {
 import type {
   PageTextContent,
   PageTextItem,
-  PdfDocumentDescriptor,
   RawPdfTextItemDebug,
 } from "../model/document-types";
 import { useDocumentSession } from "../hooks/use-document-session";
 import { useFitWidth } from "../hooks/use-fit-width";
 import { usePageRender } from "../hooks/use-page-render";
-import { LocalEditorPersistence, PersistenceCoordinator, type DocumentRecordViewState, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "../local-persistence";
+import { LocalEditorPersistence, PersistenceCoordinator, PDF_ANALYSIS_VERSION, type DocumentRecordViewState, type NoteSession, SEMANTIC_EXTRACTOR_VERSION, SEMANTIC_SCHEMA_VERSION } from "../local-persistence";
 import {
   buildPageSemanticModel,
   createSemanticSourceSignature,
@@ -60,6 +59,13 @@ import {
   VoiceLensOverlay,
   VoiceTriggerControl,
 } from "../../voice";
+
+import {
+  createBlankSessionTitle,
+  createPdfAnalysisCacheIdentity,
+  shouldRunPdfAnalysis,
+  type PdfAnalysisActivation,
+} from '../session/session-domain';
 
 const ZOOM_STEP = 25;
 const TLDRAW_PRODUCTION_ROUTE = process.env.NEXT_PUBLIC_NOTE_AGENT_ROUTE !== "legacy"
@@ -335,6 +341,24 @@ function preserveSemanticCoord(value: number): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function traceSessionSwitch(session: NoteSession): void {
+  if (process.env.NODE_ENV !== 'development') return;
+  console.info('[NOTE_SESSION_TRACE]', {
+    event: 'switched',
+    sessionId: session.id,
+    pageId: session.lastActivePageId,
+  });
+}
+
+function tracePdfAnalysis(
+  event: 'pdfAnalysisCacheHit' | 'pdfAnalysisCacheMiss',
+  sessionId: string,
+  pageId: string,
+): void {
+  if (process.env.NODE_ENV !== 'development') return;
+  console.info('[NOTE_SESSION_TRACE]', { event, sessionId, pageId });
+}
+
 function clampSemanticRect(value: NormalizedRect): NormalizedRect {
   return {
     x: preserveSemanticCoord(value.x),
@@ -421,6 +445,10 @@ export function DocumentWorkspace({
     zoomMode: "custom",
   });
   const [localPersistence] = useState(() => new LocalEditorPersistence());
+  const [sessions, setSessions] = useState<NoteSession[]>([]);
+  const [sessionSwitching, setSessionSwitching] = useState(false);
+  const sessionSwitchingRef = useRef(false);
+  const [pdfAnalysisActivation, setPdfAnalysisActivation] = useState<PdfAnalysisActivation | null>(null);
   // The callback reads the latest view state only when an operation event runs, never during render.
   // eslint-disable-next-line react-hooks/refs
   const [persistenceCoordinator] = useState(() =>
@@ -509,6 +537,110 @@ export function DocumentWorkspace({
   const semanticBuildPageKeyRef = useRef<string | null>(null);
   const semanticBuildSignatureRef = useRef<string>("");
   const activePageId = state.document ? `${state.document.id}-page-${state.currentPage}` : null;
+  const refreshSessions = useCallback(async (): Promise<void> => {
+    setSessions(await localPersistence.listSessions());
+  }, [localPersistence]);
+  const persistActiveSession = useCallback(async (): Promise<void> => {
+    if (!state.document) return;
+    const adapter = tldrawAdapterRef.current;
+    if (adapter !== null && activePageId !== null) {
+      const projection = adapter.exportPageProjection();
+      if (projection.documentId === state.document.id && projection.pageId === activePageId) {
+        await localPersistence.saveTldrawPageSnapshot({
+          documentId: state.document.id,
+          pageId: activePageId,
+          pageNumber: state.currentPage,
+          snapshot: adapter.snapshot(),
+          annotations: projection.annotations,
+        });
+      }
+    }
+    await persistenceCoordinator.flush();
+    await localPersistence.saveSession(state.document.id, {
+      currentPage: state.currentPage,
+      zoom: state.zoom,
+      zoomMode: state.zoomMode,
+    });
+  }, [
+    activePageId,
+    localPersistence,
+    persistenceCoordinator,
+    state.currentPage,
+    state.document,
+    state.zoom,
+    state.zoomMode,
+  ]);
+  const activateStoredSession = useCallback(async (
+    session: NoteSession,
+    file: Blob | null,
+  ): Promise<boolean> => {
+    tldrawAdapterRef.current = null;
+    await closeDocument();
+    if (session.source.kind === 'pdf') {
+      if (file === null) return false;
+      const opened = await openPersistedPdfDocument({
+        id: session.id,
+        kind: 'pdf',
+        name: session.title,
+        pageCount: session.pageCount,
+        fileSize: file.size,
+      }, file);
+      if (opened === null) return false;
+    } else {
+      openBlankFromDescriptor({
+        id: session.id,
+        kind: 'blank',
+        name: session.title,
+        pageCount: session.pageCount,
+      });
+    }
+    goToPage(session.currentPage);
+    setZoom(session.zoom);
+    setZoomMode(session.zoomMode);
+    return true;
+  }, [
+    closeDocument,
+    goToPage,
+    openBlankFromDescriptor,
+    openPersistedPdfDocument,
+    setZoom,
+    setZoomMode,
+  ]);
+  const switchSession = useCallback(async (sessionId: string): Promise<void> => {
+    if (sessionSwitchingRef.current || state.document?.id === sessionId) return;
+    sessionSwitchingRef.current = true;
+    setSessionSwitching(true);
+    try {
+      await persistActiveSession();
+      const target = await localPersistence.openSession(sessionId);
+      if (target === null) return;
+      if (await activateStoredSession(target.session, target.file?.blob ?? null)) {
+        traceSessionSwitch(target.session);
+      }
+      await refreshSessions();
+    } finally {
+      sessionSwitchingRef.current = false;
+      setSessionSwitching(false);
+    }
+  }, [
+    activateStoredSession,
+    localPersistence,
+    persistActiveSession,
+    refreshSessions,
+    state.document?.id,
+  ]);
+  useEffect(() => {
+    if (hasRestoredDocumentRef.current) return;
+    hasRestoredDocumentRef.current = true;
+    const restoreSession = async (): Promise<void> => {
+      const saved = await localPersistence.getLastOpenedSession();
+      if (saved !== null) {
+        await activateStoredSession(saved.session, saved.file?.blob ?? null);
+      }
+      await refreshSessions();
+    };
+    void restoreSession();
+  }, [activateStoredSession, localPersistence, refreshSessions]);
   const hydratedPagesRef = useRef(new Set<string>());
   const hydrationRequestRef = useRef(0);
   const isWorkspaceMountedRef = useRef(true);
@@ -554,7 +686,7 @@ export function DocumentWorkspace({
         return;
       }
 
-      const model = visiblePageText ? semanticDebugModel : null;
+      const model = semanticDebugModel;
       if (!model) {
         clearSemanticQuery();
         return;
@@ -616,7 +748,7 @@ export function DocumentWorkspace({
         nearestDistance: Number.isFinite(nearest.distance) ? nearest.distance : null,
       });
     },
-    [activePageId, clearSemanticQuery, dispatch, semanticDebugModel, visiblePageText],
+    [activePageId, clearSemanticQuery, dispatch, semanticDebugModel],
   );
 
   const dispatchSemanticStatus = useCallback(
@@ -896,58 +1028,63 @@ export function DocumentWorkspace({
   ]);
 
   useEffect(() => {
-    if (hasRestoredDocumentRef.current || state.status !== "empty") {
+    if (state.status !== 'ready' || state.document?.kind !== 'pdf' || activePageId === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPdfAnalysisActivation(null);
       return;
     }
 
-    hasRestoredDocumentRef.current = true;
-    const restore = async () => {
-      const saved = await localPersistence.getLastOpenedDocument();
-      if (!saved) {
+    const sessionId = state.document.id;
+    const pageId = activePageId;
+    const key = createPdfAnalysisCacheIdentity(sessionId, pageId, PDF_ANALYSIS_VERSION);
+    let cancelled = false;
+    setPdfAnalysisActivation({ key, status: 'checking' });
+
+    void localPersistence.getPdfAnalysis(sessionId, pageId).then((record) => {
+      if (cancelled || !isWorkspaceMountedRef.current) return;
+      if (record === null) {
+        setPdfAnalysisActivation({ key, status: 'miss' });
+        tracePdfAnalysis('pdfAnalysisCacheMiss', sessionId, pageId);
         return;
       }
 
-      if (saved.document.kind === "pdf") {
-        if (!saved.file) {
-          return;
-        }
-
-        const restoredPdfDocument: PdfDocumentDescriptor = {
-          id: saved.document.id,
-          kind: "pdf",
-          name: saved.document.name,
-          pageCount: saved.document.pageCount,
-          fileSize: saved.file.size,
-        };
-
-        const opened = await openPersistedPdfDocument(restoredPdfDocument, saved.file.blob);
-        if (!opened) {
-          return;
-        }
-      } else {
-        openBlankFromDescriptor({
-          id: saved.document.id,
-          kind: "blank",
-          name: saved.document.name,
-          pageCount: saved.document.pageCount,
+      try {
+        const model = PageSemanticModel.fromSerialized(record.model);
+        const summary = model.getSummary();
+        pageSemanticModelRef.current = model;
+        semanticBuildPageKeyRef.current = pageId;
+        semanticBuildSignatureRef.current = record.sourceSignature;
+        setSemanticDebugModel(model);
+        setPdfAnalysisActivation({ key, status: 'hit' });
+        dispatchSemanticStatus({
+          status: 'ready',
+          cacheStatus: 'hit',
+          sourceItemCount: summary.sourceItemCount,
+          wordCount: summary.wordCount,
+          lineCount: summary.lineCount,
+          sentenceCount: summary.sentenceCount,
+          paragraphCount: summary.paragraphCount,
+          columnCount: summary.columnCount,
+          processingDurationMs: summary.processingDurationMs,
+          extractorVersion: record.extractorVersion,
+          schemaVersion: record.semanticSchemaVersion,
         });
+        tracePdfAnalysis('pdfAnalysisCacheHit', sessionId, pageId);
+      } catch {
+        setPdfAnalysisActivation({ key, status: 'miss' });
+        tracePdfAnalysis('pdfAnalysisCacheMiss', sessionId, pageId);
       }
+    }).catch(() => {
+      if (cancelled || !isWorkspaceMountedRef.current) return;
+      setPdfAnalysisActivation({ key, status: 'miss' });
+      tracePdfAnalysis('pdfAnalysisCacheMiss', sessionId, pageId);
+    });
 
-      goToPage(saved.document.currentPage);
-      setZoom(saved.document.zoom);
-      setZoomMode(saved.document.zoomMode);
+    return () => {
+      cancelled = true;
     };
+  }, [activePageId, dispatchSemanticStatus, localPersistence, state.document, state.status]);
 
-    void restore();
-  }, [
-    goToPage,
-    localPersistence,
-    openBlankFromDescriptor,
-    openPersistedPdfDocument,
-    setZoom,
-    setZoomMode,
-    state.status,
-  ]);
   useEffect(() => {
     if (!TLDRAW_PRODUCTION_ROUTE && state.document && state.status === "ready") {
       persistenceCoordinator.start(state.document.id);
@@ -966,7 +1103,7 @@ export function DocumentWorkspace({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        void persistenceCoordinator.flush();
+        void persistActiveSession();
       }
     };
 
@@ -974,7 +1111,7 @@ export function DocumentWorkspace({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [persistenceCoordinator]);
+  }, [persistActiveSession]);
 
   useEffect(() => {
     return () => {
@@ -1044,7 +1181,7 @@ export function DocumentWorkspace({
       ...(tldrawAdapter === null
         ? {}
         : { tldrawObjects: tldrawAdapter.getCurrentPageObjects() }),
-      ...(document.kind === "pdf" && visiblePageText && semanticDebugModel
+      ...(document.kind === "pdf" && semanticDebugModel
         ? { semanticModel: semanticDebugModel }
         : {}),
       ...(selectedTldrawObject?.objectId ?? editorSnapshot.selectedAnnotationId
@@ -1064,7 +1201,6 @@ export function DocumentWorkspace({
     state.document,
     state.page,
     state.status,
-    visiblePageText,
     voiceSceneRevision,
   ]);
   const readDirectCommandGroundingSnapshot = useCallback(() => {
@@ -1196,11 +1332,17 @@ export function DocumentWorkspace({
 
   useEffect(() => {
     if (!selectedLayoutModelId || !layoutModelCatalog || !currentPdfPageContext) return;
+    const key = createPdfAnalysisCacheIdentity(
+      currentPdfPageContext.documentId,
+      currentPdfPageContext.pageId,
+      PDF_ANALYSIS_VERSION,
+    );
+    if (!shouldRunPdfAnalysis(pdfAnalysisActivation, key)) return;
     const timer = window.setTimeout(() => {
       void runLayoutDetection();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [currentPdfPageContext, layoutModelCatalog, runLayoutDetection, selectedLayoutModelId]);
+  }, [currentPdfPageContext, layoutModelCatalog, pdfAnalysisActivation, runLayoutDetection, selectedLayoutModelId]);
 
   const handleLayoutModelChange = useCallback((modelId: string) => {
     if (modelId === selectedLayoutModelId) return;
@@ -1461,40 +1603,11 @@ export function DocumentWorkspace({
         renderedWidth,
         renderedHeight,
       });
-
-      const semanticRequestToken = ++semanticBuildTokenRef.current;
-      const semanticRequestDocumentId = currentPdfPageContext.documentId;
-      const semanticRequestPageId = currentPdfPageContext.pageId;
-      const semanticRequestPageNumber = currentPdfPageContext.pageNumber;
-
-      void requestPageText(currentPdfPageContext.page, {
-        documentId: semanticRequestDocumentId,
-        pageId: semanticRequestPageId,
-        pageNumber: semanticRequestPageNumber,
-      }).then((textContent) => {
-        if (!textContent) {
-          dispatchSemanticEmpty("텍스트 추출 실패로 Semantic Layer를 건너뜁니다.");
-          return;
-        }
-        if (
-          semanticRequestToken !== semanticBuildTokenRef.current
-          || !isWorkspaceMountedRef.current
-          || textContent.documentId !== semanticRequestDocumentId
-          || textContent.pageId !== semanticRequestPageId
-          || textContent.pageNumber !== semanticRequestPageNumber
-        ) {
-          return;
-        }
-
-        setPageTextDebug(textContent);
-      });
     },
     [
       activePageId,
       currentPdfPageContext,
       dispatch,
-      dispatchSemanticEmpty,
-      requestPageText,
       state.document,
     ],
   );
@@ -1513,6 +1626,36 @@ export function DocumentWorkspace({
     onRendered: handlePageRendered,
     onError: handlePageRenderError,
   });
+
+  useEffect(() => {
+    if (!currentPdfPageContext || !state.document || activePageId === null) return;
+    const key = createPdfAnalysisCacheIdentity(state.document.id, activePageId, PDF_ANALYSIS_VERSION);
+    if (!shouldRunPdfAnalysis(pdfAnalysisActivation, key)) return;
+
+    const semanticRequestToken = ++semanticBuildTokenRef.current;
+    const { documentId, pageId, pageNumber, page } = currentPdfPageContext;
+    void requestPageText(page, { documentId, pageId, pageNumber }).then((textContent) => {
+      if (!textContent) {
+        dispatchSemanticEmpty('텍스트 추출 실패로 Semantic Layer를 건너뜁니다.');
+        return;
+      }
+      if (
+        semanticRequestToken !== semanticBuildTokenRef.current
+        || !isWorkspaceMountedRef.current
+        || textContent.documentId !== documentId
+        || textContent.pageId !== pageId
+        || textContent.pageNumber !== pageNumber
+      ) return;
+      setPageTextDebug(textContent);
+    });
+  }, [
+    activePageId,
+    currentPdfPageContext,
+    dispatchSemanticEmpty,
+    pdfAnalysisActivation,
+    requestPageText,
+    state.document,
+  ]);
 
   const activeLayoutDetectionState = layoutDetectionState.pageId === activePageId
     && layoutDetectionState.modelId === selectedLayoutModelId
@@ -1593,7 +1736,7 @@ export function DocumentWorkspace({
         })),
       );
     }
-    const model = visiblePageText ? semanticDebugModel : null;
+    const model = semanticDebugModel;
     if (model) {
       const semanticObjects = model.getAllByReadingOrder();
 
@@ -2399,13 +2542,15 @@ export function DocumentWorkspace({
 
   const handleOpenPdf = useCallback(
     async (file: File | null) => {
+      if (!file) return;
+      await persistActiveSession();
       const opened = await openPdfFile(file);
-      if (!opened || !file) {
+      if (!opened) {
         return;
       }
 
       try {
-        await localPersistence.createPdfDocument({
+        await localPersistence.createPdfSession({
           document: {
             id: opened.id,
             name: opened.name,
@@ -2422,42 +2567,63 @@ export function DocumentWorkspace({
             lastModified: file.lastModified,
           },
         });
+        await refreshSessions();
       } catch (error) {
         console.error("PDF 문서 저장 실패", error);
       }
     },
-    [localPersistence, openPdfFile, state.zoom, state.zoomMode],
+    [localPersistence, openPdfFile, persistActiveSession, refreshSessions, state.zoom, state.zoomMode],
   );
 
   const handleCreateBlank = useCallback(() => {
-    const next = openBlankDocument();
-    void localPersistence.createBlankDocument({
-      document: {
-        id: next.id,
-        name: next.name,
-        pageCount: next.pageCount,
-        currentPage: 1,
-        zoom: state.zoom,
-        zoomMode: state.zoomMode,
-      },
-    });
-  }, [localPersistence, openBlankDocument, state.zoom, state.zoomMode]);
+    const createSession = async (): Promise<void> => {
+      await persistActiveSession();
+      const title = createBlankSessionTitle(sessions);
+      const next = openBlankDocument({
+        id: `blank-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
+        kind: 'blank',
+        name: title,
+        pageCount: 1,
+      });
+      await localPersistence.createBlankSession({
+        document: {
+          id: next.id,
+          name: next.name,
+          pageCount: next.pageCount,
+          currentPage: 1,
+          zoom: state.zoom,
+          zoomMode: state.zoomMode,
+        },
+      });
+      await refreshSessions();
+    };
+    void createSession();
+  }, [
+    localPersistence,
+    openBlankDocument,
+    persistActiveSession,
+    refreshSessions,
+    sessions,
+    state.zoom,
+    state.zoomMode,
+  ]);
 
   const handleCloseDocument = useCallback(() => {
     const closeCurrentDocument = async () => {
-      await persistenceCoordinator.stopAndFlush();
+      await persistActiveSession();
+      persistenceCoordinator.stop();
       await closeDocument();
     };
 
     void closeCurrentDocument();
-  }, [closeDocument, persistenceCoordinator]);
+  }, [closeDocument, persistActiveSession, persistenceCoordinator]);
   const handlePageSubmit = useCallback(
     (nextPage: number) => {
-      void persistenceCoordinator.flush().finally(() => {
+      void persistActiveSession().finally(() => {
         goToPage(nextPage);
       });
     },
-    [goToPage, persistenceCoordinator],
+    [goToPage, persistActiveSession],
   );
   const fitWidth = useCallback(() => {
     setZoomMode("fit-width");
@@ -2537,6 +2703,12 @@ export function DocumentWorkspace({
           currentPage={state.currentPage}
           onMove={handlePageSubmit}
           disabled={state.status !== "ready" || !isPdfReady}
+          sessions={sessions}
+          activeSessionId={state.document?.id ?? null}
+          sessionSwitching={sessionSwitching}
+          onOpenSession={(sessionId) => {
+            void switchSession(sessionId);
+          }}
         />
 
         <DocumentStage

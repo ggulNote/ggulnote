@@ -5,7 +5,7 @@ import { DocumentRepository, type CreateBlankDocumentInput, type CreatePdfDocume
 import { OperationRepository } from "../repositories/operation-repository";
 import { PageSnapshotRepository } from "../repositories/page-snapshot-repository";
 import { SemanticPageRepository, type SemanticPageQueryOptions, type SaveSemanticPageInput } from "../repositories/semantic-page-repository";
-import { ANNOTATION_SCHEMA_VERSION, TLDRAW_CANVAS_STORE_VERSION, type CreateDocumentInput, type PersistedAppStateRecord, type PersistedDocumentRecord, type PersistedDocumentFileRecord, type PersistedOperationRecord, type PersistedPageSnapshotRecord, type PersistedSemanticPageRecord, type DocumentRecordViewState } from "../types";
+import { ANNOTATION_SCHEMA_VERSION, PDF_ANALYSIS_VERSION, TLDRAW_CANVAS_STORE_VERSION, type CreateDocumentInput, type PersistedAppStateRecord, type PersistedDocumentRecord, type PersistedDocumentFileRecord, type PersistedOperationRecord, type PersistedPageSnapshotRecord, type PersistedSemanticPageRecord, type DocumentRecordViewState, type NoteSession } from "../types";
 import { openLocalDatabase, type OpenDatabaseOptions } from "../database";
 import { IndexedDbEmbeddingStore } from "../repositories/indexed-db-embedding-store";
 
@@ -35,6 +35,11 @@ const clampZoom = (value: number): number => {
 
 export interface LastOpenedDocumentState {
   document: PersistedDocumentRecord;
+  file: PersistedDocumentFileRecord | null;
+}
+
+export interface OpenedNoteSession {
+  session: NoteSession;
   file: PersistedDocumentFileRecord | null;
 }
 
@@ -110,6 +115,68 @@ export class LocalEditorPersistence {
     };
   }
 
+  public async getSession(sessionId: DocumentId): Promise<OpenedNoteSession | null> {
+    const document = await this.documentRepository.getDocument(sessionId);
+    if (!document) return null;
+    const file = await this.documentRepository.getDocumentFile(sessionId);
+    if (document.kind === 'pdf' && !file) return null;
+    return {
+      session: toNoteSession(document, file),
+      file,
+    };
+  }
+
+  public async getLastOpenedSession(): Promise<OpenedNoteSession | null> {
+    const saved = await this.getLastOpenedDocument();
+    const opened = saved === null
+      ? null
+      : {
+          session: toNoteSession(saved.document, saved.file),
+          file: saved.file,
+        };
+    if (opened !== null) traceNoteSession('opened', opened.session);
+    return opened;
+  }
+
+  public async listSessions(): Promise<NoteSession[]> {
+    const documents = await this.documentRepository.listDocuments();
+    const sessions = await Promise.all(documents.map(async (document) => {
+      const file = document.kind === 'pdf'
+        ? await this.documentRepository.getDocumentFile(document.id)
+        : null;
+      return document.kind === 'pdf' && file === null
+        ? null
+        : toNoteSession(document, file);
+    }));
+    return sessions.filter((session): session is NoteSession => session !== null);
+  }
+
+  public async openSession(sessionId: DocumentId): Promise<OpenedNoteSession | null> {
+    const saved = await this.getSession(sessionId);
+    if (saved === null) return null;
+    await this.markOpened(sessionId);
+    const opened = await this.getSession(sessionId);
+    if (opened !== null) {
+      traceNoteSession('opened', opened.session);
+    }
+    return opened;
+  }
+
+  public async findPdfSessionByOriginalFileName(
+    requestedFileName: string,
+  ): Promise<OpenedNoteSession | null> {
+    const normalized = requestedFileName.normalize('NFC').trim().toLocaleLowerCase();
+    if (normalized.length === 0) return null;
+    const sessions = await this.listSessions();
+    const match = sessions.find((session) =>
+      session.source.kind === 'pdf'
+      && (
+        session.title.normalize('NFC').trim().toLocaleLowerCase() === normalized
+        || session.source.originalFileName.normalize('NFC').trim().toLocaleLowerCase() === normalized
+      ));
+    return match === undefined ? null : this.openSession(match.id);
+  }
+
   public async listDocuments() {
     return this.documentRepository.listDocuments();
   }
@@ -132,6 +199,21 @@ export class LocalEditorPersistence {
     const created = await this.documentRepository.createBlankDocument(input);
     await this.markOpened(created.id);
     return created;
+  }
+
+  public async createPdfSession(input: CreatePdfDocumentInput): Promise<NoteSession> {
+    const document = await this.createPdfDocument(input);
+    const file = await this.documentRepository.getDocumentFile(document.id);
+    const session = toNoteSession(document, file);
+    traceNoteSession('created', session);
+    return session;
+  }
+
+  public async createBlankSession(input: CreateBlankDocumentInput): Promise<NoteSession> {
+    const document = await this.createBlankDocument(input);
+    const session = toNoteSession(document, null);
+    traceNoteSession('created', session);
+    return session;
   }
 
   public async createDocumentFromState(input: CreateDocumentInput): Promise<PersistedDocumentRecord> {
@@ -159,6 +241,12 @@ export class LocalEditorPersistence {
     const db = await openLocalDatabase(this.options);
     const id = createPageSnapshotId(input.documentId, input.pageId);
     const existing = await db.pageSnapshots.get(id);
+    if (
+      existing?.tldrawCanvasStoreVersion === TLDRAW_CANVAS_STORE_VERSION
+      && areTldrawSnapshotsEqual(existing.tldrawSnapshot, input.snapshot)
+    ) {
+      return existing;
+    }
     const now = Date.now();
     const record: PersistedPageSnapshotRecord = {
       id,
@@ -189,6 +277,15 @@ export class LocalEditorPersistence {
     return this.semanticPageRepository.getByPage(documentId, pageId, options);
   }
 
+  public async getPdfAnalysis(
+    documentId: DocumentId,
+    pageId: PageId,
+  ): Promise<PersistedSemanticPageRecord | null> {
+    return this.semanticPageRepository.getByPage(documentId, pageId, {
+      analysisVersion: PDF_ANALYSIS_VERSION,
+    });
+  }
+
   public async saveSemanticPage(input: SaveSemanticPageInput): Promise<PersistedSemanticPageRecord> {
     return this.semanticPageRepository.save(input);
   }
@@ -206,6 +303,18 @@ export class LocalEditorPersistence {
       zoom: clampZoom(state.zoom),
       zoomMode: state.zoomMode,
     });
+  }
+
+  public async saveSession(
+    sessionId: DocumentId,
+    state: DocumentRecordViewState,
+  ): Promise<NoteSession | null> {
+    await this.updateViewState(sessionId, state);
+    const saved = await this.getSession(sessionId);
+    if (saved !== null) {
+      traceNoteSession('persisted', saved.session);
+    }
+    return saved?.session ?? null;
   }
 
   public async saveOperation(input: SaveEditorOperationInput): Promise<PersistedOperationRecord> {
@@ -269,4 +378,52 @@ export class LocalEditorPersistence {
       }
     });
   }
+}
+
+export function areTldrawSnapshotsEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+export function toNoteSession(
+  document: PersistedDocumentRecord,
+  file: PersistedDocumentFileRecord | null,
+): NoteSession {
+  const title = document.title.trim().length > 0 ? document.title : document.name;
+  return {
+    id: document.id,
+    kind: document.kind,
+    title,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+    lastOpenedAt: document.lastOpenedAt,
+    lastActivePageId: document.lastActivePageId,
+    pageCount: document.pageCount,
+    currentPage: document.currentPage,
+    zoom: document.zoom,
+    zoomMode: document.zoomMode,
+    source: document.kind === 'pdf'
+      ? {
+          kind: 'pdf',
+          originalFileName: file?.originalName ?? document.name,
+          blobKey: document.id,
+        }
+      : {
+          kind: 'blank',
+        },
+  };
+}
+
+function traceNoteSession(event: string, session: NoteSession): void {
+  if (process.env.NODE_ENV !== 'development') return;
+  console.info('[NOTE_SESSION_TRACE]', {
+    event,
+    sessionId: session.id,
+    kind: session.kind,
+    pageId: session.lastActivePageId,
+  });
 }

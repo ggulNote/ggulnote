@@ -1,7 +1,7 @@
 import Dexie from "dexie";
 import { afterEach, describe, expect, it } from "vitest";
 import { GgulnoteLocalDatabase, openLocalDatabase } from "../database";
-import { EMBEDDING_DATABASE_VERSION } from "../types";
+import { PERSISTENCE_SCHEMA_VERSION, SESSION_DATABASE_VERSION } from "../types";
 import { IndexedDbEmbeddingStore } from "./indexed-db-embedding-store";
 import type { EmbeddingRecord } from "../../embedding/embedding-types";
 
@@ -64,8 +64,13 @@ describe("IndexedDbEmbeddingStore", () => {
 
     const migrated = new GgulnoteLocalDatabase(name);
     await migrated.open();
-    expect(migrated.verno).toBe(EMBEDDING_DATABASE_VERSION);
-    expect(await migrated.documents.get("doc-1")).toMatchObject({ name: "Existing note" });
+    expect(migrated.verno).toBe(SESSION_DATABASE_VERSION);
+    expect(await migrated.documents.get("doc-1")).toMatchObject({
+      name: "Existing note",
+      title: "Existing note",
+      lastActivePageId: "doc-1-page-1",
+      persistenceSchemaVersion: PERSISTENCE_SCHEMA_VERSION,
+    });
     expect(migrated.tables.map((table) => table.name)).toContain("embeddings");
     migrated.close();
   });

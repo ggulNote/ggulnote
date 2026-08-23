@@ -25,6 +25,9 @@ const clampZoom = (value: number): number => {
   return Math.round(Math.min(200, Math.max(50, value)));
 };
 
+const pageIdFor = (documentId: string, page: number): string =>
+  `${documentId}-page-${clampPage(page)}`;
+
 export interface CreatePdfDocumentInput {
   document: {
     id: string;
@@ -83,10 +86,12 @@ export class DocumentRepository {
     const now = Date.now();
     const document: PersistedDocumentRecord = {
       id: input.document.id,
+      title: input.document.name,
       kind: "pdf",
       name: input.document.name,
       pageCount: input.document.pageCount,
       currentPage: clampPage(input.document.currentPage ?? 1),
+      lastActivePageId: pageIdFor(input.document.id, input.document.currentPage ?? 1),
       zoom: clampZoom(input.document.zoom ?? 100),
       zoomMode: input.document.zoomMode ?? "custom",
       createdAt: now,
@@ -119,10 +124,12 @@ export class DocumentRepository {
     const now = Date.now();
     const document: PersistedDocumentRecord = {
       id: input.document.id,
+      title: input.document.name,
       kind: "blank",
       name: input.document.name,
       pageCount: input.document.pageCount,
       currentPage: clampPage(input.document.currentPage ?? 1),
+      lastActivePageId: pageIdFor(input.document.id, input.document.currentPage ?? 1),
       zoom: clampZoom(input.document.zoom ?? 100),
       zoomMode: input.document.zoomMode ?? "custom",
       createdAt: now,
@@ -143,6 +150,7 @@ export class DocumentRepository {
 
     await db.documents.update(documentId, {
       currentPage: clampPage(state.currentPage),
+      lastActivePageId: pageIdFor(documentId, state.currentPage),
       zoom: clampZoom(state.zoom),
       zoomMode: state.zoomMode,
       updatedAt: now,
