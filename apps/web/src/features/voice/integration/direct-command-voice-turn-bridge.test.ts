@@ -5,6 +5,7 @@ import {
 } from "../application";
 import { FakeVoiceTurnContextSource } from "../application/testing/fake-voice-turn-context-source";
 import type {
+  ActiveVoiceTurnSnapshot,
   DirectCommandRouteResult,
 } from "../domain";
 import { FakeSpeechRecognitionProvider } from "../providers/testing/fake-speech-recognition-provider";
@@ -75,14 +76,22 @@ async function completeTurn(
 
 describe("DirectCommandVoiceTurnBridge", () => {
   it("passes ten interim updates and one completed turn to the route exactly once", async () => {
+    const onSpeechStart = vi.fn((_turn: ActiveVoiceTurnSnapshot) =>
+      new Promise<void>(() => undefined));
     const execute = vi.fn(async (turn): Promise<DirectCommandRouteResult> => ({
       status: "CANCELLED",
       turnId: turn.id,
     }));
-    const harness = createHarness({ execute });
+    const harness = createHarness({ onSpeechStart, execute });
 
     await completeTurn(harness, "여기 밑줄 쳐줘");
 
+    expect(onSpeechStart).toHaveBeenCalledOnce();
+    expect(onSpeechStart.mock.calls[0]?.[0]).toMatchObject({
+      state: "capturing",
+      transcript: { finalText: "", interimText: "" },
+      frozenContext: { pageId: "page-1", sceneRevision: 7 },
+    });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
       state: "completed",

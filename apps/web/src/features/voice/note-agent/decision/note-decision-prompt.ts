@@ -81,13 +81,7 @@ export function buildNoteDecisionModelRequest(
   return {
     instructions: NOTE_DECISION_SYSTEM_POLICY,
     input: [
-      ...buildCacheablePrefix(input.availableTools, input.pageBase),
-      message("LIVE_SCENE", {
-        ...input.liveScene,
-        selection: boundSummary(input.frozenContext.selection),
-        focus: boundSummary(input.frozenContext.focus),
-      }),
-      ...(input.visualContext === undefined ? [] : [visualMessage(input.visualContext)]),
+      ...buildNoteDecisionVisualPrefix(input),
       message("VOICE_COMMAND", {
         turnId: input.turn.turnId,
         language: input.turn.language,
@@ -104,18 +98,24 @@ export function buildNoteDecisionModelRequest(
 export function buildNoteDecisionWarmupModelRequest(
   input: NoteDecisionWarmupInput,
 ): DirectTextModelRequest {
+  if ("decisionInput" in input) {
+    return {
+      instructions: NOTE_DECISION_SYSTEM_POLICY,
+      input: [
+        ...buildNoteDecisionVisualPrefix(input.decisionInput),
+        warmupMessage(input.decisionInput.frozenContext.sceneRevision),
+      ],
+      maxOutputTokens: 700,
+      promptCacheKey: buildNotePromptCacheKey(input.decisionInput.pageBase.documentId),
+      promptCacheOptions: { mode: "explicit" },
+      responseFormat: responseFormat(input.decisionInput.availableTools),
+    };
+  }
   return {
     instructions: NOTE_DECISION_SYSTEM_POLICY,
     input: [
       ...buildCacheablePrefix(input.availableTools, input.pageBase),
-      message("CACHE_WARMUP_REQUEST", {
-        requiredResponse: {
-          status: "NEEDS_CLARIFICATION",
-          sceneRevision: input.contextRevision,
-          steps: null,
-          reason: "MISSING_TARGET",
-        },
-      }),
+      warmupMessage(input.contextRevision),
     ],
     maxOutputTokens: 700,
     promptCacheKey: buildNotePromptCacheKey(input.pageBase.documentId),
@@ -128,13 +128,33 @@ export function buildNotePromptCacheKey(sessionId: string): string {
   return `ggulnote:${sessionId}`.slice(0, 64);
 }
 
+/** Shared byte-stable prefix for speech-start warmup and the actual Decision. */
+export function buildNoteDecisionVisualPrefix(
+  input: NoteDecisionInput,
+): DirectTextModelRequest["input"] {
+  return [
+    ...buildCacheablePrefix(input.availableTools, input.pageBase),
+    message("LIVE_SCENE", {
+      ...input.liveScene,
+      selection: boundSummary(input.frozenContext.selection),
+      focus: boundSummary(input.frozenContext.focus),
+    }),
+    ...(input.visualContext === undefined ? [] : [visualMessage(input.visualContext)]),
+    cacheableMessage("user", "VISUAL_CONTEXT_END", {
+      purpose: "explicit visual prefix boundary",
+    }),
+  ];
+}
+
 function buildCacheablePrefix(
   availableTools: readonly CompactToolSchema[],
   pageBase: PageBaseSnapshot,
 ): DirectTextModelRequest["input"] {
   return [
     cacheableMessage("developer", "STATIC_CONTEXT", {
-      contextOrder: ["STATIC", "PAGE_BASE", "LIVE", "SCREENSHOT", "COMMAND"],
+      contextOrder: [
+        "STATIC", "PAGE_BASE", "LIVE", "SCREENSHOT", "VISUAL_CACHE_BREAKPOINT", "COMMAND",
+      ],
       availableActions: availableTools.map((tool) => ({
         kind: tool.kind,
         id: tool.id,
@@ -150,6 +170,17 @@ function buildCacheablePrefix(
       ...(pageBase.pageText === undefined ? {} : { pageText: pageBase.pageText }),
     }),
   ];
+}
+
+function warmupMessage(sceneRevision: number) {
+  return message("CACHE_WARMUP_REQUEST", {
+    requiredResponse: {
+      status: "NEEDS_CLARIFICATION",
+      sceneRevision,
+      steps: null,
+      reason: "MISSING_TARGET",
+    },
+  });
 }
 
 function responseFormat(availableTools: readonly CompactToolSchema[]) {

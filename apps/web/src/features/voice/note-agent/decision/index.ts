@@ -7,6 +7,7 @@ export type {
 } from "./note-decision-provider";
 export {
   buildNoteDecisionModelRequest,
+  buildNoteDecisionVisualPrefix,
   buildNoteDecisionWarmupModelRequest,
   buildNotePromptCacheKey,
   NOTE_DECISION_SYSTEM_POLICY,

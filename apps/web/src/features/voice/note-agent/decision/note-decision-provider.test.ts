@@ -132,7 +132,7 @@ describe("One Note Decision provider", () => {
     expect(transport.calls).toHaveLength(1);
     const request = transport.calls[0];
     expect(request.maxOutputTokens).toBeLessThanOrEqual(700);
-    expect(request.input).toHaveLength(4);
+    expect(request.input).toHaveLength(5);
     expect(request.responseFormat).toMatchObject({
       type: "json_schema",
       name: "note_decision",
@@ -177,7 +177,9 @@ describe("One Note Decision provider", () => {
     expect(JSON.parse(availableActionsContent)).toEqual({
       section: "STATIC_CONTEXT",
       data: {
-        contextOrder: ["STATIC", "PAGE_BASE", "LIVE", "SCREENSHOT", "COMMAND"],
+        contextOrder: [
+          "STATIC", "PAGE_BASE", "LIVE", "SCREENSHOT", "VISUAL_CACHE_BREAKPOINT", "COMMAND",
+        ],
         availableActions: [{
           kind: "MUTATION",
           id: "text.create",
@@ -194,6 +196,7 @@ describe("One Note Decision provider", () => {
       "STATIC_CONTEXT",
       "PAGE_BASE",
       "LIVE_SCENE",
+      "VISUAL_CONTEXT_END",
       "VOICE_COMMAND",
     ]);
   });
@@ -231,10 +234,10 @@ describe("One Note Decision provider", () => {
 
     expect(transport.calls).toHaveLength(1);
     const request = transport.calls[0]!;
-    expect(request.input).toHaveLength(5);
+    expect(request.input).toHaveLength(6);
     expect(request.input.some((message) =>
       readTextContent(message.content).includes('"section":"PAGE_BASE"'))).toBe(true);
-    const visual = request.input.at(-2)?.content;
+    const visual = request.input.at(-3)?.content;
     expect(Array.isArray(visual)).toBe(true);
     expect(visual).toEqual([
       {
@@ -541,8 +544,8 @@ describe("One Note Decision provider", () => {
     expect(fake.callCount).toBe(1);
   });
 
-  it("keeps explicit cache boundaries before live, screenshot, and voice input", () => {
-    const decision = buildNoteDecisionModelRequest({
+  it("keeps three explicit cache levels and an exact shared visual prefix", () => {
+    const visualInput: NoteDecisionInput = {
       ...INPUT,
       visualContext: {
         mimeType: "image/png",
@@ -552,11 +555,17 @@ describe("One Note Decision provider", () => {
         byteLength: 8,
         markedObjects: [],
       },
-    });
-    const warmup = buildNoteDecisionWarmupModelRequest({
+    };
+    const decision = buildNoteDecisionModelRequest(visualInput);
+    const pageWarmup = buildNoteDecisionWarmupModelRequest({
       availableTools: INPUT.availableTools,
       pageBase: INPUT.pageBase,
       contextRevision: 1,
+    });
+    const visualWarmup = buildNoteDecisionWarmupModelRequest({
+      turnId: visualInput.turn.turnId,
+      contextRevision: 1,
+      decisionInput: visualInput,
     });
     const nextCommand = buildNoteDecisionModelRequest({
       ...INPUT,
@@ -571,10 +580,12 @@ describe("One Note Decision provider", () => {
 
     expect(sections.map((entry) => entry.section)).toEqual([
       "STATIC_CONTEXT", "PAGE_BASE", "LIVE_SCENE",
-      "CURRENT_CANVAS_IMAGE", "VOICE_COMMAND",
+      "CURRENT_CANVAS_IMAGE", "VISUAL_CONTEXT_END", "VOICE_COMMAND",
     ]);
-    expect(decision.input.slice(0, 2)).toEqual(warmup.input.slice(0, 2));
-    expect(decision.responseFormat).toEqual(warmup.responseFormat);
+    expect(decision.input.slice(0, 2)).toEqual(pageWarmup.input.slice(0, 2));
+    expect(decision.input.slice(0, -1)).toEqual(visualWarmup.input.slice(0, -1));
+    expect(decision.responseFormat).toEqual(pageWarmup.responseFormat);
+    expect(decision.responseFormat).toEqual(visualWarmup.responseFormat);
     expect(decision.promptCacheOptions).toEqual({ mode: "explicit" });
     expect(decision.promptCacheKey).toBe("ggulnote:doc-1");
     expect(nextCommand.promptCacheKey).toBe(decision.promptCacheKey);
@@ -586,11 +597,24 @@ describe("One Note Decision provider", () => {
     expect(decision.input[1]).toMatchObject({
       content: [{ prompt_cache_breakpoint: { mode: "explicit" } }],
     });
+    expect(decision.input[4]).toMatchObject({
+      content: [{ prompt_cache_breakpoint: { mode: "explicit" } }],
+    });
+    const breakpoints = decision.input.flatMap((entry) =>
+      Array.isArray(entry.content)
+        ? entry.content.filter((part) => "prompt_cache_breakpoint" in part)
+        : []);
+    expect(breakpoints).toHaveLength(3);
     const stablePrefix = JSON.stringify(decision.input.slice(0, 2));
     expect(stablePrefix).not.toContain("turn-1");
     expect(stablePrefix).not.toContain("sceneRevision");
     expect(stablePrefix).not.toContain("createdAt");
     expect(stablePrefix).not.toContain("imageDataUrl");
+    const visualPrefix = JSON.stringify(decision.input.slice(0, -1));
+    expect(visualPrefix).toContain(visualInput.visualContext?.imageDataUrl);
+    expect(visualPrefix).not.toContain(visualInput.turn.rawFinalTranscript);
+    expect(readTextContent(visualWarmup.input.at(-1)!.content))
+      .toContain('"section":"CACHE_WARMUP_REQUEST"');
   });
 
   it("bounds previews and excludes full scene/history payloads", () => {
@@ -625,6 +649,18 @@ describe("One Note Decision provider", () => {
     expect(fetch.mock.calls[0]?.[0]).toBe("/api/voice/note-decision/warmup");
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
       input: warmup,
+    });
+
+    const visualWarmup = {
+      turnId: INPUT.turn.turnId,
+      contextRevision: 1,
+      decisionInput: INPUT,
+    };
+    await expect(provider.warmup(visualWarmup)).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]?.[0]).toBe("/api/voice/note-decision/warmup");
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
+      input: visualWarmup,
     });
   });
 

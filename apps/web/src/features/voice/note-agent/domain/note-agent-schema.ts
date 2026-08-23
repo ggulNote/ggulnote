@@ -289,6 +289,21 @@ export function parseNoteDecisionWarmupInput(
   value: unknown,
 ): NoteDecisionWarmupInput {
   const input = readRecord(value, "input");
+  if ("decisionInput" in input) {
+    assertOnlyKeys(input, [
+      "turnId", "contextRevision", "decisionInput",
+    ], "input");
+    const decisionInput = parseNoteDecisionInput(input.decisionInput);
+    const turnId = readNonEmptyString(input.turnId, "input.turnId");
+    if (decisionInput.turn.turnId !== turnId) {
+      fail("input.turnId", "must match decisionInput.turn.turnId");
+    }
+    return {
+      turnId,
+      contextRevision: readRevision(input.contextRevision, "input.contextRevision"),
+      decisionInput,
+    };
+  }
   assertOnlyKeys(input, [
     "availableTools", "pageBase", "contextRevision",
   ], "input");

@@ -1,5 +1,6 @@
 import {
   DirectAiProviderError,
+  type ActiveVoiceTurnSnapshot,
   type CompletedVoiceTurn,
   type DirectCommandRouteErrorCode,
   type DirectCommandRouteResult,
@@ -71,6 +72,7 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
   private readonly now: () => number;
   private readonly warmupAvailableTools: readonly CompactToolSchema[];
   private readonly warmups = new Map<string, Promise<void>>();
+  private readonly preparedTurns = new Map<string, VisualTurnState>();
 
   public constructor(private readonly options: NoteAgentProductionRouteOptions) {
     this.runtime = options.runtime ?? new NoteRuntime({ registry: options.registry });
@@ -98,12 +100,37 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     turn: CompletedVoiceTurn,
     executeOptions: { readonly signal?: AbortSignal } = {},
   ): Promise<DirectCommandRouteResult> {
-    return this.registry.execute(turn.id, () => this.executeOnce(turn, executeOptions.signal));
+    return this.registry.execute(turn.id, async () => {
+      try {
+        return await this.executeOnce(turn, executeOptions.signal);
+      } finally {
+        this.preparedTurns.delete(turn.id);
+      }
+    });
+  }
+
+  public onSpeechStart(
+    turn: ActiveVoiceTurnSnapshot,
+    options: { readonly signal?: AbortSignal } = {},
+  ): void {
+    if (this.preparedTurns.has(turn.id)) return;
+    traceVisualCache("speechStart", {
+      turnId: turn.id,
+      pageId: turn.frozenContext.pageId,
+      sceneRevision: turn.frozenContext.sceneRevision,
+    });
+    this.startTurnPreparation(
+      activeTurnForPreparation(turn),
+      turn.startedAt,
+      true,
+      options.signal,
+    );
   }
 
   public dispose(): void {
     this.registry.clear();
     this.warmups.clear();
+    this.preparedTurns.clear();
     this.traces.clear();
   }
 
@@ -140,146 +167,169 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
     this.warmups.set(identity, pending);
   }
 
+  private startTurnPreparation(
+    turn: CompletedVoiceTurn,
+    speechStartedAt: number,
+    warmVisualPrefix: boolean,
+    signal: AbortSignal | undefined,
+  ): VisualTurnState {
+    const existing = this.preparedTurns.get(turn.id);
+    if (existing !== undefined) return existing;
+    let state!: VisualTurnState;
+    const preparation = Promise.resolve()
+      .then(() => this.prepareDecisionContext(turn, signal))
+      .catch(() => preparedFailure(
+        signal?.aborted ? "ABORTED" : "CONTEXT_ASSEMBLY_FAILED",
+        0,
+      ))
+      .then((prepared) => {
+        if (prepared.status === "READY") {
+          traceVisualCache("frozen", {
+            turnId: turn.id,
+            sessionId: prepared.decisionInput.pageBase.documentId,
+            pageId: prepared.decisionInput.pageBase.pageId,
+            sceneRevision: prepared.decisionInput.liveScene.sceneRevision,
+            visualContextAttached: prepared.visualContextTrace.visualContextAttached,
+          });
+          if (warmVisualPrefix) this.scheduleVisualWarmup(state, prepared, signal);
+        }
+        return prepared;
+      });
+    state = {
+      turnId: turn.id,
+      speechStartedAt,
+      preparation,
+    };
+    this.preparedTurns.set(turn.id, state);
+    while (this.preparedTurns.size > 128) {
+      const oldest = this.preparedTurns.keys().next().value as string | undefined;
+      if (oldest === undefined || oldest === turn.id) break;
+      this.preparedTurns.delete(oldest);
+    }
+    return state;
+  }
+
+  private scheduleVisualWarmup(
+    state: VisualTurnState,
+    prepared: PreparedDecisionContext,
+    signal: AbortSignal | undefined,
+  ): void {
+    const warmup = this.options.provider.warmup?.bind(this.options.provider);
+    if (warmup === undefined || state.visualWarmupStartedAt !== undefined) return;
+    const decisionInput = prepared.decisionInput;
+    const startedAt = this.now();
+    state.visualWarmupStartedAt = startedAt;
+    traceVisualCache("warmupStarted", {
+      turnId: state.turnId,
+      sessionId: decisionInput.pageBase.documentId,
+      pageId: decisionInput.pageBase.pageId,
+      sceneRevision: decisionInput.liveScene.sceneRevision,
+    });
+    state.visualWarmupPromise = Promise.resolve()
+      .then(() => warmup({
+        turnId: state.turnId,
+        contextRevision: contextRevisionFrom(decisionInput.pageBase.baseRevision),
+        decisionInput,
+      }, {
+        ...(signal === undefined ? {} : { signal }),
+        onTelemetry: (telemetry) => {
+          state.visualWarmupCachedInputTokens = telemetry.cachedInputTokens;
+          state.visualWarmupCacheWriteInputTokens = telemetry.cacheWriteInputTokens;
+        },
+      }))
+      .then(() => {
+        const completedAt = this.now();
+        state.visualWarmupCompletedAt = completedAt;
+        state.visualWarmupDurationMs = elapsed(startedAt, completedAt);
+        traceVisualCache("warmupCompleted", {
+          turnId: state.turnId,
+          sessionId: decisionInput.pageBase.documentId,
+          pageId: decisionInput.pageBase.pageId,
+          sceneRevision: decisionInput.liveScene.sceneRevision,
+          warmupDurationMs: state.visualWarmupDurationMs,
+          cachedInputTokens: state.visualWarmupCachedInputTokens ?? 0,
+          cacheWriteInputTokens: state.visualWarmupCacheWriteInputTokens ?? 0,
+        });
+      })
+      .catch(() => {
+        state.visualWarmupDurationMs = elapsed(startedAt, this.now());
+        state.visualWarmupFailed = true;
+        traceVisualCache("warmupFailed", {
+          turnId: state.turnId,
+          sessionId: decisionInput.pageBase.documentId,
+          pageId: decisionInput.pageBase.pageId,
+          sceneRevision: decisionInput.liveScene.sceneRevision,
+        });
+      });
+  }
+
   private async executeOnce(
     turn: CompletedVoiceTurn,
     signal: AbortSignal | undefined,
   ): Promise<DirectCommandRouteResult> {
     const startedAt = this.now();
     if (signal?.aborted) return aborted(turn.id);
-    const contextResult = this.options.contextBuilder.build(turn, {
-      historySnapshot: this.options.history.snapshot(),
-    });
-    if (contextResult.status !== "READY") {
-      return this.recordFailure(turn, startedAt, contextResult.errorCode, 0);
+    const visualTurn = this.preparedTurns.get(turn.id)
+      ?? this.startTurnPreparation(turn, turn.startedAt, false, signal);
+    const prepared = await visualTurn.preparation;
+    if (signal?.aborted) return aborted(turn.id);
+    if (prepared.status === "ERROR") {
+      return this.recordFailure(
+        turn,
+        startedAt,
+        prepared.errorCode,
+        0,
+        0,
+        0,
+        prepared.contextAssemblyMs,
+        prepared.visualContextTrace,
+      );
     }
-    const directContext = contextResult.context;
-    const documentId = directContext.pageTargetCatalog.documentId;
     if (
-      documentId === undefined
+      prepared.frozenWorld.pageId !== turn.frozenContext.pageId
+      || prepared.frozenWorld.sceneRevision !== turn.frozenContext.sceneRevision
       || this.options.world.getSnapshot(
-        directContext.frozenContext.pageId,
-        directContext.frozenContext.sceneRevision,
+        prepared.frozenWorld.pageId,
+        prepared.frozenWorld.sceneRevision,
       ) === undefined
     ) return this.recordFailure(turn, startedAt, "STALE_SCENE", 0);
 
-    const frozenWorld = buildFrozenWorldContext(documentId, directContext);
-    const metrics = new NoteRuntimeMetricsRecorder(this.now);
+    const {
+      frozenWorld,
+      handles,
+      metrics,
+      objectCatalogBuildMs,
+      objectCatalogObjectCount,
+      objectCatalogSerializedChars,
+      visualContextTrace,
+      contextAssemblyMs,
+    } = prepared;
+    const decisionInput: NoteDecisionInput = {
+      ...prepared.decisionInput,
+      turn: {
+        turnId: turn.id,
+        language: turn.language,
+        rawFinalTranscript: turn.rawTranscript,
+      },
+    };
     const baseContext = this.options.createToolContext(frozenWorld, turn.id, {
       ...(signal === undefined ? {} : { signal }),
       metrics,
     });
-    let decisionInput: NoteDecisionInput;
-    let handles: import("../context").NoteObjectHandleMap;
-    let objectCatalogBuildMs = 0;
-    let objectCatalogObjectCount = 0;
-    let objectCatalogSerializedChars = 0;
-    let visualContextTrace: VisualContextTrace = NO_VISUAL_CONTEXT;
-    const contextAssemblyStartedAt = this.now();
-    try {
-      const assembly = await this.contextAssembler.assemble({
-        turn,
-        documentId,
-        frozenWorld,
-        world: this.options.world,
-        toolContext: baseContext,
-      });
-      decisionInput = assembly.decisionInput;
-      handles = assembly.handles;
-      objectCatalogBuildMs = assembly.objectCatalogBuildMs;
-      objectCatalogObjectCount = assembly.objectCatalogObjectCount;
-      objectCatalogSerializedChars = assembly.objectCatalogSerializedChars;
-    } catch {
-      return this.recordFailure(
-        turn,
-        startedAt,
-        "CONTEXT_ASSEMBLY_FAILED",
-        0,
-        0,
-        0,
-        elapsed(contextAssemblyStartedAt, this.now()),
-      );
-    }
-    const screenshotMarkers = decisionInput.objectCatalog.objects.map((object) => ({
-      id: object.handle,
-      kind: object.kind,
-      bounds: object.bounds,
-    })) satisfies readonly SpatialScreenshotMarker[];
-    if (this.options.captureVisualContext !== undefined) {
-      visualContextTrace = {
-        visualContextRequested: true,
-        visualContextAttached: false,
-        visualContextCaptureMs: 0,
-        markedScreenshotObjectCount: screenshotMarkers.length,
-        markedScreenshotHandles: screenshotMarkers.map((marker) => marker.id as ObjectHandle),
-      };
-      const visualStartedAt = this.now();
-      try {
-        const captured = await this.options.captureVisualContext(
-          frozenWorld,
-          screenshotMarkers,
-          signal,
-        );
-        visualContextTrace = {
-          ...visualContextTrace,
-          visualContextCaptureMs: elapsed(visualStartedAt, this.now()),
-        };
-        if (captured.status === "READY"
-          && captured.screenshot.pageId === frozenWorld.pageId
-          && captured.screenshot.sceneRevision === frozenWorld.sceneRevision
-          && screenshotMarkersMatch(screenshotMarkers, captured.screenshot.markers)) {
-          decisionInput = {
-            ...decisionInput,
-            visualContext: {
-              mimeType: captured.screenshot.imageDataUrl.startsWith("data:image/jpeg;")
-                ? "image/jpeg"
-                : "image/png",
-              imageDataUrl: captured.screenshot.imageDataUrl,
-              pixelWidth: captured.screenshot.pixelWidth,
-              pixelHeight: captured.screenshot.pixelHeight,
-              byteLength: captured.screenshot.byteLength,
-              markedObjects: decisionInput.objectCatalog.objects.map((object) => ({
-                objectId: object.handle,
-                kind: object.kind,
-                bounds: object.bounds,
-              })),
-            },
-          };
-          visualContextTrace = {
-            ...visualContextTrace,
-            visualContextAttached: true,
-          };
-        } else if (captured.status === "CANCELLED" && signal?.aborted) {
-          return this.recordFailure(
-            turn,
-            startedAt,
-            "ABORTED",
-            0,
-            0,
-            0,
-            elapsed(contextAssemblyStartedAt, this.now()),
-            { ...visualContextTrace, visualContextFailureReason: "CANCELLED" },
-          );
-        } else {
-          visualContextTrace = {
-            ...visualContextTrace,
-            visualContextFailureReason: captured.status === "READY"
-              ? captured.screenshot.pageId !== frozenWorld.pageId
-                || captured.screenshot.sceneRevision !== frozenWorld.sceneRevision
-                ? "STALE_SCENE"
-                : "MARKER_MISMATCH"
-              : captured.status,
-          };
-        }
-      } catch {
-        visualContextTrace = {
-          ...visualContextTrace,
-          visualContextCaptureMs: elapsed(visualStartedAt, this.now()),
-          visualContextFailureReason: "CAPTURE_FAILED",
-        };
-      }
-    }
-    const contextAssemblyMs = elapsed(contextAssemblyStartedAt, this.now());
     const decisionStartedAt = this.now();
+    visualTurn.visualWarmupCompletedBeforeDecision =
+      visualTurn.visualWarmupFailed !== true
+      &&
+      visualTurn.visualWarmupCompletedAt !== undefined
+      && visualTurn.visualWarmupCompletedAt <= decisionStartedAt;
+    traceVisualCache("decisionStarted", {
+      turnId: turn.id,
+      sessionId: decisionInput.pageBase.documentId,
+      pageId: decisionInput.pageBase.pageId,
+      sceneRevision: decisionInput.liveScene.sceneRevision,
+      speechDurationMs: speechDuration(turn),
+      warmupCompletedBeforeDecision: visualTurn.visualWarmupCompletedBeforeDecision,
+    });
     let decisionTelemetry: Parameters<NonNullable<import("../decision").NoteDecisionProviderOptions["onTelemetry"]>>[0]
       | undefined;
     let decision;
@@ -360,6 +410,37 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       ...(decisionTelemetry?.outputTokens === undefined
         ? {}
         : { outputTokens: decisionTelemetry.outputTokens }),
+      speechDurationMs: speechDuration(turn),
+      ...(visualTurn.visualWarmupStartedAt === undefined
+        ? {}
+        : { visualWarmupStartedAt: visualTurn.visualWarmupStartedAt }),
+      ...(visualTurn.visualWarmupCompletedAt === undefined
+        ? {}
+        : { visualWarmupCompletedAt: visualTurn.visualWarmupCompletedAt }),
+      ...(visualTurn.visualWarmupDurationMs === undefined
+        ? {}
+        : { visualWarmupDurationMs: visualTurn.visualWarmupDurationMs }),
+      ...(visualTurn.visualWarmupCacheWriteInputTokens === undefined
+        ? {}
+        : {
+            visualWarmupCacheWriteInputTokens:
+              visualTurn.visualWarmupCacheWriteInputTokens,
+          }),
+      ...(visualTurn.visualWarmupCachedInputTokens === undefined
+        ? {}
+        : { visualWarmupCachedInputTokens: visualTurn.visualWarmupCachedInputTokens }),
+      ...(visualTurn.visualWarmupStartedAt === undefined
+        ? {}
+        : {
+            visualWarmupCompletedBeforeDecision:
+              visualTurn.visualWarmupCompletedBeforeDecision ?? false,
+          }),
+      ...(decisionTelemetry?.inputTokens === undefined
+        ? {}
+        : { decisionInputTokens: decisionTelemetry.inputTokens }),
+      ...(decisionTelemetry?.cachedInputTokens === undefined
+        ? {}
+        : { decisionCachedInputTokens: decisionTelemetry.cachedInputTokens }),
       runtimeMs: elapsed(runtimeStartedAt, completedAt),
       prepareMs: runtimeMetrics.prepareMs,
       worldResolveMs: runtimeMetrics.resolverMs,
@@ -382,6 +463,146 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
       recordedAt: completedAt,
     });
     return routeResult;
+  }
+
+  private async prepareDecisionContext(
+    turn: CompletedVoiceTurn,
+    signal: AbortSignal | undefined,
+  ): Promise<PreparedDecisionContextResult> {
+    const contextAssemblyStartedAt = this.now();
+    const contextResult = this.options.contextBuilder.build(turn, {
+      historySnapshot: this.options.history.snapshot(),
+    });
+    if (contextResult.status !== "READY") {
+      return preparedFailure(contextResult.errorCode, 0);
+    }
+    const directContext = contextResult.context;
+    const documentId = directContext.pageTargetCatalog.documentId;
+    if (
+      documentId === undefined
+      || this.options.world.getSnapshot(
+        directContext.frozenContext.pageId,
+        directContext.frozenContext.sceneRevision,
+      ) === undefined
+    ) return preparedFailure("STALE_SCENE", 0);
+
+    const frozenWorld = buildFrozenWorldContext(documentId, directContext);
+    const metrics = new NoteRuntimeMetricsRecorder(this.now);
+    const assemblyContext = this.options.createToolContext(frozenWorld, turn.id, {
+      ...(signal === undefined ? {} : { signal }),
+      metrics,
+    });
+    let assembly: Awaited<ReturnType<NoteContextAssembler["assemble"]>>;
+    try {
+      assembly = await this.contextAssembler.assemble({
+        turn,
+        documentId,
+        frozenWorld,
+        world: this.options.world,
+        toolContext: assemblyContext,
+      });
+    } catch {
+      return preparedFailure(
+        signal?.aborted ? "ABORTED" : "CONTEXT_ASSEMBLY_FAILED",
+        elapsed(contextAssemblyStartedAt, this.now()),
+      );
+    }
+
+    let decisionInput = assembly.decisionInput;
+    let visualContextTrace: VisualContextTrace = NO_VISUAL_CONTEXT;
+    const screenshotMarkers = decisionInput.objectCatalog.objects.map((object) => ({
+      id: object.handle,
+      kind: object.kind,
+      bounds: object.bounds,
+    })) satisfies readonly SpatialScreenshotMarker[];
+    if (this.options.captureVisualContext !== undefined) {
+      visualContextTrace = {
+        visualContextRequested: true,
+        visualContextAttached: false,
+        visualContextCaptureMs: 0,
+        markedScreenshotObjectCount: screenshotMarkers.length,
+        markedScreenshotHandles: screenshotMarkers.map((marker) => marker.id as ObjectHandle),
+      };
+      const visualStartedAt = this.now();
+      try {
+        const captured = await this.options.captureVisualContext(
+          frozenWorld,
+          screenshotMarkers,
+          signal,
+        );
+        visualContextTrace = {
+          ...visualContextTrace,
+          visualContextCaptureMs: elapsed(visualStartedAt, this.now()),
+        };
+        if (captured.status === "READY"
+          && captured.screenshot.pageId === frozenWorld.pageId
+          && captured.screenshot.sceneRevision === frozenWorld.sceneRevision
+          && screenshotMarkersMatch(screenshotMarkers, captured.screenshot.markers)) {
+          decisionInput = {
+            ...decisionInput,
+            visualContext: {
+              mimeType: captured.screenshot.imageDataUrl.startsWith("data:image/jpeg;")
+                ? "image/jpeg"
+                : "image/png",
+              imageDataUrl: captured.screenshot.imageDataUrl,
+              pixelWidth: captured.screenshot.pixelWidth,
+              pixelHeight: captured.screenshot.pixelHeight,
+              byteLength: captured.screenshot.byteLength,
+              markedObjects: decisionInput.objectCatalog.objects.map((object) => ({
+                objectId: object.handle,
+                kind: object.kind,
+                bounds: object.bounds,
+              })),
+            },
+          };
+          visualContextTrace = {
+            ...visualContextTrace,
+            visualContextAttached: true,
+          };
+        } else if (captured.status === "CANCELLED" && signal?.aborted) {
+          return preparedFailure(
+            "ABORTED",
+            elapsed(contextAssemblyStartedAt, this.now()),
+            { ...visualContextTrace, visualContextFailureReason: "CANCELLED" },
+          );
+        } else {
+          visualContextTrace = {
+            ...visualContextTrace,
+            visualContextFailureReason: captured.status === "READY"
+              ? captured.screenshot.pageId !== frozenWorld.pageId
+                || captured.screenshot.sceneRevision !== frozenWorld.sceneRevision
+                ? "STALE_SCENE"
+                : "MARKER_MISMATCH"
+              : captured.status,
+          };
+        }
+      } catch {
+        if (signal?.aborted) {
+          return preparedFailure(
+            "ABORTED",
+            elapsed(contextAssemblyStartedAt, this.now()),
+            { ...visualContextTrace, visualContextFailureReason: "CANCELLED" },
+          );
+        }
+        visualContextTrace = {
+          ...visualContextTrace,
+          visualContextCaptureMs: elapsed(visualStartedAt, this.now()),
+          visualContextFailureReason: "CAPTURE_FAILED",
+        };
+      }
+    }
+    return {
+      status: "READY",
+      frozenWorld,
+      decisionInput,
+      handles: assembly.handles,
+      metrics,
+      objectCatalogBuildMs: assembly.objectCatalogBuildMs,
+      objectCatalogObjectCount: assembly.objectCatalogObjectCount,
+      objectCatalogSerializedChars: assembly.objectCatalogSerializedChars,
+      visualContextTrace,
+      contextAssemblyMs: elapsed(contextAssemblyStartedAt, this.now()),
+    };
   }
 
   private recordFailure(
@@ -430,6 +651,44 @@ export class NoteAgentProductionRoute implements CompletedVoiceTurnRoute {
   }
 }
 
+interface VisualTurnState {
+  readonly turnId: string;
+  readonly speechStartedAt: number;
+  readonly preparation: Promise<PreparedDecisionContextResult>;
+  visualWarmupPromise?: Promise<void>;
+  visualWarmupStartedAt?: number;
+  visualWarmupCompletedAt?: number;
+  visualWarmupDurationMs?: number;
+  visualWarmupCacheWriteInputTokens?: number;
+  visualWarmupCachedInputTokens?: number;
+  visualWarmupCompletedBeforeDecision?: boolean;
+  visualWarmupFailed?: boolean;
+}
+
+interface PreparedDecisionContext {
+  readonly status: "READY";
+  readonly frozenWorld: FrozenWorldContext;
+  readonly decisionInput: NoteDecisionInput;
+  readonly handles: import("../context").NoteObjectHandleMap;
+  readonly metrics: NoteRuntimeMetricsRecorder;
+  readonly objectCatalogBuildMs: number;
+  readonly objectCatalogObjectCount: number;
+  readonly objectCatalogSerializedChars: number;
+  readonly visualContextTrace: VisualContextTrace;
+  readonly contextAssemblyMs: number;
+}
+
+interface FailedPreparedDecisionContext {
+  readonly status: "ERROR";
+  readonly errorCode: string;
+  readonly contextAssemblyMs: number;
+  readonly visualContextTrace: VisualContextTrace;
+}
+
+type PreparedDecisionContextResult =
+  | PreparedDecisionContext
+  | FailedPreparedDecisionContext;
+
 interface VisualContextTrace {
   readonly visualContextRequested: boolean;
   readonly visualContextAttached: boolean;
@@ -444,6 +703,64 @@ const NO_VISUAL_CONTEXT: VisualContextTrace = Object.freeze({
   visualContextAttached: false,
   visualContextCaptureMs: 0,
 });
+
+function activeTurnForPreparation(turn: ActiveVoiceTurnSnapshot): CompletedVoiceTurn {
+  return {
+    id: turn.id,
+    providerId: turn.providerId,
+    providerSessionId: turn.providerSessionId,
+    language: turn.language,
+    requestedAt: turn.requestedAt,
+    ...(turn.recognitionStartedAt === undefined
+      ? {}
+      : { recognitionStartedAt: turn.recognitionStartedAt }),
+    ...(turn.audioStartedAt === undefined ? {} : { audioStartedAt: turn.audioStartedAt }),
+    startedAt: turn.startedAt,
+    ...(turn.firstInterimAt === undefined ? {} : { firstInterimAt: turn.firstInterimAt }),
+    ...(turn.firstFinalAt === undefined ? {} : { firstFinalAt: turn.firstFinalAt }),
+    ...(turn.speechEndedAt === undefined ? {} : { speechEndedAt: turn.speechEndedAt }),
+    ...(turn.stopRequestedAt === undefined ? {} : { stopRequestedAt: turn.stopRequestedAt }),
+    completedAt: turn.startedAt,
+    state: "completed",
+    // Required only by the existing context builder; it is never serialized into the visual prefix.
+    rawTranscript: "CACHE_VISUAL_PREFIX",
+    finalSegments: [],
+    frozenContext: { ...turn.frozenContext },
+    focusSnapshot: { ...turn.focusSnapshot },
+    scene: { ...turn.scene },
+    metrics: { ...turn.metrics },
+  };
+}
+
+function preparedFailure(
+  errorCode: string,
+  contextAssemblyMs: number,
+  visualContextTrace: VisualContextTrace = NO_VISUAL_CONTEXT,
+): FailedPreparedDecisionContext {
+  return { status: "ERROR", errorCode, contextAssemblyMs, visualContextTrace };
+}
+
+function contextRevisionFrom(baseRevision: string): number {
+  const separator = baseRevision.lastIndexOf("@");
+  const revision = Number(baseRevision.slice(separator + 1));
+  return Number.isInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+function speechDuration(turn: CompletedVoiceTurn): number {
+  return elapsed(
+    turn.startedAt,
+    turn.speechEndedAt ?? turn.completedAt ?? turn.startedAt,
+  );
+}
+
+function traceVisualCache(
+  event: "speechStart" | "frozen" | "warmupStarted" | "warmupCompleted"
+    | "warmupFailed" | "decisionStarted",
+  details: Readonly<Record<string, unknown>>,
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  console.info("[NOTE_VISUAL_CACHE_TRACE]", JSON.stringify({ event, ...details }));
+}
 
 function screenshotMarkersMatch(
   expected: readonly SpatialScreenshotMarker[],

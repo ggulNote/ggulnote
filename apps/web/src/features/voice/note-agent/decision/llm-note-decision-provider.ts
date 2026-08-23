@@ -149,14 +149,17 @@ function tracePromptCache(
   telemetry: Parameters<NonNullable<NoteDecisionProviderOptions["onTelemetry"]>>[0],
 ): void {
   if (process.env.NODE_ENV !== "development") return;
+  const decisionInput = "decisionInput" in input ? input.decisionInput : input;
+  const pageBase = decisionInput.pageBase;
   const contextRevision = "contextRevision" in input
     ? input.contextRevision
-    : contextRevisionFrom(input.pageBase.baseRevision);
+    : contextRevisionFrom(pageBase.baseRevision);
   console.info("[NOTE_PROMPT_CACHE_TRACE]", JSON.stringify({
-    sessionId: input.pageBase.documentId,
-    pageId: input.pageBase.pageId,
+    sessionId: pageBase.documentId,
+    pageId: pageBase.pageId,
     contextRevision,
     warmup,
+    warmupLevel: "decisionInput" in input ? "visual" : "page",
     cachedInputTokens: telemetry.cachedInputTokens ?? 0,
     cacheWriteInputTokens: telemetry.cacheWriteInputTokens ?? 0,
   }));

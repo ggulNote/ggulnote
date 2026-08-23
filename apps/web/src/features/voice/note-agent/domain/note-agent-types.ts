@@ -166,11 +166,22 @@ export interface NoteDecisionInput {
   };
 }
 
-export interface NoteDecisionWarmupInput {
+export interface NotePageBaseWarmupInput {
   readonly availableTools: readonly CompactToolSchema[];
   readonly pageBase: PageBaseSnapshot;
   readonly contextRevision: number;
 }
+
+export interface NoteDecisionVisualWarmupInput {
+  readonly turnId: string;
+  readonly contextRevision: number;
+  /** The exact frozen Decision payload whose visual prefix will be reused later. */
+  readonly decisionInput: NoteDecisionInput;
+}
+
+export type NoteDecisionWarmupInput =
+  | NotePageBaseWarmupInput
+  | NoteDecisionVisualWarmupInput;
 
 export type ObjectHandle = `O${number}`;
 

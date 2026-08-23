@@ -28,3 +28,10 @@
 - M1은 Session/PDF persistence와 switching까지만 구현한다.
 - M2가 PAGE_BASE activation/rebase를 소유한다.
 - M3가 OpenAI prompt cache/warmup을 소유한다.
+
+## D6. Visual prefix belongs to the VoiceTurn frozen context
+
+- speech-start에서 기존 frozen scene을 기준으로 LIVE_SCENE과 marked screenshot을 한 번 준비한다.
+- visual warmup과 실제 Decision은 같은 prepared payload를 사용한다.
+- warmup 완료 여부는 correctness나 Decision 시작 조건이 아니다.
+- page activation warmup은 STATIC/PAGE_BASE, speech-start warmup은 visual prefix까지 담당한다.

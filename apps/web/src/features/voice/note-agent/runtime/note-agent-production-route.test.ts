@@ -12,12 +12,15 @@ import {
   DirectCommandContextBuilder,
   DirectCommandHistoryContext,
 } from "../../application";
-import type { CompletedVoiceTurn } from "../../domain";
+import type { ActiveVoiceTurnSnapshot, CompletedVoiceTurn } from "../../domain";
 import {
   FakeNoteDecisionProvider,
   type NoteDecisionProvider,
 } from "../decision";
-import type { NoteDecisionInput } from "../domain";
+import type {
+  NoteDecisionInput,
+  NoteDecisionVisualWarmupInput,
+} from "../domain";
 import {
   createExistingNoteToolRegistry,
   NoteToolRegistry,
@@ -110,6 +113,139 @@ describe("NoteAgentProductionRoute", () => {
     }));
     resolveWarmup?.();
     await pendingWarmup;
+  });
+
+  it("captures one speech-start visual context and reuses it without waiting for warmup", async () => {
+    let resolveWarmup: (() => void) | undefined;
+    const pendingWarmup = new Promise<void>((resolve) => {
+      resolveWarmup = resolve;
+    });
+    let visualWarmup: NoteDecisionVisualWarmupInput | undefined;
+    let decisionInput: NoteDecisionInput | undefined;
+    const warmup = vi.fn((input: Parameters<NonNullable<NoteDecisionProvider["warmup"]>>[0]) => {
+      if ("decisionInput" in input) visualWarmup = input;
+      return pendingWarmup;
+    });
+    const decide = vi.fn(async (input: NoteDecisionInput) => {
+      decisionInput = input;
+      return {
+        status: "READY" as const,
+        sceneRevision: 7,
+        steps: [{ action: "navigation.next_page" as const, target: null, args: {} }],
+      };
+    });
+    const captureVisualContext = readyScreenshotCapture();
+    const route = setup(
+      createExistingNoteToolRegistry(),
+      { warmup, decide },
+      navigationCommit(),
+      {
+        scene: COMPLEX_SCENE,
+        objects: [WORD, ...COMPLEX_OBJECTS],
+        captureVisualContext,
+      },
+    );
+    const active = activeTurn("turn-speech-start");
+
+    route.onSpeechStart(active);
+    route.onSpeechStart(active);
+    await vi.waitFor(() => expect(warmup).toHaveBeenCalledOnce());
+
+    expect(captureVisualContext).toHaveBeenCalledOnce();
+    const result = route.execute(turn("다음 페이지", active.id));
+    await expect(result).resolves.toMatchObject({ status: "NAVIGATED" });
+    expect(resolveWarmup).toBeDefined();
+    expect(decide).toHaveBeenCalledOnce();
+    expect(visualWarmup).toBeDefined();
+    expect(visualWarmup?.decisionInput.liveScene).toBe(decisionInput?.liveScene);
+    expect(visualWarmup?.decisionInput.visualContext).toBe(decisionInput?.visualContext);
+    expect(visualWarmup?.decisionInput.visualContext?.imageDataUrl)
+      .toBe("data:image/png;base64,iVBORw0KGgo=");
+    expect(captureVisualContext).toHaveBeenCalledOnce();
+    expect(route.traces.getAll()[0]).toMatchObject({
+      speechDurationMs: 2,
+      visualWarmupCompletedBeforeDecision: false,
+    });
+    resolveWarmup?.();
+    await pendingWarmup;
+  });
+
+  it("keeps Decision healthy when visual warmup fails", async () => {
+    const warmup = vi.fn(async () => {
+      throw new Error("warmup failed");
+    });
+    const provider: NoteDecisionProvider = {
+      warmup,
+      decide: async () => ({
+        status: "READY",
+        sceneRevision: 7,
+        steps: [{ action: "navigation.next_page", target: null, args: {} }],
+      }),
+    };
+    const route = setup(
+      createExistingNoteToolRegistry(),
+      provider,
+      navigationCommit(),
+      { captureVisualContext: readyScreenshotCapture() },
+    );
+
+    route.onSpeechStart(activeTurn("turn-warmup-failure"));
+    await vi.waitFor(() => expect(warmup).toHaveBeenCalledOnce());
+    await expect(route.execute(turn("다음 페이지", "turn-warmup-failure")))
+      .resolves.toMatchObject({ status: "NAVIGATED" });
+  });
+
+  it("records a visual warmup completed before a long-utterance Decision", async () => {
+    const warmup = vi.fn(async (
+      _input: Parameters<NonNullable<NoteDecisionProvider["warmup"]>>[0],
+      options: Parameters<NonNullable<NoteDecisionProvider["warmup"]>>[1],
+    ) => {
+      options?.onTelemetry?.({
+        openaiTtfbMs: 10,
+        openaiBodyReadMs: 2,
+        decisionJsonParseMs: 0,
+        inputTokens: 13_608,
+        cachedInputTokens: 11_399,
+        cacheWriteInputTokens: 2_209,
+      });
+    });
+    const provider: NoteDecisionProvider = {
+      warmup,
+      decide: async (_input, options) => {
+        options?.onTelemetry?.({
+          openaiTtfbMs: 900,
+          openaiBodyReadMs: 20,
+          decisionJsonParseMs: 1,
+          inputTokens: 13_608,
+          cachedInputTokens: 13_520,
+        });
+        return {
+          status: "READY",
+          sceneRevision: 7,
+          steps: [{ action: "navigation.next_page", target: null, args: {} }],
+        };
+      },
+    };
+    const route = setup(
+      createExistingNoteToolRegistry(),
+      provider,
+      navigationCommit(),
+      { captureVisualContext: readyScreenshotCapture() },
+    );
+
+    route.onSpeechStart(activeTurn("turn-long"));
+    await vi.waitFor(() => expect(warmup).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await expect(route.execute(turn("오래 말한 명령", "turn-long")))
+      .resolves.toMatchObject({ status: "NAVIGATED" });
+    expect(route.traces.getAll()[0]).toMatchObject({
+      visualWarmupCachedInputTokens: 11_399,
+      visualWarmupCacheWriteInputTokens: 2_209,
+      visualWarmupCompletedBeforeDecision: true,
+      decisionInputTokens: 13_608,
+      decisionCachedInputTokens: 13_520,
+      openaiTtfbMs: 900,
+    });
   });
 
   it("owns a duplicate turn exactly once and commits through one transaction", async () => {
@@ -498,6 +634,30 @@ describe("NoteAgentProductionRoute", () => {
   });
 });
 
+function readyScreenshotCapture() {
+  return vi.fn(async (
+    _world: Parameters<NonNullable<ConstructorParameters<
+      typeof NoteAgentProductionRoute
+    >[0]["captureVisualContext"]>>[0],
+    markers: Parameters<NonNullable<ConstructorParameters<
+      typeof NoteAgentProductionRoute
+    >[0]["captureVisualContext"]>>[1],
+  ) => ({
+    status: "READY" as const,
+    screenshot: {
+      pageId: "page-1",
+      sceneRevision: 7,
+      canonicalPageBounds: { x: 0, y: 0, width: 600, height: 800 },
+      pixelWidth: 960,
+      pixelHeight: 1_280,
+      imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+      byteLength: 8,
+      capturedAt: 10,
+      markers,
+    },
+  }));
+}
+
 function setup(
   registry: NoteToolRegistry,
   provider: NoteDecisionProvider,
@@ -585,5 +745,49 @@ function turn(transcript = "다음 페이지", id = "turn-1"): CompletedVoiceTur
       sceneChangedDuringTurn: false, pageChangedDuringTurn: false,
     },
     metrics: { interimUpdateCount: 0, finalSegmentCount: 1, providerRestartCount: 0 },
+  };
+}
+
+function activeTurn(id: string): ActiveVoiceTurnSnapshot {
+  return {
+    id,
+    state: "capturing",
+    providerId: "fake",
+    providerSessionId: "session",
+    language: "ko-KR",
+    requestedAt: 1,
+    startedAt: 2,
+    transcript: {
+      finalText: "",
+      interimText: "",
+      displayText: "",
+      finalSegments: [],
+    },
+    frozenContext: {
+      pageId: "page-1",
+      sceneMode: "pdf",
+      sceneRevision: 7,
+      focusSource: "none",
+      focusStale: false,
+      capturedAt: 2,
+    },
+    focusSnapshot: {
+      source: "none",
+      capturedAt: 2,
+      pageId: "page-1",
+      sceneRevision: 7,
+      stale: false,
+    },
+    scene: {
+      sceneRevisionAtSpeechStart: 7,
+      pageIdAtSpeechStart: "page-1",
+      sceneChangedDuringTurn: false,
+      pageChangedDuringTurn: false,
+    },
+    metrics: {
+      interimUpdateCount: 0,
+      finalSegmentCount: 0,
+      providerRestartCount: 0,
+    },
   };
 }

@@ -56,3 +56,25 @@
 - [x] Prompt/provider/route/transport focused tests - 32/32 통과
 - [ ] 전체 web test - 1049/1053 통과, 기존 `editor-shell.test.tsx` 4건은 jsdom `image.decode is not a function`으로 실패
 - [x] `git diff --check`
+
+## M4 - Speech-start visual-prefix warmup
+
+- [x] 시작 전 branch/worktree 및 Current Milestone 확인
+- [x] VoiceTurn/frozen context/screenshot/Decision/warmup/telemetry 경로 조사
+- [x] speech-start visual context capture once
+- [x] visual warmup과 Decision의 LIVE_SCENE/screenshot exact reuse
+- [x] 세 번째 explicit visual breakpoint
+- [x] non-blocking warmup, no-wait Decision, turn-local dedupe
+- [x] visual warmup/Decision telemetry 및 trace
+- [x] freeze/reuse/ordering/failure/race focused tests
+- [x] web typecheck/test/lint 및 git diff check
+- [x] STATUS/CHECKLIST 완료 상태 갱신
+
+## M4 검증 결과
+
+- [x] `pnpm --filter @ggulnote/web typecheck`
+- [x] `pnpm --filter @ggulnote/web lint`
+- [x] Prompt/route/bridge/transport focused tests - 39/39 통과
+- [ ] 전체 web test - 1052/1056 통과, 기존 `editor-shell.test.tsx` 4건은 jsdom `image.decode is not a function`으로 실패
+- [ ] 실제 OpenAI A/B benchmark - `.env`와 `OPENAI_API_KEY`가 없는 검증 환경이라 미실행
+- [x] `git diff --check`

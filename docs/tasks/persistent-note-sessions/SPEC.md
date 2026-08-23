@@ -43,6 +43,15 @@ Session 전환은 현재 page를 먼저 저장하고 대상 Session의 마지막
 - `cachedInputTokens`, `cacheWriteInputTokens` telemetry와 cache trace
 - ordering, dynamic isolation, cache key, warmup dedupe 테스트
 
+### M4 - Speech-start visual-prefix warmup
+
+- 기존 VoiceTurn speech-start frozen context lifecycle에서 Decision visual context를 한 번 준비
+- 같은 LIVE_SCENE과 marked screenshot payload를 visual warmup과 실제 Decision에서 재사용
+- `STATIC -> PAGE_BASE -> LIVE -> SCREENSHOT` 뒤에 세 번째 explicit breakpoint 추가
+- visual warmup은 STT와 Decision을 기다리게 하지 않는 best-effort 요청으로 실행
+- turn-local in-memory dedupe와 warmup/Decision cache telemetry 추가
+- capture-once, exact-prefix, non-blocking, failure/race focused tests
+
 ## Non-goals
 
 - backend, server DB, RAG, vector DB
