@@ -1,4 +1,8 @@
-import type { Rect } from "@ggulnote/editor-core";
+import {
+  describeSceneObject,
+  type Rect,
+  type SceneSnapshot,
+} from "@ggulnote/editor-core";
 import type { CompletedVoiceTurn } from "../../domain";
 import type {
   DecisionContextFragment,
@@ -6,6 +10,7 @@ import type {
   NoteCatalogObject,
   NoteContextPartId,
   NoteDecisionInput,
+  PageBaseSnapshot,
 } from "../domain";
 import type {
   ActionContextLoader,
@@ -94,6 +99,14 @@ export interface NoteContextAssemblerOptions {
   readonly now?: () => number;
 }
 
+export interface NotePageActivationInput {
+  readonly documentId: string;
+  readonly pageId: string;
+  readonly contextRevision: number;
+  readonly createdAt: number;
+  readonly scene: SceneSnapshot;
+}
+
 /** Collects every Prompt Part locally and makes exactly one Decision input. */
 export class NoteContextAssembler {
   private readonly providers: readonly NoteContextPartProvider<unknown>[];
@@ -113,6 +126,27 @@ export class NoteContextAssembler {
     if (new Set(ids).size !== ids.length) {
       throw new Error("Duplicate NoteContextPartProvider id.");
     }
+  }
+
+  public activatePage(input: NotePageActivationInput): PageBaseSnapshot | null {
+    if (input.scene.page.id !== input.pageId) return null;
+    const world = createActivationWorld(input.documentId, input.scene);
+    const objects = projectPageObjectCatalog({
+      documentId: input.documentId,
+      pageId: input.pageId,
+      sceneRevision: input.scene.sceneRevision,
+      world,
+      pageContextCache: this.pageContextCache,
+    });
+    if (objects === undefined) return null;
+    return this.pageContextCache.activate({
+      documentId: input.documentId,
+      pageId: input.pageId,
+      contextRevision: input.contextRevision,
+      sceneMode: input.scene.mode,
+      objects,
+      persistedAt: input.createdAt,
+    });
   }
 
   public async assemble(input: {
@@ -258,43 +292,16 @@ const userTurnProvider: NoteContextPartProvider<{
 const objectCatalogProvider: NoteContextPartProvider<readonly NoteCatalogObject[]> = {
   id: "object-catalog",
   priority: 85,
-  collect: (context) => {
-    const scene = context.world.getSnapshot(
-      context.frozenWorld.pageId,
-      context.frozenWorld.sceneRevision,
-    );
-    if (scene === undefined) return [];
-    const selectionId = objectIdFor(context.frozenWorld.selection);
-    const focusId = objectIdFor(context.frozenWorld.focus);
-    const objects = context.world.listPageObjects(context.frozenWorld.pageId)
-      .filter(isCatalogObject)
-      .sort((left, right) => {
-        if (left.source !== right.source) return left.source === "canvas" ? -1 : 1;
-        return left.zIndex - right.zIndex || left.id.localeCompare(right.id);
-      });
-    const recentIds = new Set(objects
-      .filter((object) => object.source === "canvas")
-      .sort((left, right) => (right.updatedAt ?? right.createdAt ?? 0)
-        - (left.updatedAt ?? left.createdAt ?? 0))
-      .slice(0, MAX_RECENT_OPERATIONS)
-      .map((object) => object.id));
-    return objects.flatMap((object) => {
-      const handle = context.pageContextCache.handleFor(
-        context.documentId,
-        context.frozenWorld.pageId,
-        object.id,
-      );
-      const ref: EntityRef = { kind: "OBJECT", objectId: object.id };
-      const projected = projectCatalogObject(handle, ref, context.world, scene.page, {
-        selected: object.id === selectionId,
-        focused: object.id === focusId,
-        recent: recentIds.has(object.id),
-      });
-      if (projected === undefined) return [];
-      context.handles.register(handle, ref);
-      return [projected];
-    });
-  },
+  collect: (context) => projectPageObjectCatalog({
+    documentId: context.documentId,
+    pageId: context.frozenWorld.pageId,
+    sceneRevision: context.frozenWorld.sceneRevision,
+    world: context.world,
+    pageContextCache: context.pageContextCache,
+    handles: context.handles,
+    selectionId: objectIdFor(context.frozenWorld.selection),
+    focusId: objectIdFor(context.frozenWorld.focus),
+  }) ?? [],
   toDecisionContent: toJson,
 };
 
@@ -503,6 +510,71 @@ function isCatalogObject(object: ReturnType<UnifiedObjectWorld["listPageObjects"
     || object.kind === "table"
     || (object.kind === "pdf-region"
       && /figure|table|equation|image/iu.test(object.regionType));
+}
+
+function projectPageObjectCatalog(input: {
+  readonly documentId: string;
+  readonly pageId: string;
+  readonly sceneRevision: number;
+  readonly world: UnifiedObjectWorld;
+  readonly pageContextCache: PageAgentContextCache;
+  readonly handles?: NoteObjectHandleMap;
+  readonly selectionId?: string;
+  readonly focusId?: string;
+}): readonly NoteCatalogObject[] | undefined {
+  const scene = input.world.getSnapshot(input.pageId, input.sceneRevision);
+  if (scene === undefined) return undefined;
+  const objects = input.world.listPageObjects(input.pageId)
+    .filter(isCatalogObject)
+    .sort((left, right) => {
+      if (left.source !== right.source) return left.source === "canvas" ? -1 : 1;
+      return left.zIndex - right.zIndex || left.id.localeCompare(right.id);
+    });
+  const recentIds = new Set(objects
+    .filter((object) => object.source === "canvas")
+    .sort((left, right) => (right.updatedAt ?? right.createdAt ?? 0)
+      - (left.updatedAt ?? left.createdAt ?? 0))
+    .slice(0, MAX_RECENT_OPERATIONS)
+    .map((object) => object.id));
+  return objects.flatMap((object) => {
+    const handle = input.pageContextCache.handleFor(
+      input.documentId,
+      input.pageId,
+      object.id,
+    );
+    const ref: EntityRef = { kind: "OBJECT", objectId: object.id };
+    const projected = projectCatalogObject(handle, ref, input.world, scene.page, {
+      selected: object.id === input.selectionId,
+      focused: object.id === input.focusId,
+      recent: recentIds.has(object.id),
+    });
+    if (projected === undefined) return [];
+    input.handles?.register(handle, ref);
+    return [projected];
+  });
+}
+
+function createActivationWorld(
+  documentId: string,
+  scene: SceneSnapshot,
+): UnifiedObjectWorld {
+  return {
+    getSnapshot: (pageId, sceneRevision) =>
+      pageId === scene.page.id && sceneRevision === scene.sceneRevision
+        ? scene
+        : undefined,
+    getObject: (objectId) => scene.objectById[objectId],
+    getObjectMetadata: (objectId) => {
+      const object = scene.objectById[objectId];
+      return object === undefined
+        ? undefined
+        : describeSceneObject(object, { documentId });
+    },
+    listPageObjects: (pageId) => pageId === scene.page.id ? scene.objects : [],
+    searchIndex: () => [],
+    getRecentOperations: () => [],
+    getRecentOperationOutputs: () => [],
+  };
 }
 
 export function sanitizeTranscript(value: string): string {

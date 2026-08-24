@@ -166,6 +166,23 @@ export interface NoteDecisionInput {
   };
 }
 
+export interface NotePageBaseWarmupInput {
+  readonly availableTools: readonly CompactToolSchema[];
+  readonly pageBase: PageBaseSnapshot;
+  readonly contextRevision: number;
+}
+
+export interface NoteDecisionVisualWarmupInput {
+  readonly turnId: string;
+  readonly contextRevision: number;
+  /** The exact frozen Decision payload whose visual prefix will be reused later. */
+  readonly decisionInput: NoteDecisionInput;
+}
+
+export type NoteDecisionWarmupInput =
+  | NotePageBaseWarmupInput
+  | NoteDecisionVisualWarmupInput;
+
 export type ObjectHandle = `O${number}`;
 
 export interface NoteCatalogObject {
@@ -190,7 +207,7 @@ export interface NoteCatalogObject {
   }[];
 }
 
-/** Immutable, cache-friendly world captured on the first page observation. */
+/** Immutable, cache-friendly world captured from persisted state on page activation. */
 export interface PageBaseSnapshot {
   readonly documentId: string;
   readonly pageId: string;

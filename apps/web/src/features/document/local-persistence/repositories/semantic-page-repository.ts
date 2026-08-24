@@ -4,6 +4,7 @@ import type { PersistedSemanticPageRecord } from "../types";
 import {
   SEMANTIC_EXTRACTOR_VERSION,
   SEMANTIC_SCHEMA_VERSION,
+  PDF_ANALYSIS_VERSION,
   createSemanticPageId,
 } from "../types";
 
@@ -11,12 +12,14 @@ export interface SaveSemanticPageInput {
   documentId: DocumentId;
   pageId: PageId;
   pageNumber: number;
+  analysisVersion?: number;
   model: PersistedSemanticPageRecord["model"];
   extractorVersion?: string;
   semanticSchemaVersion?: number;
 }
 
 export interface SemanticPageQueryOptions {
+  analysisVersion?: number;
   extractorVersion?: string;
   semanticSchemaVersion?: number;
 }
@@ -27,9 +30,11 @@ export const isSemanticPageRecordCompatible = (
   pageId: PageId,
   extractorVersion: string,
   schemaVersion: number,
+  analysisVersion = PDF_ANALYSIS_VERSION,
 ): boolean =>
   record.documentId === documentId
   && record.pageId === pageId
+  && record.analysisVersion === analysisVersion
   && record.extractorVersion === extractorVersion
   && record.semanticSchemaVersion === schemaVersion
   && record.model.documentId === documentId
@@ -49,8 +54,16 @@ export class SemanticPageRepository {
     const key = createSemanticPageId(documentId, pageId);
     const extractorVersion = options.extractorVersion ?? SEMANTIC_EXTRACTOR_VERSION;
     const schemaVersion = options.semanticSchemaVersion ?? SEMANTIC_SCHEMA_VERSION;
+    const analysisVersion = options.analysisVersion ?? PDF_ANALYSIS_VERSION;
     const exact = await db.semanticPages.get(key);
-    if (exact && isSemanticPageRecordCompatible(exact, documentId, pageId, extractorVersion, schemaVersion)) {
+    if (exact && isSemanticPageRecordCompatible(
+      exact,
+      documentId,
+      pageId,
+      extractorVersion,
+      schemaVersion,
+      analysisVersion,
+    )) {
       return exact;
     }
     if (exact && (exact.documentId !== documentId || exact.pageId !== pageId)) return null;
@@ -60,13 +73,21 @@ export class SemanticPageRepository {
       .equals([documentId, pageId])
       .toArray();
     return candidates.find((candidate) =>
-      isSemanticPageRecordCompatible(candidate, documentId, pageId, extractorVersion, schemaVersion),
+      isSemanticPageRecordCompatible(
+        candidate,
+        documentId,
+        pageId,
+        extractorVersion,
+        schemaVersion,
+        analysisVersion,
+      ),
     ) ?? null;
   }
 
   public async save(input: SaveSemanticPageInput): Promise<PersistedSemanticPageRecord> {
     const extractorVersion = input.extractorVersion ?? SEMANTIC_EXTRACTOR_VERSION;
     const schemaVersion = input.semanticSchemaVersion ?? SEMANTIC_SCHEMA_VERSION;
+    const analysisVersion = input.analysisVersion ?? PDF_ANALYSIS_VERSION;
     if (
       input.model.documentId !== input.documentId
       || input.model.pageId !== input.pageId
@@ -84,6 +105,7 @@ export class SemanticPageRepository {
       documentId: input.documentId,
       pageId: input.pageId,
       pageNumber: input.pageNumber,
+      analysisVersion,
       extractorVersion,
       semanticSchemaVersion: schemaVersion,
       sourceItemCount: input.model.sourceItemCount,

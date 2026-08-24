@@ -23,14 +23,23 @@ export interface PageAgentContextInput {
   readonly createdAt: number;
 }
 
+export interface PageAgentContextActivationInput {
+  readonly documentId: string;
+  readonly pageId: string;
+  readonly contextRevision: number;
+  readonly sceneMode: "pdf" | "blank";
+  readonly objects: readonly NoteCatalogObject[];
+  readonly persistedAt: number;
+}
+
 export interface PageAgentContext {
   readonly pageBase: PageBaseSnapshot;
   readonly liveScene: LiveSceneContext;
 }
 
 /**
- * Route-local page cache. It owns stable request handles and freezes the first
- * observed catalog without introducing React state or a second world store.
+ * Route-local page cache. It owns stable request handles and freezes the
+ * restored catalog once per page activation.
  */
 export class PageAgentContextCache {
   private readonly pages = new Map<string, CachedPageContext>();
@@ -49,6 +58,27 @@ export class PageAgentContextCache {
     return handle;
   }
 
+  public activate(input: PageAgentContextActivationInput): PageBaseSnapshot {
+    const page = this.page(input.documentId, input.pageId);
+    assertUniqueHandles(input.objects);
+    const current = input.objects.map(withoutLiveFlags);
+    const base = createPageBase({
+      documentId: input.documentId,
+      pageId: input.pageId,
+      contextRevision: normalizeRevision(input.contextRevision),
+      sceneMode: input.sceneMode,
+      objects: current,
+      createdAt: normalizeTimestamp(input.persistedAt),
+    });
+    page.base = base;
+    page.baseFingerprints = new Map(
+      base.objects.map((object) => [object.handle, fingerprint(object)]),
+    );
+    page.observedHandles.clear();
+    base.objects.forEach((object) => page.observedHandles.add(object.handle));
+    return base;
+  }
+
   public build(input: PageAgentContextInput): PageAgentContext {
     const page = this.page(input.documentId, input.pageId);
     assertUniqueHandles(input.objects);
@@ -56,27 +86,21 @@ export class PageAgentContextCache {
     const currentByHandle = new Map(current.map((object) => [object.handle, object]));
 
     if (page.base === undefined || page.baseFingerprints === undefined) {
-      const pageText = current
-        .filter((object) => object.source === "pdf" && object.text !== undefined)
-        .map((object) => object.text)
-        .join("\n");
-      const base = Object.freeze({
+      this.activate({
         documentId: input.documentId,
         pageId: input.pageId,
-        baseRevision: `${input.pageId}@${input.sceneRevision}`,
+        contextRevision: input.sceneRevision,
         sceneMode: input.sceneMode,
-        objects: Object.freeze(current),
-        ...(pageText.length === 0 ? {} : { pageText }),
-        createdAt: input.createdAt,
-      }) satisfies PageBaseSnapshot;
-      page.base = base;
-      page.baseFingerprints = new Map(
-        base.objects.map((object) => [object.handle, fingerprint(object)]),
-      );
+        objects: current,
+        persistedAt: input.createdAt,
+      });
     }
 
     const base = page.base;
     const baseFingerprints = page.baseFingerprints;
+    if (base === undefined || baseFingerprints === undefined) {
+      throw new Error("Page agent context activation failed.");
+    }
     const createdObjects = current.filter((object) => !baseFingerprints.has(object.handle));
     const updatedObjects = current.filter((object) => {
       const baseFingerprint = baseFingerprints.get(object.handle);
@@ -123,6 +147,29 @@ export class PageAgentContextCache {
   }
 }
 
+function createPageBase(input: {
+  readonly documentId: string;
+  readonly pageId: string;
+  readonly contextRevision: number;
+  readonly sceneMode: "pdf" | "blank";
+  readonly objects: readonly NoteCatalogObject[];
+  readonly createdAt: number;
+}): PageBaseSnapshot {
+  const pageText = input.objects
+    .filter((object) => object.source === "pdf" && object.text !== undefined)
+    .map((object) => object.text)
+    .join("\n");
+  return Object.freeze({
+    documentId: input.documentId,
+    pageId: input.pageId,
+    baseRevision: `${input.pageId}@${input.contextRevision}`,
+    sceneMode: input.sceneMode,
+    objects: Object.freeze(input.objects),
+    ...(pageText.length === 0 ? {} : { pageText }),
+    createdAt: input.createdAt,
+  });
+}
+
 function withoutLiveFlags(object: NoteCatalogObject): NoteCatalogObject {
   return Object.freeze({
     ...object,
@@ -151,4 +198,12 @@ function assertUniqueHandles(objects: readonly NoteCatalogObject[]): void {
   if (new Set(objects.map((object) => object.handle)).size !== objects.length) {
     throw new Error("Page agent context requires unique object handles.");
   }
+}
+
+function normalizeRevision(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function normalizeTimestamp(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }

@@ -45,6 +45,54 @@ export interface EditorVoiceContextInput {
   recentSemanticCandidate?: SemanticCandidate;
 }
 
+export interface EditorPageBaseActivationInput {
+  readonly documentId: string;
+  readonly mode: SceneMode;
+  readonly pageId: string;
+  readonly pageIndex: number;
+  readonly pageSize: Size;
+  readonly contextRevision: number;
+  readonly persistedAt: number;
+  readonly pageSnapshot: PageSceneSnapshot;
+  readonly tldrawObjects: readonly TldrawObjectProjection[];
+  readonly semanticModel?: PageSemanticModel;
+}
+
+export interface EditorPageBaseActivation {
+  readonly documentId: string;
+  readonly pageId: string;
+  readonly contextRevision: number;
+  readonly createdAt: number;
+  readonly scene: SceneSnapshot;
+}
+
+/** Builds the immutable page-activation scene from restored editor state. */
+export function buildEditorPageBaseActivation(
+  input: EditorPageBaseActivationInput,
+): EditorPageBaseActivation {
+  const contextRevision = normalizeContextRevision(input.contextRevision);
+  const { scene } = buildEditorVoiceContextRead({
+    documentId: input.documentId,
+    mode: input.mode,
+    pageId: input.pageId,
+    pageIndex: input.pageIndex,
+    pageSize: input.pageSize,
+    sceneRevision: contextRevision,
+    pageSnapshot: input.pageSnapshot,
+    tldrawObjects: input.tldrawObjects,
+    ...(input.semanticModel === undefined
+      ? {}
+      : { semanticModel: input.semanticModel }),
+  });
+  return Object.freeze({
+    documentId: input.documentId,
+    pageId: input.pageId,
+    contextRevision,
+    createdAt: Math.max(0, Math.floor(input.persistedAt)),
+    scene,
+  });
+}
+
 export function buildEditorVoiceContextRead(
   input: EditorVoiceContextInput,
 ): VoiceTurnContextRead {
@@ -579,6 +627,10 @@ function readBoolean(
 
 function positiveInteger(value: number): number {
   return Math.min(20, Math.max(1, Math.floor(value)));
+}
+
+function normalizeContextRevision(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
 function sanitizeId(value: string): string {

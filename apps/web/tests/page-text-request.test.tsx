@@ -8,6 +8,7 @@ import {
 import type { PageTextContent } from "../src/features/document/model/document-types";
 import {
   createSemanticPageId,
+  PDF_ANALYSIS_VERSION,
   SEMANTIC_EXTRACTOR_VERSION,
   SEMANTIC_SCHEMA_VERSION,
   type PersistedSemanticPageRecord,
@@ -53,6 +54,7 @@ describe("page-scoped Text Item requests", () => {
     const record = {
       documentId: "doc-a",
       pageId: "doc-a-page-2",
+      analysisVersion: PDF_ANALYSIS_VERSION,
       extractorVersion: SEMANTIC_EXTRACTOR_VERSION,
       semanticSchemaVersion: SEMANTIC_SCHEMA_VERSION,
       model: {

@@ -9,8 +9,12 @@ import {
   parseNoteDecision,
   type NoteDecision,
   type NoteDecisionInput,
+  type NoteDecisionWarmupInput,
 } from "../domain";
-import { buildNoteDecisionModelRequest } from "./note-decision-prompt";
+import {
+  buildNoteDecisionModelRequest,
+  buildNoteDecisionWarmupModelRequest,
+} from "./note-decision-prompt";
 import { NOTE_DECISION_SCHEMA_VERSION } from "./note-decision-json-schema";
 import type {
   NoteDecisionProvider,
@@ -20,6 +24,26 @@ import type {
 export class LlmNoteDecisionProvider
 implements NoteDecisionProvider {
   public constructor(private readonly transport: DirectTextModelTransport) {}
+
+  public async warmup(
+    input: NoteDecisionWarmupInput,
+    options: NoteDecisionProviderOptions = {},
+  ): Promise<void> {
+    throwIfAborted(options.signal);
+    let telemetry:
+      | import("../../providers/direct-text-model-transport").DirectTextModelTelemetry
+      | undefined;
+    await this.transport.generate(buildNoteDecisionWarmupModelRequest(input), {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      onTelemetry: (value) => {
+        telemetry = value;
+      },
+    });
+    throwIfAborted(options.signal);
+    const reported = providerTelemetry(telemetry, 0);
+    options.onTelemetry?.(reported);
+    tracePromptCache(input, true, reported);
+  }
 
   public async decide(
     input: NoteDecisionInput,
@@ -66,20 +90,12 @@ implements NoteDecisionProvider {
       failureStage = "INITIAL_PARSE";
       const parseStartedAt = monotonicNow();
       const decision = parseNoteDecision(parseDirectModelJsonObject(raw));
-      options.onTelemetry?.({
-        openaiTtfbMs: transportTelemetry?.openaiTtfbMs ?? 0,
-        openaiBodyReadMs: transportTelemetry?.openaiBodyReadMs ?? 0,
-        decisionJsonParseMs: Math.max(0, monotonicNow() - parseStartedAt),
-        ...(transportTelemetry?.inputTokens === undefined
-          ? {}
-          : { inputTokens: transportTelemetry.inputTokens }),
-        ...(transportTelemetry?.cachedInputTokens === undefined
-          ? {}
-          : { cachedInputTokens: transportTelemetry.cachedInputTokens }),
-        ...(transportTelemetry?.outputTokens === undefined
-          ? {}
-          : { outputTokens: transportTelemetry.outputTokens }),
-      });
+      const reported = providerTelemetry(
+        transportTelemetry,
+        Math.max(0, monotonicNow() - parseStartedAt),
+      );
+      options.onTelemetry?.(reported);
+      tracePromptCache(input, false, reported);
       assertToolAuthority(decision, input);
       const initialRangeTrace = inspectTextRangeDecision(decision, input);
       traceNoteDecision("initialDecision", initialRangeTrace?.decision ?? {});
@@ -105,6 +121,54 @@ implements NoteDecisionProvider {
     }
   }
 
+}
+
+function providerTelemetry(
+  telemetry: import("../../providers/direct-text-model-transport").DirectTextModelTelemetry
+    | undefined,
+  decisionJsonParseMs: number,
+): Parameters<NonNullable<NoteDecisionProviderOptions["onTelemetry"]>>[0] {
+  return {
+    openaiTtfbMs: telemetry?.openaiTtfbMs ?? 0,
+    openaiBodyReadMs: telemetry?.openaiBodyReadMs ?? 0,
+    decisionJsonParseMs,
+    ...(telemetry?.inputTokens === undefined
+      ? {} : { inputTokens: telemetry.inputTokens }),
+    ...(telemetry?.cachedInputTokens === undefined
+      ? {} : { cachedInputTokens: telemetry.cachedInputTokens }),
+    ...(telemetry?.cacheWriteInputTokens === undefined
+      ? {} : { cacheWriteInputTokens: telemetry.cacheWriteInputTokens }),
+    ...(telemetry?.outputTokens === undefined
+      ? {} : { outputTokens: telemetry.outputTokens }),
+  };
+}
+
+function tracePromptCache(
+  input: NoteDecisionInput | NoteDecisionWarmupInput,
+  warmup: boolean,
+  telemetry: Parameters<NonNullable<NoteDecisionProviderOptions["onTelemetry"]>>[0],
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  const decisionInput = "decisionInput" in input ? input.decisionInput : input;
+  const pageBase = decisionInput.pageBase;
+  const contextRevision = "contextRevision" in input
+    ? input.contextRevision
+    : contextRevisionFrom(pageBase.baseRevision);
+  console.info("[NOTE_PROMPT_CACHE_TRACE]", JSON.stringify({
+    sessionId: pageBase.documentId,
+    pageId: pageBase.pageId,
+    contextRevision,
+    warmup,
+    warmupLevel: "decisionInput" in input ? "visual" : "page",
+    cachedInputTokens: telemetry.cachedInputTokens ?? 0,
+    cacheWriteInputTokens: telemetry.cacheWriteInputTokens ?? 0,
+  }));
+}
+
+function contextRevisionFrom(baseRevision: string): number {
+  const separator = baseRevision.lastIndexOf("@");
+  const revision = Number(baseRevision.slice(separator + 1));
+  return Number.isInteger(revision) && revision >= 0 ? revision : 0;
 }
 
 function monotonicNow(): number {

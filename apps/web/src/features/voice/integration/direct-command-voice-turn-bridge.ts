@@ -1,4 +1,5 @@
 import type {
+  ActiveVoiceTurnSnapshot,
   CompletedVoiceTurn,
   DirectCommandRouteResult,
   VoiceTurnRecord,
@@ -10,6 +11,10 @@ export interface CompletedVoiceTurnSource {
 }
 
 export interface CompletedVoiceTurnRoute {
+  onSpeechStart?(
+    turn: ActiveVoiceTurnSnapshot,
+    options?: { signal?: AbortSignal },
+  ): void | Promise<void>;
   execute(
     turn: CompletedVoiceTurn,
     options?: { signal?: AbortSignal },
@@ -26,6 +31,8 @@ export class DirectCommandVoiceTurnBridge {
   private readonly unsubscribe: () => void;
   private readonly deliveredTurnIds = new Set<string>();
   private readonly deliveredTurnOrder: string[] = [];
+  private readonly preparedTurnIds = new Set<string>();
+  private readonly preparedTurnOrder: string[] = [];
   private disposed = false;
 
   public constructor(private readonly options: DirectCommandVoiceTurnBridgeOptions) {
@@ -41,9 +48,27 @@ export class DirectCommandVoiceTurnBridge {
     this.controller.abort();
     this.deliveredTurnIds.clear();
     this.deliveredTurnOrder.length = 0;
+    this.preparedTurnIds.clear();
+    this.preparedTurnOrder.length = 0;
   }
 
   private handleState(state: VoiceTurnControllerState): void {
+    if (
+      !this.disposed
+      && state.status === "capturing"
+      && !this.preparedTurnIds.has(state.turn.id)
+    ) {
+      this.remember(state.turn.id, this.preparedTurnIds, this.preparedTurnOrder);
+      try {
+        void Promise.resolve(this.options.route.onSpeechStart?.(state.turn, {
+          signal: this.controller.signal,
+        })).catch(() => {
+          // Speech-start optimization failures never interrupt recognition.
+        });
+      } catch {
+        // Speech-start optimization failures never interrupt recognition.
+      }
+    }
     if (
       this.disposed
       || state.status !== "completed"
@@ -52,7 +77,7 @@ export class DirectCommandVoiceTurnBridge {
     ) {
       return;
     }
-    this.remember(state.result.id);
+    this.remember(state.result.id, this.deliveredTurnIds, this.deliveredTurnOrder);
     void this.options.route.execute(state.result, {
       signal: this.controller.signal,
     }).catch(() => {
@@ -60,13 +85,17 @@ export class DirectCommandVoiceTurnBridge {
     });
   }
 
-  private remember(turnId: string): void {
-    this.deliveredTurnIds.add(turnId);
-    this.deliveredTurnOrder.push(turnId);
+  private remember(
+    turnId: string,
+    ids: Set<string>,
+    order: string[],
+  ): void {
+    ids.add(turnId);
+    order.push(turnId);
     const maximumDeliveredTurns = 128;
-    while (this.deliveredTurnOrder.length > maximumDeliveredTurns) {
-      const expired = this.deliveredTurnOrder.shift();
-      if (expired !== undefined) this.deliveredTurnIds.delete(expired);
+    while (order.length > maximumDeliveredTurns) {
+      const expired = order.shift();
+      if (expired !== undefined) ids.delete(expired);
     }
   }
 }

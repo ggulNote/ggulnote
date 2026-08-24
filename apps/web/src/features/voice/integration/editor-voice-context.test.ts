@@ -1,6 +1,7 @@
 import type { PageSceneSnapshot } from "@ggulnote/editor-core";
 import { describe, expect, it } from "vitest";
 import {
+  buildEditorPageBaseActivation,
   buildEditorVoiceContextRead,
   editorAnnotationSceneId,
 } from "./editor-voice-context";
@@ -30,6 +31,40 @@ const pageSnapshot: PageSceneSnapshot = {
 };
 
 describe("editor voice context adapter", () => {
+  it("builds PAGE_BASE activation from the captured persisted tldraw state", () => {
+    const activation = buildEditorPageBaseActivation({
+      documentId: "doc-1",
+      mode: "blank",
+      pageId: "page-1",
+      pageIndex: 0,
+      pageSize: { width: 1_000, height: 2_000 },
+      contextRevision: 6,
+      persistedAt: 123,
+      pageSnapshot,
+      tldrawObjects: [{
+        objectId: "shape:persisted-note",
+        kind: "text",
+        bounds: { x: 100, y: 400, width: 300, height: 200 },
+        normalizedBounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+        text: "persisted baseline",
+        selected: false,
+        focused: false,
+      }],
+    });
+
+    expect(activation).toMatchObject({
+      documentId: "doc-1",
+      pageId: "page-1",
+      contextRevision: 6,
+      createdAt: 123,
+    });
+    expect(activation.scene.sceneRevision).toBe(6);
+    expect(activation.scene.objects[0]).toMatchObject({
+      sourceObjectId: "shape:persisted-note",
+      text: "persisted baseline",
+    });
+  });
+
   it("builds a SceneSnapshot read model without copying editor state", () => {
     const input = {
       documentId: "doc-1",

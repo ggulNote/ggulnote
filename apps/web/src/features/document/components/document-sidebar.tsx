@@ -1,15 +1,38 @@
-﻿type DocumentSidebarProps = {
+import type { NoteSession } from "../local-persistence";
+import { RecentSessions } from "./recent-sessions";
+
+type DocumentSidebarProps = {
   totalPages: number;
   currentPage: number;
   onMove: (page: number) => void;
   disabled: boolean;
+  sessions: readonly NoteSession[];
+  activeSessionId: string | null;
+  sessionSwitching: boolean;
+  onOpenSession: (sessionId: string) => void;
 };
 
-export function DocumentSidebar({ totalPages, currentPage, onMove, disabled }: DocumentSidebarProps): React.ReactElement {
+export function DocumentSidebar({
+  totalPages,
+  currentPage,
+  onMove,
+  disabled,
+  sessions,
+  activeSessionId,
+  sessionSwitching,
+  onOpenSession,
+}: DocumentSidebarProps): React.ReactElement {
   const pages = Array.from({ length: Math.max(0, totalPages) }, (_, index) => index + 1);
 
   return (
-    <aside className="rounded-lg border border-slate-200 bg-white p-4" aria-label="문서 페이지 목록">
+    <div className="space-y-4">
+      <RecentSessions
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        disabled={sessionSwitching}
+        onOpen={onOpenSession}
+      />
+      <aside className="rounded-lg border border-slate-200 bg-white p-4" aria-label="문서 페이지 목록">
       <h2 className="text-sm font-semibold text-slate-700">페이지 목록</h2>
       <div className="mt-3 max-h-72 overflow-y-auto">
         {pages.length === 0 ? (
@@ -36,6 +59,7 @@ export function DocumentSidebar({ totalPages, currentPage, onMove, disabled }: D
           </ul>
         )}
       </div>
-    </aside>
+      </aside>
+    </div>
   );
 }

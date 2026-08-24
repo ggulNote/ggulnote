@@ -9,11 +9,15 @@ export const GGULNOTE_DATABASE_VERSION = 1;
 
 export const ANNOTATION_SCHEMA_VERSION = 1;
 export const TLDRAW_CANVAS_STORE_VERSION = 1;
-export const PERSISTENCE_SCHEMA_VERSION = 1;
+export const PERSISTENCE_SCHEMA_VERSION = 2;
 export const SEMANTIC_SCHEMA_VERSION = 3;
 export const SEMANTIC_EXTRACTOR_VERSION = "8";
 export const SEMANTIC_DATABASE_VERSION = 2;
 export const EMBEDDING_DATABASE_VERSION = 3;
+export const SESSION_DATABASE_VERSION = 4;
+
+/** Bump only when persisted PDF semantic/layout output must be rebuilt. */
+export const PDF_ANALYSIS_VERSION = 1;
 
 export type PersistedDocumentKind = "pdf" | "blank";
 export type PersistedZoomMode = "custom" | "fit-width";
@@ -22,10 +26,13 @@ export type OperationHistoryAction = "execute" | "undo" | "redo";
 export interface PersistedDocumentRecord {
   id: DocumentId;
   kind: PersistedDocumentKind;
+  title: string;
+  /** Compatibility field used by the current editor descriptor. */
   name: string;
   pageCount: number;
 
   currentPage: number;
+  lastActivePageId: PageId;
   zoom: number;
   zoomMode: PersistedZoomMode;
 
@@ -53,6 +60,8 @@ export interface PersistedPageSnapshotRecord {
   pageId: PageId;
   pageNumber: number;
   revision: number;
+  /** LLM page baseline revision. Legacy records fall back to revision. */
+  contextRevision?: number;
   annotations: PageSceneSnapshot["annotations"];
   createdAt: number;
   updatedAt: number;
@@ -60,6 +69,13 @@ export interface PersistedPageSnapshotRecord {
   /** Versioned TLStore snapshot. Added without creating a second database. */
   tldrawCanvasStoreVersion?: number;
   tldrawSnapshot?: unknown;
+}
+
+export function getPersistedPageContextRevision(
+  record: Pick<PersistedPageSnapshotRecord, "contextRevision" | "revision"> | null,
+): number {
+  const value = record?.contextRevision ?? record?.revision ?? 0;
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
 export interface PersistedOperationRecord {
@@ -78,6 +94,7 @@ export interface PersistedSemanticPageRecord {
   documentId: DocumentId;
   pageId: PageId;
   pageNumber: number;
+  analysisVersion: number;
   extractorVersion: string;
   semanticSchemaVersion: number;
   sourceItemCount: number;
@@ -120,6 +137,29 @@ export interface CreateDocumentInput {
   zoom?: number;
   zoomMode?: PersistedZoomMode;
   nextOperationSequence?: number;
+}
+
+export interface NoteSession {
+  id: string;
+  kind: PersistedDocumentKind;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  lastOpenedAt: number;
+  lastActivePageId: string;
+  pageCount: number;
+  currentPage: number;
+  zoom: number;
+  zoomMode: PersistedZoomMode;
+  source:
+    | {
+        kind: 'pdf';
+        originalFileName: string;
+        blobKey: string;
+      }
+    | {
+        kind: 'blank';
+      };
 }
 
 export const createSemanticPageId = (documentId: DocumentId, pageId: PageId): string => `${documentId}:${pageId}:semantic`;

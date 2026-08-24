@@ -51,6 +51,11 @@ export interface NoteRuntimeContext extends NoteToolContext {
   readonly transaction?: NoteTransactionPort;
 }
 
+export type NoteToolAvailabilityContext = Pick<
+  NoteToolContext,
+  "mode" | "preparePlacement"
+>;
+
 export interface NoteTransactionStep {
   readonly stepId: string;
   readonly toolId: NoteToolId;
@@ -103,7 +108,7 @@ export interface NoteTool<TInput = unknown, TOutput = unknown> {
   readonly inputSchema: NoteSchema<TInput>;
   readonly outputSchema: NoteSchema<TOutput>;
   readonly decisionArgsSchema?: Readonly<Record<string, import("../domain").JsonValue>>;
-  isAvailable(context: NoteToolContext): boolean;
+  isAvailable(context: NoteToolAvailabilityContext): boolean;
   prepare(
     input: TInput,
     context: NoteToolContext,
@@ -124,11 +129,13 @@ export class NoteToolRegistry {
     return this.tools.get(toolId);
   }
 
-  public listAvailable(context: NoteToolContext): readonly NoteTool[] {
+  public listAvailable(context: NoteToolAvailabilityContext): readonly NoteTool[] {
     return Object.freeze([...this.tools.values()].filter((tool) => tool.isAvailable(context)));
   }
 
-  public compactSchemas(context: NoteToolContext): readonly CompactToolSchema[] {
+  public compactSchemas(
+    context: NoteToolAvailabilityContext,
+  ): readonly CompactToolSchema[] {
     return Object.freeze(this.listAvailable(context).map((tool) => Object.freeze({
       id: tool.id,
       kind: tool.kind,

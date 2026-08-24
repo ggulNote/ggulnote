@@ -102,6 +102,66 @@ describe("OpenAiResponsesDirectTextTransport", () => {
     expect(body).not.toHaveProperty("tools");
   });
 
+  it("forwards explicit cache controls and cache read/write usage", async () => {
+    const fetchMock = vi.fn(async (
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => Response.json({
+      status: "completed",
+      usage: {
+        input_tokens: 2_600,
+        input_tokens_details: {
+          cached_tokens: 2_000,
+          cache_write_tokens: 400,
+        },
+        output_tokens: 20,
+      },
+      output: [{
+        type: "message",
+        content: [{ type: "output_text", text: '{"status":"NONE"}' }],
+      }],
+    }));
+    const transport = new OpenAiResponsesDirectTextTransport({
+      apiKey: "server-secret",
+      model: "gpt-5.6-terra",
+      timeoutMs: 1_000,
+      fetch: fetchMock,
+    });
+    const onTelemetry = vi.fn();
+    await transport.generate({
+      ...REQUEST,
+      promptCacheKey: "ggulnote:session-1",
+      promptCacheOptions: { mode: "explicit" },
+      input: [{
+        role: "developer",
+        content: [{
+          type: "input_text",
+          text: "stable",
+          prompt_cache_breakpoint: { mode: "explicit" },
+        }],
+      }],
+    }, { onTelemetry });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
+      prompt_cache_key: "ggulnote:session-1",
+      prompt_cache_options: { mode: "explicit" },
+      input: [
+        { role: "system" },
+        {
+          role: "developer",
+          content: [{
+            prompt_cache_breakpoint: { mode: "explicit" },
+          }],
+        },
+      ],
+    });
+    expect(onTelemetry).toHaveBeenCalledWith(expect.objectContaining({
+      cachedInputTokens: 2_000,
+      cacheWriteInputTokens: 400,
+    }));
+  });
+
   it("forwards text and a low-detail canvas image in one Responses request", async () => {
     const fetchMock = vi.fn(async (
       _input: RequestInfo | URL,
